@@ -1,0 +1,66 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: ree-auditor-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ree}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ree}
+      POSTGRES_DB: ${POSTGRES_DB:-ree_auditor}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ree} -d ${POSTGRES_DB:-ree_auditor}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: ree-auditor-api
+    restart: unless-stopped
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ree}:${POSTGRES_PASSWORD:-ree}@postgres:5432/${POSTGRES_DB:-ree_auditor}?schema=public
+      PORT: 3000
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      OMIE_SIOM2_ENDPOINT: ${OMIE_SIOM2_ENDPOINT:-https://www.mercado.omie.es/jsiom/webServices/SIOMServiceRouter}
+      OMIE_SIOM2_P12_PATH: /app/51627TC_STROM.p12
+      OMIE_SIOM2_P12_BASE64: ${OMIE_SIOM2_P12_BASE64:-}
+      OMIE_SIOM2_P12_PASSPHRASE: ${OMIE_SIOM2_P12_PASSPHRASE:-}
+      OMIE_SIOM2_REJECT_UNAUTHORIZED: ${OMIE_SIOM2_REJECT_UNAUTHORIZED:-true}
+      OMIE_SIOM2_DNS_SERVERS: ${OMIE_SIOM2_DNS_SERVERS:-1.1.1.1,8.8.8.8}
+      OMIE_SIOM2_TIMEOUT_MS: ${OMIE_SIOM2_TIMEOUT_MS:-30000}
+      OMIE_CATALOGO_PATH: ${OMIE_CATALOGO_PATH:-/app/data/omie-catalogo.json}
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./51627TC_STROM.p12:/app/51627TC_STROM.p12:ro
+      - ./data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: sh -c "npx prisma db push && npm run start:dev"
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: ree-auditor-web
+    restart: unless-stopped
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
+    ports:
+      - "5173:5173"
+    depends_on:
+      - api
+    command: npm run dev -- --host 0.0.0.0
+
+volumes:
+  postgres_data:

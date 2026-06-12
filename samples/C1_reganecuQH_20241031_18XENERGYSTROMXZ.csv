@@ -1,0 +1,2 @@
+fecha;hora;codigo_upr;energia_mwh;reservado1;precio_eur_mwh;reservado2;importe_eur;reservado3;codigo_agente_vendedor;segmento;facturacion;eic_upr;cuenta;signo_importe;signo_magnitud;eic_titular;codigo_magnitud;codigo_precio;codigo_apunte;tipo_oferta;tipo_upr;energia_contrato_bilateral_mwh;campo_hora_25
+20241031;1;UP_TEST;2,5;;50;;125;;18XBRPTEST;S1;A1;18XUPTEST;CTA;+;+;18XTITULAR;MAG;P_TEST;A_TEST;O;GEN;0;QH1

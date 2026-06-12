@@ -1,0 +1,28 @@
+{
+  "name": "ree-auditor",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Auditor de ficheros REGANECU y REGANECUQH con NestJS, React, Prisma y PostgreSQL.",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run start:dev --workspace apps/api",
+    "dev:web": "npm run dev --workspace apps/web",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces",
+    "format": "npm run format --workspaces",
+    "db:generate": "npm run prisma:generate --workspace apps/api",
+    "db:push": "npm run prisma:push --workspace apps/api",
+    "docker:up": "docker compose up --build",
+    "docker:down": "docker compose down"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

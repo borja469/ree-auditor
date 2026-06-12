@@ -1,0 +1,572 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ReeFileType {
+  REGANECU
+  REGANECUQH
+}
+
+enum ReeSettlementVersion {
+  A1
+  C1
+  C2
+  C3
+  C4
+  C5
+}
+
+enum ReeImportStatus {
+  IMPORTED
+  FAILED
+  DUPLICATED
+}
+
+enum MedperFileType {
+  MEDPERUP
+  MEDPERQH
+}
+
+enum ReeKFactorFileType {
+  KESTIMQH
+  KREALQH
+}
+
+enum OmieTipoDocumento {
+  PVD
+  PHF
+}
+
+enum OmieDownloadEstado {
+  PENDIENTE
+  DESCARGANDO
+  DESCARGADO
+  PROCESADO
+  ERROR
+}
+
+enum OmieTipoPrecio {
+  MD
+  MI
+  XBID
+}
+
+model ReeFile {
+  id                 String               @id @default(uuid()) @db.Uuid
+  fileName           String               @map("file_name")
+  containerFileName  String?              @map("container_file_name")
+  fileHash           String               @map("file_hash")
+  tipoArchivo        ReeFileType          @map("tipo_archivo")
+  version            ReeSettlementVersion
+  fechaLiquidacion   DateTime             @map("fecha_liquidacion") @db.Date
+  sujetoEic          String               @map("sujeto_eic")
+  encoding           String
+  delimiter          String
+  status             ReeImportStatus      @default(IMPORTED)
+  errorMessage       String?              @map("error_message") @db.Text
+  originalContent    Bytes?               @map("original_content")
+  importedAt         DateTime             @default(now()) @map("imported_at")
+  totalRecords       Int                  @default(0) @map("total_records")
+  validRecords       Int                  @default(0) @map("valid_records")
+  invalidRecords     Int                  @default(0) @map("invalid_records")
+  duplicatedRecords  Int                  @default(0) @map("duplicated_records")
+  reganecuRecords    ReganecuRecord[]
+  reganecuQhRecords  ReganecuQhRecord[]
+
+  @@unique([tipoArchivo, fechaLiquidacion, version])
+  @@index([fileHash])
+  @@index([tipoArchivo])
+  @@index([version])
+  @@index([fechaLiquidacion])
+  @@index([sujetoEic])
+  @@index([importedAt])
+  @@map("ree_files")
+}
+
+model MedperFile {
+  id                 String              @id @default(uuid()) @db.Uuid
+  fileName           String              @map("file_name")
+  containerFileName  String?             @map("container_file_name")
+  fileHash           String              @map("file_hash")
+  tipoArchivo        MedperFileType      @map("tipo_archivo")
+  version            String
+  fechaInicio        DateTime            @map("fecha_inicio") @db.Date
+  fechaFin           DateTime            @map("fecha_fin") @db.Date
+  sujetoEic          String              @map("sujeto_eic")
+  encoding           String
+  delimiter          String
+  status             ReeImportStatus     @default(IMPORTED)
+  errorMessage       String?             @map("error_message") @db.Text
+  originalContent    Bytes?              @map("original_content")
+  importedAt         DateTime            @default(now()) @map("imported_at")
+  totalRecords       Int                 @default(0) @map("total_records")
+  validRecords       Int                 @default(0) @map("valid_records")
+  invalidRecords     Int                 @default(0) @map("invalid_records")
+  duplicatedRecords  Int                 @default(0) @map("duplicated_records")
+  medperupRecords    MedperupRecord[]
+  medperqhRecords    MedperqhRecord[]
+
+  @@unique([tipoArchivo, fechaInicio, version])
+  @@index([fileHash])
+  @@index([tipoArchivo])
+  @@index([version])
+  @@index([fechaInicio])
+  @@index([fechaFin])
+  @@index([sujetoEic])
+  @@index([importedAt])
+  @@map("medper_files")
+}
+
+model ReganecuRecord {
+  id                            String               @id @default(uuid()) @db.Uuid
+  fileId                        String               @map("file_id") @db.Uuid
+  file                          ReeFile              @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  tipoArchivo                   ReeFileType          @map("tipo_archivo")
+  version                       ReeSettlementVersion
+  fechaLiquidacion              DateTime             @map("fecha_liquidacion") @db.Date
+  sujetoEic                     String               @map("sujeto_eic")
+  brp                           String?
+  fecha                         DateTime?            @db.Date
+  hora                          Int?
+  codigoUpr                     String?              @map("codigo_upr")
+  energiaMwh                    Decimal?             @map("energia_mwh") @db.Decimal(20, 6)
+  precioEurMwh                  Decimal?             @map("precio_eur_mwh") @db.Decimal(20, 8)
+  importeEur                    Decimal?             @map("importe_eur") @db.Decimal(20, 6)
+  codigoAgenteVendedor          String?              @map("codigo_agente_vendedor")
+  segmento                      String?
+  facturacion                   String?
+  eicUpr                        String?              @map("eic_upr")
+  cuenta                        String?
+  signoImporte                  String?              @map("signo_importe")
+  signoMagnitud                 String?              @map("signo_magnitud")
+  eicTitular                    String?              @map("eic_titular")
+  codigoMagnitud                String?              @map("codigo_magnitud")
+  codigoPrecio                  String?              @map("codigo_precio")
+  codigoApunte                  String?              @map("codigo_apunte")
+  tipoOferta                    String?              @map("tipo_oferta")
+  tipoUpr                       String?              @map("tipo_upr")
+  energiaContratoBilateralMwh   Decimal?             @map("energia_contrato_bilateral_mwh") @db.Decimal(20, 6)
+  sesion                        String?
+  importeCalculadoEur           Decimal?             @map("importe_calculado_eur") @db.Decimal(20, 6)
+  importeDiferenciaEur          Decimal?             @map("importe_diferencia_eur") @db.Decimal(20, 6)
+  importeConsistente            Boolean              @default(true) @map("importe_consistente")
+  precioAnomalo                 Boolean              @default(false) @map("precio_anomalo")
+  validationErrors              Json?                @map("validation_errors")
+  rawPayloadJson                Json                 @map("raw_payload_json")
+  rawLine                       String               @map("raw_line") @db.Text
+  sourceLineNumber              Int                  @map("source_line_number")
+  recordHash                    String               @map("record_hash")
+  createdAt                     DateTime             @default(now()) @map("created_at")
+
+  @@unique([recordHash])
+  @@index([fecha])
+  @@index([fechaLiquidacion])
+  @@index([version])
+  @@index([segmento])
+  @@index([codigoApunte])
+  @@index([codigoPrecio])
+  @@index([sujetoEic])
+  @@index([brp])
+  @@index([eicUpr])
+  @@index([codigoUpr])
+  @@map("reganecu_records")
+}
+
+model ReganecuQhRecord {
+  id                            String               @id @default(uuid()) @db.Uuid
+  fileId                        String               @map("file_id") @db.Uuid
+  file                          ReeFile              @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  tipoArchivo                   ReeFileType          @map("tipo_archivo")
+  version                       ReeSettlementVersion
+  fechaLiquidacion              DateTime             @map("fecha_liquidacion") @db.Date
+  sujetoEic                     String               @map("sujeto_eic")
+  brp                           String?
+  fecha                         DateTime?            @db.Date
+  hora                          Int?
+  codigoUpr                     String?              @map("codigo_upr")
+  energiaMwh                    Decimal?             @map("energia_mwh") @db.Decimal(20, 6)
+  precioEurMwh                  Decimal?             @map("precio_eur_mwh") @db.Decimal(20, 8)
+  importeEur                    Decimal?             @map("importe_eur") @db.Decimal(20, 6)
+  codigoAgenteVendedor          String?              @map("codigo_agente_vendedor")
+  segmento                      String?
+  facturacion                   String?
+  eicUpr                        String?              @map("eic_upr")
+  cuenta                        String?
+  signoImporte                  String?              @map("signo_importe")
+  signoMagnitud                 String?              @map("signo_magnitud")
+  eicTitular                    String?              @map("eic_titular")
+  codigoMagnitud                String?              @map("codigo_magnitud")
+  codigoPrecio                  String?              @map("codigo_precio")
+  codigoApunte                  String?              @map("codigo_apunte")
+  tipoOferta                    String?              @map("tipo_oferta")
+  tipoUpr                       String?              @map("tipo_upr")
+  energiaContratoBilateralMwh   Decimal?             @map("energia_contrato_bilateral_mwh") @db.Decimal(20, 6)
+  campoHora25                   String?              @map("campo_hora_25")
+  importeCalculadoEur           Decimal?             @map("importe_calculado_eur") @db.Decimal(20, 6)
+  importeDiferenciaEur          Decimal?             @map("importe_diferencia_eur") @db.Decimal(20, 6)
+  importeConsistente            Boolean              @default(true) @map("importe_consistente")
+  precioAnomalo                 Boolean              @default(false) @map("precio_anomalo")
+  validationErrors              Json?                @map("validation_errors")
+  rawPayloadJson                Json                 @map("raw_payload_json")
+  rawLine                       String               @map("raw_line") @db.Text
+  sourceLineNumber              Int                  @map("source_line_number")
+  recordHash                    String               @map("record_hash")
+  createdAt                     DateTime             @default(now()) @map("created_at")
+
+  @@unique([recordHash])
+  @@index([fecha])
+  @@index([fechaLiquidacion])
+  @@index([version])
+  @@index([segmento])
+  @@index([codigoApunte])
+  @@index([codigoPrecio])
+  @@index([sujetoEic])
+  @@index([brp])
+  @@index([eicUpr])
+  @@index([codigoUpr])
+  @@map("reganecu_qh_records")
+}
+
+model MedperupRecord {
+  id                   String          @id @default(uuid()) @db.Uuid
+  fileId               String          @map("file_id") @db.Uuid
+  file                 MedperFile      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  tipoArchivo          MedperFileType  @map("tipo_archivo")
+  version              String
+  fechaInicio          DateTime        @map("fecha_inicio") @db.Date
+  fechaFin             DateTime        @map("fecha_fin") @db.Date
+  sujetoEic            String          @map("sujeto_eic")
+  fecha                DateTime        @db.Date
+  timestamp            DateTime
+  hora                 Int
+  codigoUpr            String          @map("codigo_upr")
+  tipoTarifa           String?         @map("tipo_tarifa")
+  codigoNivelTension   String?         @map("codigo_nivel_tension")
+  concepto             String?
+  medidaMwh            Decimal?        @map("medida_mwh") @db.Decimal(20, 6)
+  negativeEnergy       Boolean         @default(false) @map("negative_energy")
+  validationErrors     Json?           @map("validation_errors")
+  rawPayloadJson       Json            @map("raw_payload_json")
+  rawLine              String          @map("raw_line") @db.Text
+  sourceLineNumber     Int             @map("source_line_number")
+  recordHash           String          @map("record_hash")
+  createdAt            DateTime        @default(now()) @map("created_at")
+
+  @@unique([recordHash])
+  @@index([fecha])
+  @@index([timestamp])
+  @@index([version])
+  @@index([sujetoEic])
+  @@index([codigoUpr])
+  @@index([tipoTarifa])
+  @@index([codigoNivelTension])
+  @@index([concepto])
+  @@map("medperup_records")
+}
+
+model MedperqhRecord {
+  id                   String          @id @default(uuid()) @db.Uuid
+  fileId               String          @map("file_id") @db.Uuid
+  file                 MedperFile      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  tipoArchivo          MedperFileType  @map("tipo_archivo")
+  version              String
+  fechaInicio          DateTime        @map("fecha_inicio") @db.Date
+  fechaFin             DateTime        @map("fecha_fin") @db.Date
+  sujetoEic            String          @map("sujeto_eic")
+  fecha                DateTime        @db.Date
+  timestamp            DateTime
+  hora                 Int
+  cuartoHora           Int             @map("cuarto_hora")
+  codigoUnidad         String          @map("codigo_unidad")
+  peaje                String?
+  programaEnergiaMwh   Decimal?        @map("programa_energia_mwh") @db.Decimal(20, 6)
+  perdidasMwh          Decimal?        @map("perdidas_mwh") @db.Decimal(20, 6)
+  bcMwh                Decimal?        @map("bc_mwh") @db.Decimal(20, 6)
+  pfMwh                Decimal?        @map("pf_mwh") @db.Decimal(20, 6)
+  bcPfDifferenceMwh    Decimal?        @map("bc_pf_difference_mwh") @db.Decimal(20, 6)
+  negativeEnergy       Boolean         @default(false) @map("negative_energy")
+  bcPfInconsistent     Boolean         @default(false) @map("bc_pf_inconsistent")
+  validationErrors     Json?           @map("validation_errors")
+  rawPayloadJson       Json            @map("raw_payload_json")
+  rawLine              String          @map("raw_line") @db.Text
+  sourceLineNumber     Int             @map("source_line_number")
+  recordHash           String          @map("record_hash")
+  createdAt            DateTime        @default(now()) @map("created_at")
+
+  @@unique([recordHash])
+  @@index([fecha])
+  @@index([timestamp])
+  @@index([version])
+  @@index([sujetoEic])
+  @@index([codigoUnidad])
+  @@index([peaje])
+  @@index([negativeEnergy])
+  @@index([bcPfInconsistent])
+  @@map("medperqh_records")
+}
+
+model ImportOverwriteAudit {
+  id                 String   @id @default(uuid()) @db.Uuid
+  usuario            String
+  tipoArchivo        String   @map("tipo_archivo")
+  fecha              DateTime @db.Date
+  version            String
+  replacedFileId     String   @map("replaced_file_id") @db.Uuid
+  replacedFileName   String   @map("replaced_file_name")
+  replacedImportedAt DateTime @map("replaced_imported_at")
+  newFileId          String   @map("new_file_id") @db.Uuid
+  newFileName        String   @map("new_file_name")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([tipoArchivo, fecha, version])
+  @@index([createdAt])
+  @@map("import_overwrite_audits")
+}
+
+model PerdidaBoe {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tarifa             String
+  periodo            String
+  porcentajePerdida  Decimal  @map("porcentaje_perdida") @db.Decimal(10, 6)
+  fechaInicio        DateTime @map("fecha_inicio") @db.Date
+  fechaFin           DateTime @map("fecha_fin") @db.Date
+  versionBoe         String   @map("version_boe")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@unique([tarifa, periodo, fechaInicio, fechaFin, versionBoe])
+  @@index([tarifa])
+  @@index([periodo])
+  @@index([fechaInicio, fechaFin])
+  @@map("perdidas_boe")
+}
+
+model CalendarioFestivo {
+  fecha       DateTime @db.Date
+  descripcion String
+  ambito      String
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@id([fecha, ambito])
+  @@index([ambito])
+  @@map("calendario_festivos")
+}
+
+model TarifaPeriodo {
+  id         String   @id @default(uuid()) @db.Uuid
+  tarifa     String
+  temporada  String
+  tipoDia    String   @map("tipo_dia")
+  hora       Int
+  cuartohora Int
+  periodo    String
+  mes        Int
+  sistema    String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([tarifa, mes, tipoDia, hora, cuartohora, sistema])
+  @@index([tarifa])
+  @@index([periodo])
+  @@index([mes])
+  @@index([sistema])
+  @@map("tarifas_periodos")
+}
+
+model ReeKFactor {
+  id          String             @id @default(uuid()) @db.Uuid
+  fecha       DateTime           @db.Date
+  hora        Int
+  cuartohora  Int
+  version     ReeSettlementVersion
+  tipoArchivo ReeKFactorFileType @map("tipo_archivo")
+  tarifa      String
+  periodo     String
+  valorK      Decimal            @map("valor_k") @db.Decimal(20, 10)
+  createdAt   DateTime           @default(now()) @map("created_at")
+
+  @@index([fecha])
+  @@index([version])
+  @@index([tipoArchivo])
+  @@index([tarifa])
+  @@index([periodo])
+  @@index([fecha, hora, cuartohora])
+  @@index([fecha, hora, cuartohora, tarifa, periodo])
+  @@map("ree_k_factor")
+}
+
+model ReeKFactorImport {
+  id                String              @id @default(uuid()) @db.Uuid
+  fileName          String              @map("file_name")
+  containerFileName String?             @map("container_file_name")
+  fileHash          String?             @map("file_hash")
+  tipoArchivo       ReeKFactorFileType? @map("tipo_archivo")
+  version           ReeSettlementVersion?
+  fechaInicio       DateTime?           @map("fecha_inicio") @db.Date
+  fechaFin          DateTime?           @map("fecha_fin") @db.Date
+  status            ReeImportStatus     @default(IMPORTED)
+  errorMessage      String?             @map("error_message") @db.Text
+  importedAt        DateTime            @default(now()) @map("imported_at")
+  totalRecords      Int                 @default(0) @map("total_records")
+  validRecords      Int                 @default(0) @map("valid_records")
+  invalidRecords    Int                 @default(0) @map("invalid_records")
+  duplicatedRecords Int                 @default(0) @map("duplicated_records")
+
+  @@index([version])
+  @@index([tipoArchivo])
+  @@index([fechaInicio])
+  @@index([fechaFin])
+  @@index([status])
+  @@index([importedAt])
+  @@map("ree_k_factor_imports")
+}
+
+model OmieDownload {
+  id             String              @id @default(uuid()) @db.Uuid
+  tipoDocumento  OmieTipoDocumento   @map("tipo_documento")
+  fechaPrograma  DateTime            @map("fecha_programa") @db.Date
+  sesion         String?
+  version        Int                 @default(1)
+  uOfertante     String              @default("STROC01") @map("u_ofertante")
+  fechaDescarga  DateTime            @map("fecha_descarga")
+  estado         OmieDownloadEstado  @default(PENDIENTE)
+  registros      Int                 @default(0)
+  hashContenido  String?             @map("hash_contenido")
+  nombreFichero  String?             @map("nombre_fichero")
+  mensajeError   String?             @map("mensaje_error") @db.Text
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  programas      OmiePrograma[]
+
+  @@unique([tipoDocumento, fechaPrograma, sesion, version, uOfertante])
+  @@index([fechaPrograma])
+  @@index([tipoDocumento])
+  @@index([estado])
+  @@index([fechaDescarga])
+  @@map("omie_downloads")
+}
+
+model OmiePrograma {
+  id                 String             @id @default(uuid()) @db.Uuid
+  tipoPrograma       OmieTipoDocumento  @map("tipo_programa")
+  fechaPrograma      DateTime           @map("fecha_programa") @db.Date
+  sesion             String?
+  version            Int                @default(1)
+  uOfertante         String             @map("u_ofertante")
+  periodo            Int
+  descripcionPeriodo String             @map("descripcion_periodo")
+  clave              String
+  energiaMWh         Decimal            @map("energia_mwh") @db.Decimal(20, 6)
+  fechaDescarga      DateTime           @map("fecha_descarga")
+  downloadId         String             @map("download_id") @db.Uuid
+  download           OmieDownload       @relation(fields: [downloadId], references: [id], onDelete: Cascade)
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  @@unique([tipoPrograma, fechaPrograma, sesion, version, uOfertante, periodo])
+  @@index([fechaPrograma])
+  @@index([tipoPrograma])
+  @@index([downloadId])
+  @@index([clave])
+  @@map("omie_programas")
+}
+
+model OmieTransactionDownload {
+  id                String                    @id @default(uuid()) @db.Uuid
+  codigoConsulta    String                    @default("4121") @map("codigo_consulta")
+  fechaDesde        DateTime                  @map("fecha_desde") @db.Date
+  fechaHasta        DateTime                  @map("fecha_hasta") @db.Date
+  fechaDescarga     DateTime                  @map("fecha_descarga")
+  estado            OmieDownloadEstado        @default(PENDIENTE)
+  registros         Int                       @default(0)
+  diasConsultados   Int                       @default(0) @map("dias_consultados")
+  columnas          Json?
+  resumenEstructura Json?                     @map("resumen_estructura")
+  hashContenido     String?                   @map("hash_contenido")
+  nombreFichero     String?                   @map("nombre_fichero")
+  mensajeError      String?                   @map("mensaje_error") @db.Text
+  createdAt         DateTime                  @default(now()) @map("created_at")
+  updatedAt         DateTime                  @updatedAt @map("updated_at")
+  stagingRows       OmieTransactionStaging[]
+
+  @@index([codigoConsulta])
+  @@index([fechaDesde])
+  @@index([fechaHasta])
+  @@index([estado])
+  @@index([fechaDescarga])
+  @@map("omie_transaction_downloads")
+}
+
+model OmieTransactionStaging {
+  id             String                  @id @default(uuid()) @db.Uuid
+  downloadId     String                  @map("download_id") @db.Uuid
+  download       OmieTransactionDownload @relation(fields: [downloadId], references: [id], onDelete: Cascade)
+  diaContrato    DateTime                @map("dia_contrato") @db.Date
+  rowIndex       Int                     @map("row_index")
+  rawPayloadJson Json                    @map("raw_payload_json")
+  createdAt      DateTime                @default(now()) @map("created_at")
+  updatedAt      DateTime                @updatedAt @map("updated_at")
+
+  @@unique([downloadId, rowIndex])
+  @@index([downloadId])
+  @@index([diaContrato])
+  @@map("omie_transaction_staging")
+}
+
+model OmiePriceDownload {
+  id             String              @id @default(uuid()) @db.Uuid
+  tipoPrecio     OmieTipoPrecio      @map("tipo_precio")
+  fechaPrograma  DateTime            @map("fecha_programa") @db.Date
+  sesion         String?
+  version        Int                 @default(1)
+  fechaDescarga  DateTime            @map("fecha_descarga")
+  estado         OmieDownloadEstado  @default(PENDIENTE)
+  registros      Int                 @default(0)
+  hashContenido  String?             @map("hash_contenido")
+  mensajeError   String?             @map("mensaje_error") @db.Text
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+  precios        OmiePrice[]
+
+  @@unique([tipoPrecio, fechaPrograma, sesion, version])
+  @@index([fechaPrograma])
+  @@index([tipoPrecio])
+  @@index([estado])
+  @@index([fechaDescarga])
+  @@map("omie_price_downloads")
+}
+
+model OmiePrice {
+  id             String             @id @default(uuid()) @db.Uuid
+  tipoPrecio     OmieTipoPrecio     @map("tipo_precio")
+  fechaPrograma  DateTime           @map("fecha_programa") @db.Date
+  sesion         String?
+  periodo        Int
+  clave          String
+  precioEurMWh   Decimal            @map("precio_eur_mwh") @db.Decimal(20, 6)
+  fechaDescarga  DateTime           @map("fecha_descarga")
+  downloadId     String             @map("download_id") @db.Uuid
+  download       OmiePriceDownload  @relation(fields: [downloadId], references: [id], onDelete: Cascade)
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+
+  @@unique([tipoPrecio, fechaPrograma, sesion, periodo])
+  @@index([fechaPrograma])
+  @@index([tipoPrecio])
+  @@index([downloadId])
+  @@index([clave])
+  @@map("omie_prices")
+}
+
+model OmieLiquidationInvoice {
+  fecha          DateTime @id @db.Date
+  facturaCompra Decimal? @map("factura_compra") @db.Decimal(20, 2)
+  facturaVenta  Decimal? @map("factura_venta") @db.Decimal(20, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("omie_liquidation_invoices")
+}

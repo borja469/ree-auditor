@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "emitDeclarationOnly": false,
+    "declaration": false,
+    "sourceMap": false,
+    "rootDir": ".",
+    "outDir": "./.tmp/technical-module-v2-test",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "jsx": "react-jsx"
+  },
+  "include": ["src/technical-module-v2/**/*.ts", "src/technical-module-v2/**/*.tsx", "tests/**/*.ts"]
+}
