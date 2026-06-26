@@ -95,9 +95,8 @@ export function OmieDetalleCargaModule({
   );
 
   return (
-    <>
-      <section className="content-grid omie-grid">
-        <div className="panel wide omie-control-panel">
+    <div className="omie-layout omie-layout-a omie-detail-load-layout">
+      <div className="panel wide omie-control-panel">
           <OmieDetalleCargaPanelTitle icon={<BarChart3 size={18} />} title="Detalle de Carga" subtitle="Precios · Programas · Volúmenes · Profit" />
           <div className="omie-toolbar">
             <label className="filter-field">
@@ -119,15 +118,12 @@ export function OmieDetalleCargaModule({
               Consultar
             </button>
           </div>
-        </div>
-      </section>
+      </div>
 
       {loading && !analisis && (
-        <section className="content-grid">
-          <div className="panel wide">
-            <InlineLoading label="Cargando detalle de carga OMIE" />
-          </div>
-        </section>
+        <div className="panel wide">
+          <InlineLoading label="Cargando detalle de carga OMIE" />
+        </div>
       )}
 
       {!loading && !analisis && <OmieNoDownloadedData onGoToDownloads={onGoToDownloads} />}
@@ -142,7 +138,7 @@ export function OmieDetalleCargaModule({
           title={`Detalle de Carga · ${analisis.totalFilas.toLocaleString("es-ES")} filas`}
         />
       )}
-    </>
+    </div>
   );
 }
 
@@ -546,11 +542,9 @@ function OmieDetalleCargaPanelTitle({ icon, title, subtitle }: { icon: ReactNode
 
 function OmieNoDownloadedData({ onGoToDownloads }: { onGoToDownloads: () => void }) {
   return (
-    <section className="content-grid">
-      <div className="panel wide">
-        <OmieNoDownloadedDataContent onGoToDownloads={onGoToDownloads} />
-      </div>
-    </section>
+    <div className="panel wide">
+      <OmieNoDownloadedDataContent onGoToDownloads={onGoToDownloads} />
+    </div>
   );
 }
 

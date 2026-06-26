@@ -7,6 +7,7 @@ import type { TechnicalDataTableAdapterColumn } from "../../../technical-module-
 import {
   buildOmieLiquidationValidationKpis,
   buildOmieLiquidationWeeklyGroups,
+  buildOmieEconomicCheckFromInvoices,
   copyTechnicalRows,
   exportOmieLiquidationCheck,
   formatEuroAmount,
@@ -14,7 +15,8 @@ import {
   formatOmieEnergy,
   formatOmiePrice,
   parseEuroInputValue,
-  stringifyCellValue
+  stringifyCellValue,
+  withOmieEconomicCheckFromInvoices
 } from "./OmieLiquidacionesHelpers";
 import type {
   OmieFacturaDraftMap,
@@ -74,6 +76,15 @@ export function OmieLiquidacionesModule({
     [sortDirection, weeklyGroups]
   );
   const validationKpis = useMemo(() => buildOmieLiquidationValidationKpis(weeklyGroups), [weeklyGroups]);
+  const liquidationRows = useMemo(() => weeklyGroups.flatMap((group) => group.rows), [weeklyGroups]);
+  const economicCheck = useMemo(
+    () => (comprobacion ? buildOmieEconomicCheckFromInvoices(comprobacion.cuadroEconomico, liquidationRows) : undefined),
+    [comprobacion, liquidationRows]
+  );
+  const comprobacionForExport = useMemo(
+    () => (comprobacion ? withOmieEconomicCheckFromInvoices(comprobacion, liquidationRows) : undefined),
+    [comprobacion, liquidationRows]
+  );
   const columns = useMemo<Array<TechnicalDataTableAdapterColumn<OmieLiquidationValidationRow>>>(
     () => [
       {
@@ -281,8 +292,8 @@ export function OmieLiquidacionesModule({
   }
 
   return (
-    <>
-      <section className="content-grid omie-grid">
+    <div className="omie-layout omie-layout-b">
+      <div className="omie-control-row">
         <div className="panel wide omie-control-panel">
           <OmieLiquidationPanelTitle icon={<BarChart3 size={18} />} title="Comprobación Liquidaciones OMIE" subtitle="MD · IDA1 · IDA2 · IDA3 · XBID" />
           <div className="omie-toolbar">
@@ -306,21 +317,19 @@ export function OmieLiquidacionesModule({
             </button>
           </div>
         </div>
-      </section>
+      </div>
 
       {loading && !comprobacion && (
-        <section className="content-grid">
-          <div className="panel wide">
+        <div className="panel wide">
             <InlineLoading label="Cargando comprobación de liquidaciones OMIE" />
-          </div>
-        </section>
+        </div>
       )}
 
       {!loading && !comprobacion && <OmieNoDownloadedData onGoToDownloads={onGoToDownloads} />}
 
       {comprobacion && (
         <>
-          <section className="content-grid omie-liquidation-grid">
+          <div className="omie-summary-grid omie-liquidation-grid">
             <div className="panel omie-liquidation-panel">
               <OmieLiquidationPanelTitle icon={<FileSpreadsheet size={18} />} title="Resumen mensual" />
               <div className="table-scroll">
@@ -354,7 +363,7 @@ export function OmieLiquidacionesModule({
                   liquidatedLabel="Importe liquidado"
                   differenceLabel="Diferencia"
                   formatValue={formatEuroAmount}
-                  check={comprobacion.cuadroEconomico}
+                  check={economicCheck ?? comprobacion.cuadroEconomico}
                 />
                 <OmieLiquidationCheckCard
                   title="Cuadre energético"
@@ -366,9 +375,9 @@ export function OmieLiquidacionesModule({
                 />
               </div>
             </div>
-          </section>
+          </div>
 
-          <section className="panel wide omie-liquidation-panel">
+          <section className="panel wide omie-liquidation-panel omie-detail-table-panel">
             <div className="technical-data-head">
               <OmieLiquidationPanelTitle icon={<FileSpreadsheet size={18} />} title="Detalle diario" subtitle={`${detalleDiario.length.toLocaleString("es-ES")} días`} />
               <div className="technical-toolbar" role="toolbar" aria-label="Acciones de comprobación de liquidaciones OMIE">
@@ -392,15 +401,15 @@ export function OmieLiquidacionesModule({
                     </div>
                   )}
                 </div>
-                <button className="secondary-button" disabled={loading} onClick={() => exportOmieLiquidationCheck(comprobacion, weeklyGroups, activeColumns, "csv")} type="button">
+                <button className="secondary-button" disabled={loading || !comprobacionForExport} onClick={() => comprobacionForExport && exportOmieLiquidationCheck(comprobacionForExport, weeklyGroups, activeColumns, "csv")} type="button">
                   <Download size={16} />
                   CSV
                 </button>
-                <button className="secondary-button" disabled={loading} onClick={() => exportOmieLiquidationCheck(comprobacion, weeklyGroups, activeColumns, "xls")} type="button">
+                <button className="secondary-button" disabled={loading || !comprobacionForExport} onClick={() => comprobacionForExport && exportOmieLiquidationCheck(comprobacionForExport, weeklyGroups, activeColumns, "xls")} type="button">
                   <FileDown size={16} />
                   Excel
                 </button>
-                <button className="secondary-button" disabled={loading} onClick={() => copyTechnicalRows(activeColumns, weeklyGroups.flatMap((group) => group.rows), undefined)} type="button">
+                <button className="secondary-button" disabled={loading} onClick={() => copyTechnicalRows(activeColumns, liquidationRows, undefined)} type="button">
                   <Clipboard size={16} />
                   Copiar
                 </button>
@@ -490,7 +499,7 @@ export function OmieLiquidacionesModule({
           </section>
         </>
       )}
-    </>
+    </div>
   );
 }
 
@@ -508,11 +517,9 @@ function OmieLiquidationPanelTitle({ icon, title, subtitle }: { icon: ReactNode;
 
 function OmieNoDownloadedData({ onGoToDownloads }: { onGoToDownloads: () => void }) {
   return (
-    <section className="content-grid">
-      <div className="panel wide">
-        <OmieNoDownloadedDataContent onGoToDownloads={onGoToDownloads} />
-      </div>
-    </section>
+    <div className="panel wide">
+      <OmieNoDownloadedDataContent onGoToDownloads={onGoToDownloads} />
+    </div>
   );
 }
 

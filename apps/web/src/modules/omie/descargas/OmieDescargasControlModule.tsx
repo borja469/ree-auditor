@@ -1,5 +1,5 @@
 ﻿import { useMemo } from "react";
-import { BarChart3, Download, FileDown, Search, TrendingUp } from "lucide-react";
+import { BarChart3, Download, Eye, FileDown, RotateCw, Search, TrendingUp } from "lucide-react";
 import { TechnicalDataTable } from "../../../components/technical-data-table/TechnicalDataTable";
 import type { RowQuality, TechnicalColumn } from "../../../components/technical-data-table/TechnicalDataTableTypes";
 import { normalizeOmieSesionInput } from "../../../app-shell/AppState";
@@ -60,9 +60,9 @@ export function OmieDescargasControlModule({
   }
 
   return (
-    <>
-      <section className="content-grid omie-grid">
-        <div className="panel wide omie-control-panel">
+    <div className="omie-layout omie-layout-c">
+      <div className="omie-command-grid omie-download-command-grid">
+        <div className="panel omie-control-panel">
           <PanelTitle icon={<BarChart3 size={18} />} title="OMIE Descargas" subtitle="Control 5302 / 5608 / 5202 / 5603 / 4125 / 4121" />
           <div className="omie-toolbar">
             <label className="filter-field">
@@ -74,7 +74,7 @@ export function OmieDescargasControlModule({
               <input disabled={loading} type="date" value={filters.fechaHasta ?? ""} onChange={(event) => onFiltersChange({ ...filters, fechaHasta: event.target.value || undefined })} />
             </label>
             <label className="filter-field">
-              <span>Modulo</span>
+              <span>Módulo</span>
               <select disabled={loading} value={filters.modulo ?? ""} onChange={(event) => onFiltersChange({ ...filters, modulo: (event.target.value || undefined) as OmieDownloadModulo | undefined })}>
                 <option value="">Todos</option>
                 <option value="Programas">Programas</option>
@@ -83,7 +83,7 @@ export function OmieDescargasControlModule({
               </select>
             </label>
             <label className="filter-field">
-              <span>Codigo</span>
+              <span>Código</span>
               <select disabled={loading} value={filters.codigoOmie ?? ""} onChange={(event) => onFiltersChange({ ...filters, codigoOmie: (event.target.value || undefined) as OmieDownloadCodigo | undefined })}>
                 <option value="">Todos</option>
                 <option value="5302">5302</option>
@@ -118,7 +118,7 @@ export function OmieDescargasControlModule({
               </select>
             </label>
             <label className="filter-field">
-              <span>Sesion</span>
+              <span>Sesión</span>
               <input disabled={loading} inputMode="numeric" maxLength={2} value={filters.sesion ?? ""} onChange={(event) => onFiltersChange({ ...filters, sesion: normalizeOmieSesionInput(event.target.value) })} />
             </label>
             <button className="secondary-button" disabled={loading} onClick={onApply} type="button">
@@ -127,14 +127,11 @@ export function OmieDescargasControlModule({
             </button>
           </div>
         </div>
-      </section>
-
-      <section className="content-grid">
-        <div className="panel wide">
-          <PanelTitle icon={<BarChart3 size={18} />} title="Nueva descarga" subtitle="Edicion del borrador actual" />
+        <div className="panel omie-operational-panel">
+          <PanelTitle icon={<BarChart3 size={18} />} title="Nueva descarga" subtitle="Edición del borrador actual" />
           <div className="omie-toolbar compact">
             <label className="filter-field">
-              <span>Codigo OMIE</span>
+              <span>Código OMIE</span>
               <select disabled={loading} value={draft.codigoOmie} onChange={(event) => updateDraft({ codigoOmie: event.target.value as OmieDownloadCodigo })}>
                 <option value="5302">5302 - PVD</option>
                 <option value="5608">5608 - PHF</option>
@@ -164,7 +161,7 @@ export function OmieDescargasControlModule({
             )}
             {requiresSesion && (
               <label className="filter-field">
-                <span>Sesion</span>
+                <span>Sesión</span>
                 <input disabled={loading} inputMode="numeric" maxLength={2} value={draftSesion} onChange={(event) => updateDraft({ sesion: normalizeOmieSesionInput(event.target.value) })} />
               </label>
             )}
@@ -180,153 +177,143 @@ export function OmieDescargasControlModule({
             </button>
             <button className="secondary-button" disabled={loading} onClick={onDownloadDay} type="button">
               <FileDown size={16} />
-              Descargar dia
+              Descargar día
             </button>
             <button className="secondary-button" disabled={loading} onClick={onForceDownloadDay} type="button">
               <FileDown size={16} />
-              Descargar dia forzada
+              Descargar día forzada
             </button>
           </div>
         </div>
-      </section>
+      </div>
 
       {selectedDetail ? (
-        <section className="content-grid">
-          <div className="panel wide">
-            <PanelTitle
-              icon={<TrendingUp size={18} />}
-              title="Detalle de descarga"
-              subtitle={`${selectedDetail.modulo} Â· ${selectedDetail.consulta} Â· ${selectedDetail.codigoOmie}`}
-            />
-            <div className="technical-toolbar" style={{ marginBottom: 12 }}>
-              <button className="secondary-button" disabled={loading} onClick={onCloseDetail} type="button">
-                Cerrar detalle
-              </button>
-              <button className="secondary-button" disabled={loading} onClick={() => onReprocess(selectedDetail)} type="button">
-                Reprocesar
-              </button>
-              <button className="secondary-button" disabled={loading} onClick={() => onRedownload(selectedDetail)} type="button">
-                Redescargar
-              </button>
+        <div className="panel wide omie-compact-detail">
+          <PanelTitle
+            icon={<TrendingUp size={18} />}
+            title="Detalle de descarga"
+            subtitle={`${selectedDetail.modulo} · ${selectedDetail.consulta} · ${selectedDetail.codigoOmie}`}
+          />
+          <div className="technical-toolbar omie-detail-actions" style={{ marginBottom: 12 }}>
+            <button className="secondary-button" disabled={loading} onClick={onCloseDetail} type="button">
+              Cerrar detalle
+            </button>
+            <button className="secondary-button" disabled={loading} onClick={() => onReprocess(selectedDetail)} type="button">
+              Reprocesar
+            </button>
+            <button className="secondary-button" disabled={loading} onClick={() => onRedownload(selectedDetail)} type="button">
+              Redescargar
+            </button>
+          </div>
+          <div className="technical-kpis">
+            <div className="technical-kpi neutral">
+              <span>Estado</span>
+              <strong>
+                <LoadStatusBadge status={selectedDetail.estado} />
+              </strong>
+              <small>{selectedDetail.id}</small>
             </div>
-            <div className="technical-kpis">
-              <div className="technical-kpi neutral">
-                <span>Estado</span>
-                <strong>
-                  <LoadStatusBadge status={selectedDetail.estado} />
-                </strong>
-                <small>{selectedDetail.id}</small>
-              </div>
-              <div className="technical-kpi neutral">
-                <span>Periodo</span>
-                <strong>
-                  {formatFullDate(selectedDetail.fechaPrograma)}
-                  {selectedDetail.fechaHasta ? ` - ${formatFullDate(selectedDetail.fechaHasta)}` : ""}
-                </strong>
-                <small>{selectedDetail.sesion ?? "Sin sesion"}</small>
-              </div>
-              <div className="technical-kpi neutral">
-                <span>Duracion</span>
-                <strong>{formatDurationMs(selectedDetail.tiempoEjecucionMs)}</strong>
-                <small>{selectedDetail.registros.toLocaleString("es-ES")} registros</small>
-              </div>
+            <div className="technical-kpi neutral">
+              <span>Periodo</span>
+              <strong>
+                {formatFullDate(selectedDetail.fechaPrograma)}
+                {selectedDetail.fechaHasta ? ` - ${formatFullDate(selectedDetail.fechaHasta)}` : ""}
+              </strong>
+              <small>{selectedDetail.sesion ?? "Sin sesión"}</small>
             </div>
-            <div className="omie-download-detail-grid" style={{ marginTop: 16 }}>
-              <div className="empty-state">
-                <strong>Errores</strong>
-                <div>{selectedDetail.mensajeError ?? "Sin errores"}</div>
-              </div>
-              <div className="empty-state">
-                <strong>Resumen</strong>
-                <div>{selectedDetail.descripcion}</div>
-              </div>
-            </div>
-            <div className="content-grid" style={{ marginTop: 16 }}>
-              <div className="panel wide">
-                <strong>Parametros utilizados</strong>
-                <pre style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>{JSON.stringify(selectedDetail.parametrosUtilizados, null, 2)}</pre>
-              </div>
-            </div>
-            <div className="content-grid" style={{ marginTop: 16 }}>
-              <div className="panel wide">
-                <strong>JSON / RAW</strong>
-                <pre style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>{JSON.stringify(selectedDetail.rawJson, null, 2)}</pre>
-              </div>
-            </div>
-            <div className="content-grid" style={{ marginTop: 16 }}>
-              <div className="panel wide">
-                <strong>Log</strong>
-                <ul>
-                  {selectedDetail.log.map((line) => (
-                    <li key={line}>{line}</li>
-                  ))}
-                </ul>
-              </div>
+            <div className="technical-kpi neutral">
+              <span>Duración</span>
+              <strong>{formatDurationMs(selectedDetail.tiempoEjecucionMs)}</strong>
+              <small>{selectedDetail.registros.toLocaleString("es-ES")} registros</small>
             </div>
           </div>
-        </section>
-      ) : (
-        <section className="content-grid">
-          <div className="panel wide">
+          <div className="omie-download-detail-grid">
             <div className="empty-state">
-              <strong>Detalle de descarga</strong>
-              <div>Selecciona una descarga en el historico para ver detalle, log y raw JSON.</div>
+              <strong>Errores</strong>
+              <div>{selectedDetail.mensajeError ?? "Sin errores"}</div>
+            </div>
+            <div className="empty-state">
+              <strong>Resumen</strong>
+              <div>{selectedDetail.descripcion}</div>
             </div>
           </div>
-        </section>
+          <div className="omie-detail-grid">
+            <div className="panel">
+              <strong>Parametros utilizados</strong>
+              <pre style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>{JSON.stringify(selectedDetail.parametrosUtilizados, null, 2)}</pre>
+            </div>
+            <div className="panel">
+              <strong>JSON / RAW</strong>
+              <pre style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>{JSON.stringify(selectedDetail.rawJson, null, 2)}</pre>
+            </div>
+            <div className="panel">
+              <strong>Log</strong>
+              <ul>
+                {selectedDetail.log.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="panel wide omie-compact-detail">
+          <div className="empty-state">
+            <strong>Detalle de descarga</strong>
+            <div>Selecciona una descarga en el histórico para ver detalle, log y raw JSON.</div>
+          </div>
+        </div>
       )}
 
       {latestDailyBulkDownload && (
-        <section className="content-grid">
-          <div className="panel wide">
-            <PanelTitle icon={<TrendingUp size={18} />} title="Descarga diaria" subtitle={`${latestDailyBulkDownload.fecha} Â· ${latestDailyBulkDownload.force ? "forzada" : "normal"}`} />
-            <div className="technical-kpis">
-              <div className="technical-kpi neutral">
-                <span>Consultas</span>
-                <strong>{latestDailyBulkDownload.totalConsultasEjecutadas.toLocaleString("es-ES")}</strong>
-                <small>de {latestDailyBulkDownload.totalConsultas.toLocaleString("es-ES")}</small>
-              </div>
-              <div className="technical-kpi neutral">
-                <span>Procesadas</span>
-                <strong>{latestDailyBulkDownload.procesadas.toLocaleString("es-ES")}</strong>
-                <small>{latestDailyBulkDownload.sinDatos.toLocaleString("es-ES")} sin datos</small>
-              </div>
-              <div className="technical-kpi neutral">
-                <span>Errores</span>
-                <strong>{latestDailyBulkDownload.errores.toLocaleString("es-ES")}</strong>
-                <small>{formatDurationMs(latestDailyBulkDownload.tiempoTotalMs)}</small>
-              </div>
+        <div className="panel wide omie-compact-detail">
+          <PanelTitle icon={<TrendingUp size={18} />} title="Descarga diaria" subtitle={`${latestDailyBulkDownload.fecha} · ${latestDailyBulkDownload.force ? "forzada" : "normal"}`} />
+          <div className="technical-kpis">
+            <div className="technical-kpi neutral">
+              <span>Consultas</span>
+              <strong>{latestDailyBulkDownload.totalConsultasEjecutadas.toLocaleString("es-ES")}</strong>
+              <small>de {latestDailyBulkDownload.totalConsultas.toLocaleString("es-ES")}</small>
             </div>
-            <div style={{ marginTop: 16 }}>
-              <table className="omie-download-results-table">
-                <thead>
-                  <tr>
-                    <th>Codigo</th>
-                    <th>Modulo</th>
-                    <th>Consulta</th>
-                    <th>Estado</th>
-                    <th>Registros</th>
-                    <th>Mensaje</th>
-                    <th>Download</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {latestDailyBulkDownload.resultados.map((item) => (
-                    <tr key={`${item.codigoOmie}-${item.consulta}-${item.sesion ?? ""}`}>
-                      <td>{item.codigoOmie}</td>
-                      <td>{item.modulo}</td>
-                      <td>{item.consulta}</td>
-                      <td>{item.estado}</td>
-                      <td>{formatNumber(item.registros)}</td>
-                      <td>{item.mensaje}</td>
-                      <td>{item.downloadId ?? "-"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="technical-kpi neutral">
+              <span>Procesadas</span>
+              <strong>{latestDailyBulkDownload.procesadas.toLocaleString("es-ES")}</strong>
+              <small>{latestDailyBulkDownload.sinDatos.toLocaleString("es-ES")} sin datos</small>
+            </div>
+            <div className="technical-kpi neutral">
+              <span>Errores</span>
+              <strong>{latestDailyBulkDownload.errores.toLocaleString("es-ES")}</strong>
+              <small>{formatDurationMs(latestDailyBulkDownload.tiempoTotalMs)}</small>
             </div>
           </div>
-        </section>
+          <div>
+            <table className="omie-download-results-table">
+              <thead>
+                <tr>
+                  <th>Código</th>
+                  <th>Módulo</th>
+                  <th>Consulta</th>
+                  <th>Estado</th>
+                  <th>Registros</th>
+                  <th>Mensaje</th>
+                  <th>Download</th>
+                </tr>
+              </thead>
+              <tbody>
+                {latestDailyBulkDownload.resultados.map((item) => (
+                  <tr key={`${item.codigoOmie}-${item.consulta}-${item.sesion ?? ""}`}>
+                    <td>{item.codigoOmie}</td>
+                    <td>{item.modulo}</td>
+                    <td>{item.consulta}</td>
+                    <td>{item.estado}</td>
+                    <td>{formatNumber(item.registros)}</td>
+                    <td>{item.mensaje}</td>
+                    <td>{item.downloadId ?? "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       <TechnicalDataTable
@@ -346,9 +333,9 @@ export function OmieDescargasControlModule({
         rows={descargas}
         showModeSelector={false}
         showPagination={false}
-        title="Historico de descargas OMIE"
+        title="Histórico de descargas OMIE"
       />
-    </>
+    </div>
   );
 }
 
@@ -361,28 +348,28 @@ function buildOmieDownloadHistoryColumns(
     {
       id: "fechaDescarga",
       label: "Descarga",
-      width: 150,
+      width: 132,
       type: "date",
       filter: "text",
       sticky: true,
       value: (row) => row.fechaDescarga ?? "",
       render: (row) => formatDateTime(row.fechaDescarga)
     },
-    { id: "modulo", label: "Modulo", width: 118, filter: "select", value: (row) => row.modulo },
-    { id: "consulta", label: "Consulta", width: 140, filter: "text", value: (row) => row.consulta },
+    { id: "modulo", label: "Módulo", width: 100, filter: "select", value: (row) => row.modulo },
+    { id: "consulta", label: "Consulta", width: 118, filter: "text", value: (row) => row.consulta },
     {
       id: "codigoOmie",
-      label: "Codigo",
-      width: 88,
+      label: "Código",
+      width: 72,
       type: "text",
       filter: "select",
       value: (row) => row.codigoOmie
     },
-    { id: "tipoDocumento", label: "Tipo", width: 106, filter: "select", value: (row) => row.tipoDocumento },
+    { id: "tipoDocumento", label: "Tipo", width: 88, filter: "select", value: (row) => row.tipoDocumento },
     {
       id: "fechaPrograma",
       label: "Fecha",
-      width: 112,
+      width: 96,
       type: "date",
       filter: "text",
       value: (row) => row.fechaPrograma,
@@ -391,18 +378,18 @@ function buildOmieDownloadHistoryColumns(
     {
       id: "fechaHasta",
       label: "Hasta",
-      width: 112,
+      width: 96,
       type: "date",
       filter: "text",
       value: (row) => row.fechaHasta ?? "",
       render: (row) => (row.fechaHasta ? formatFullDate(row.fechaHasta) : "-")
     },
-    { id: "sesion", label: "Sesion", width: 82, align: "right", filter: "select", value: (row) => row.sesion ?? "", render: (row) => row.sesion ?? "-" },
-    { id: "estado", label: "Estado", width: 120, filter: "select", value: (row) => row.estado, render: (row) => <LoadStatusBadge status={row.estado} /> },
+    { id: "sesion", label: "Sesión", width: 66, align: "right", filter: "select", value: (row) => row.sesion ?? "", render: (row) => row.sesion ?? "-" },
+    { id: "estado", label: "Estado", width: 92, filter: "select", value: (row) => row.estado, render: (row) => <LoadStatusBadge status={row.estado} /> },
     {
       id: "registros",
       label: "Registros",
-      width: 100,
+      width: 76,
       align: "right",
       type: "number",
       filter: "number",
@@ -411,8 +398,8 @@ function buildOmieDownloadHistoryColumns(
     },
     {
       id: "tiempoEjecucionMs",
-      label: "Duracion",
-      width: 108,
+      label: "Duración",
+      width: 86,
       align: "right",
       type: "number",
       filter: "number",
@@ -422,7 +409,7 @@ function buildOmieDownloadHistoryColumns(
     {
       id: "mensajeError",
       label: "Error",
-      width: 260,
+      width: 180,
       filter: "text",
       visibility: "advanced",
       value: (row) => row.mensajeError ?? ""
@@ -430,47 +417,47 @@ function buildOmieDownloadHistoryColumns(
     {
       id: "rawXmlDisponible",
       label: "XML",
-      width: 74,
+      width: 46,
       filter: "select",
       visibility: "advanced",
-      value: (row) => (row.rawXmlDisponible ? "Si" : "No"),
-      render: (row) => (row.rawXmlDisponible ? "Si" : "No")
+      value: (row) => (row.rawXmlDisponible ? "Sí" : "No"),
+      render: (row) => (row.rawXmlDisponible ? "Sí" : "No")
     },
     {
       id: "rawJsonDisponible",
       label: "JSON",
-      width: 78,
+      width: 50,
       filter: "select",
       visibility: "advanced",
-      value: (row) => (row.rawJsonDisponible ? "Si" : "No"),
-      render: (row) => (row.rawJsonDisponible ? "Si" : "No")
+      value: (row) => (row.rawJsonDisponible ? "Sí" : "No"),
+      render: (row) => (row.rawJsonDisponible ? "Sí" : "No")
     },
     {
       id: "logDisponible",
       label: "Log",
-      width: 70,
+      width: 46,
       filter: "select",
       visibility: "advanced",
-      value: (row) => (row.logDisponible ? "Si" : "No"),
-      render: (row) => (row.logDisponible ? "Si" : "No")
+      value: (row) => (row.logDisponible ? "Sí" : "No"),
+      render: (row) => (row.logDisponible ? "Sí" : "No")
     },
     {
       id: "acciones",
       label: "Acciones",
-      width: 232,
+      width: 104,
       filter: "text",
       visibility: "advanced",
       value: () => "",
       render: (row) => (
-        <div className="row-actions">
-          <button className="secondary-button" onClick={() => onShowDetail(row)} type="button">
-            Detalle
+        <div className="row-actions omie-row-actions">
+          <button className="secondary-button icon-only" onClick={() => onShowDetail(row)} title="Ver detalle" type="button">
+            <Eye size={15} />
           </button>
-          <button className="secondary-button" onClick={() => onReprocess(row)} type="button">
-            Reprocesar
+          <button className="secondary-button icon-only" onClick={() => onReprocess(row)} title="Reprocesar" type="button">
+            <RotateCw size={15} />
           </button>
-          <button className="secondary-button" onClick={() => onRedownload(row)} type="button">
-            Redescargar
+          <button className="secondary-button icon-only" onClick={() => onRedownload(row)} title="Redescargar" type="button">
+            <Download size={15} />
           </button>
         </div>
       )

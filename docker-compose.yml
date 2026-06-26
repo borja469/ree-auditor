@@ -46,7 +46,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    command: sh -c "npx prisma db push && npm run start:dev"
+    command: sh -c "npx prisma db push --accept-data-loss && npm run start:dev"
 
   web:
     build:
@@ -55,7 +55,7 @@ services:
     container_name: ree-auditor-web
     restart: unless-stopped
     environment:
-      VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
+      VITE_API_URL: ${VITE_API_URL:-auto}
     ports:
       - "5173:5173"
     depends_on:

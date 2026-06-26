@@ -570,3 +570,281 @@ model OmieLiquidationInvoice {
 
   @@map("omie_liquidation_invoices")
 }
+
+model EsiosConfig {
+  id             Int      @id @default(1)
+  apiUrl         String   @default("https://api.esios.ree.es") @map("api_url") @db.VarChar(500)
+  apiToken       String?  @map("api_token") @db.Text
+  timeoutSeconds Int      @default(60) @map("timeout_seconds")
+  retries        Int      @default(3)
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("esios_config")
+}
+
+model EsiosIndicator {
+  id          BigInt                @id @default(autoincrement())
+  indicatorId Int                  @unique @map("indicator_id")
+  name        String?              @db.VarChar(500)
+  description String?              @db.Text
+  shortName   String?              @map("short_name") @db.VarChar(255)
+  unit        String?              @db.VarChar(100)
+  frequency   String?              @db.VarChar(50)
+  active      Boolean              @default(true)
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  values      EsiosIndicatorValue[]
+  logs        EsiosDownloadLog[]
+
+  @@map("esios_indicators")
+}
+
+model EsiosIndicatorValue {
+  id          BigInt         @id @default(autoincrement())
+  indicatorId Int           @map("indicator_id")
+  indicator   EsiosIndicator @relation(fields: [indicatorId], references: [indicatorId], onDelete: Cascade)
+  datetime    DateTime
+  datetimeUtc DateTime?      @map("datetime_utc")
+  value       Decimal?       @db.Decimal(18, 6)
+  geoId       Int?           @map("geo_id")
+  geoName     String?        @map("geo_name") @db.VarChar(255)
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@unique([indicatorId, datetime], map: "ux_esios_indicator_values")
+  @@index([indicatorId, datetimeUtc])
+  @@index([datetime])
+  @@map("esios_indicator_values")
+}
+
+model EsiosDownloadLog {
+  id                 BigInt          @id @default(autoincrement())
+  indicatorId        Int?            @map("indicator_id")
+  indicator          EsiosIndicator? @relation(fields: [indicatorId], references: [indicatorId], onDelete: SetNull)
+  startDate          DateTime?       @map("start_date")
+  endDate            DateTime?       @map("end_date")
+  downloadedRecords  Int            @default(0) @map("downloaded_records")
+  insertedRecords    Int            @default(0) @map("inserted_records")
+  updatedRecords     Int            @default(0) @map("updated_records")
+  executionTimeMs    Int            @default(0) @map("execution_time_ms")
+  status             String         @db.VarChar(50)
+  errorMessage       String?        @map("error_message") @db.Text
+  createdAt          DateTime       @default(now()) @map("created_at")
+
+  @@index([indicatorId])
+  @@index([createdAt])
+  @@index([status])
+  @@map("esios_download_logs")
+}
+
+model EsiosProfileUpload {
+  id           String                    @id @default(uuid()) @db.Uuid
+  year         Int
+  fileName     String                    @map("file_name")
+  uploadedAt   DateTime                  @default(now()) @map("uploaded_at")
+  uploadedBy   String?                   @map("uploaded_by")
+  status       String                    @db.VarChar(30)
+  errorMessage String?                   @map("error_message") @db.Text
+  totalRows    Int                       @default(0) @map("total_rows")
+  validRows    Int                       @default(0) @map("valid_rows")
+  createdAt    DateTime                  @default(now()) @map("created_at")
+  updatedAt    DateTime                  @updatedAt @map("updated_at")
+  profiles     EsiosInitialProfile[]
+  coefficients EsiosProfileCoefficient[]
+
+  @@index([year])
+  @@index([uploadedAt])
+  @@index([status])
+  @@map("esios_profile_uploads")
+}
+
+model EsiosInitialProfile {
+  id                String              @id @default(uuid()) @db.Uuid
+  year              Int
+  month             Int
+  day               Int
+  hour              Int
+  datetime          DateTime
+  profile20td       Decimal             @map("profile_20td") @db.Decimal(20, 15)
+  profile30td       Decimal             @map("profile_30td") @db.Decimal(20, 15)
+  profile30tdve     Decimal             @map("profile_30tdve") @db.Decimal(20, 15)
+  referenceDemandMw Decimal             @map("reference_demand_mw") @db.Decimal(20, 6)
+  uploadId          String              @map("upload_id") @db.Uuid
+  upload            EsiosProfileUpload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  @@unique([year, month, day, hour], map: "ux_esios_initial_profiles_hour")
+  @@index([year])
+  @@index([datetime])
+  @@index([uploadId])
+  @@map("esios_initial_profiles")
+}
+
+model EsiosProfileCoefficient {
+  id        String              @id @default(uuid()) @db.Uuid
+  year      Int
+  tariff    String              @db.VarChar(20)
+  alpha     Decimal             @db.Decimal(20, 15)
+  beta      Decimal             @db.Decimal(20, 15)
+  gamma     Decimal             @db.Decimal(20, 15)
+  uploadId  String?             @map("upload_id") @db.Uuid
+  upload    EsiosProfileUpload? @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  @@unique([year, tariff], map: "ux_esios_profile_coefficients_tariff")
+  @@index([year])
+  @@index([tariff])
+  @@index([uploadId])
+  @@map("esios_profile_coefficients")
+}
+
+model EsiosProfileIntermediateResult {
+  id                 String   @id @default(uuid()) @db.Uuid
+  year               Int
+  datetime           DateTime
+  month              Int
+  day                Int
+  hour               Int
+  tariff             String   @db.VarChar(20)
+  initialProfile     Decimal  @map("initial_profile") @db.Decimal(20, 15)
+  h0                 Decimal  @db.Decimal(20, 15)
+  h1                 Decimal  @db.Decimal(20, 15)
+  hf                 Decimal  @db.Decimal(20, 15)
+  c0                 Decimal  @db.Decimal(20, 15)
+  c1                 Decimal  @db.Decimal(20, 15)
+  cf                 Decimal  @db.Decimal(20, 15)
+  m0                 Decimal  @db.Decimal(20, 15)
+  m1                 Decimal  @db.Decimal(20, 15)
+  intermediateProfile Decimal @map("intermediate_profile") @db.Decimal(20, 15)
+  demandUsedMw       Decimal  @map("demand_used_mw") @db.Decimal(20, 6)
+  demandSource       String   @map("demand_source") @db.VarChar(50)
+  referenceDemandMw  Decimal  @map("reference_demand_mw") @db.Decimal(20, 6)
+  forecastDemandMw   Decimal? @map("forecast_demand_mw") @db.Decimal(20, 6)
+  finalDemandMw      Decimal? @map("final_demand_mw") @db.Decimal(20, 6)
+  systemDemandMw     Decimal? @map("system_demand_mw") @db.Decimal(20, 6)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@unique([year, datetime, tariff], map: "ux_esios_profile_intermediate_results_datetime_tariff")
+  @@index([year])
+  @@index([datetime])
+  @@index([tariff])
+  @@map("esios_profile_intermediate_results")
+}
+
+model EsiosReeFinalDemandUpload {
+  id             String                 @id @default(uuid()) @db.Uuid
+  year           Int
+  month          Int
+  day            Int?
+  periodKey      String?                @unique(map: "ux_esios_ree_final_demand_upload_period_key") @map("period_key")
+  fileName       String                 @map("file_name")
+  fileHash       String                 @map("file_hash")
+  uploadedAt     DateTime               @default(now()) @map("uploaded_at")
+  uploadedBy     String?                @map("uploaded_by")
+  status         String                 @db.VarChar(30)
+  errorMessage   String?                @map("error_message") @db.Text
+  totalRows      Int                    @default(0) @map("total_rows")
+  validRows      Int                    @default(0) @map("valid_rows")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  rows           EsiosReeFinalDemand[]
+
+  @@index([year])
+  @@index([month])
+  @@index([year, month, day])
+  @@index([uploadedAt])
+  @@index([status])
+  @@map("esios_ree_final_demand_uploads")
+}
+
+model EsiosReeFinalDemand {
+  id          String                    @id @default(uuid()) @db.Uuid
+  uploadId    String                    @map("upload_id") @db.Uuid
+  upload      EsiosReeFinalDemandUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  year        Int
+  month       Int
+  day         Int
+  hour        Int
+  datetime    DateTime
+  dstFlag     Int?                      @map("dst_flag")
+  demandMw    Decimal                   @map("demand_mw") @db.Decimal(20, 6)
+  rawLine     String                    @map("raw_line") @db.Text
+  sourceLine  Int                       @map("source_line")
+  createdAt   DateTime                  @default(now()) @map("created_at")
+  updatedAt   DateTime                  @updatedAt @map("updated_at")
+
+  @@unique([year, month, day, hour], map: "ux_esios_ree_final_demand_hour")
+  @@index([datetime])
+  @@index([uploadId])
+  @@map("esios_ree_final_demands")
+}
+
+model EsiosReeFinalProfileUpload {
+  id             String                 @id @default(uuid()) @db.Uuid
+  year           Int
+  month          Int
+  fileName       String                 @map("file_name")
+  fileHash       String                 @map("file_hash")
+  uploadedAt     DateTime               @default(now()) @map("uploaded_at")
+  uploadedBy     String?                @map("uploaded_by")
+  status         String                 @db.VarChar(30)
+  errorMessage   String?                @map("error_message") @db.Text
+  totalRows      Int                    @default(0) @map("total_rows")
+  validRows      Int                    @default(0) @map("valid_rows")
+  createdAt      DateTime               @default(now()) @map("created_at")
+  updatedAt      DateTime               @updatedAt @map("updated_at")
+  rows           EsiosReeFinalProfile[]
+
+  @@unique([year, month], map: "ux_esios_ree_final_profile_upload_month")
+  @@index([year])
+  @@index([month])
+  @@index([uploadedAt])
+  @@index([status])
+  @@map("esios_ree_final_profile_uploads")
+}
+
+model EsiosReeFinalProfile {
+  id             String                    @id @default(uuid()) @db.Uuid
+  uploadId       String                    @map("upload_id") @db.Uuid
+  upload         EsiosReeFinalProfileUpload @relation(fields: [uploadId], references: [id], onDelete: Cascade)
+  year           Int
+  month          Int
+  day            Int
+  hour           Int
+  datetime       DateTime
+  dstFlag        Int?                      @map("dst_flag")
+  profile20td    Decimal                   @map("profile_20td") @db.Decimal(20, 15)
+  profile30td    Decimal                   @map("profile_30td") @db.Decimal(20, 15)
+  profile30tdve  Decimal                   @map("profile_30tdve") @db.Decimal(20, 15)
+  rawLine        String                    @map("raw_line") @db.Text
+  sourceLine     Int                       @map("source_line")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @updatedAt @map("updated_at")
+
+  @@unique([year, month, day, hour], map: "ux_esios_ree_final_profile_hour")
+  @@index([datetime])
+  @@index([uploadId])
+  @@map("esios_ree_final_profiles")
+}
+
+model EsiosProfileCalculationLog {
+  id              String   @id @default(uuid()) @db.Uuid
+  year            Int
+  status          String   @db.VarChar(30)
+  startedAt       DateTime @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+  executionTimeMs Int?     @map("execution_time_ms")
+  rowsProcessed   Int      @default(0) @map("rows_processed")
+  errorMessage    String?  @map("error_message") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([year])
+  @@index([status])
+  @@index([createdAt])
+  @@map("esios_profile_calculation_logs")
+}

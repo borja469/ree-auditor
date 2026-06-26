@@ -67,6 +67,34 @@ const MEDPER_FILE_SELECT = {
   duplicatedRecords: true
 } satisfies Prisma.MedperFileSelect;
 
+const MEDPER_QH_RECORD_SELECT = {
+  id: true,
+  fileId: true,
+  tipoArchivo: true,
+  version: true,
+  fechaInicio: true,
+  fechaFin: true,
+  sujetoEic: true,
+  fecha: true,
+  timestamp: true,
+  hora: true,
+  cuartoHora: true,
+  codigoUnidad: true,
+  peaje: true,
+  programaEnergiaMwh: true,
+  perdidasMwh: true,
+  bcMwh: true,
+  pfMwh: true,
+  bcPfDifferenceMwh: true,
+  negativeEnergy: true,
+  bcPfInconsistent: true,
+  validationErrors: true,
+  rawPayloadJson: true,
+  sourceLineNumber: true,
+  recordHash: true,
+  createdAt: true
+} satisfies Prisma.MedperqhRecordSelect;
+
 const REE_FILE_ACTION_SELECT = {
   ...FILE_SELECT,
   originalContent: true
@@ -1260,7 +1288,8 @@ export class ImportsService {
       this.prisma.medperqhRecord.findMany({
         where: buildMedperqhWhere(query),
         orderBy: [{ timestamp: "asc" }, { codigoUnidad: "asc" }],
-        include: {
+        select: {
+          ...MEDPER_QH_RECORD_SELECT,
           file: {
             select: MEDPER_FILE_SELECT
           }
@@ -1277,7 +1306,8 @@ export class ImportsService {
       where: {
         id
       },
-      include: {
+      select: {
+        ...MEDPER_QH_RECORD_SELECT,
         file: {
           select: MEDPER_FILE_SELECT
         }
@@ -1375,7 +1405,8 @@ export class ImportsService {
     const qhRecords = await runWithPrismaRetry(() =>
       this.prisma.medperqhRecord.findMany({
         where: buildMedperqhWhere(query),
-        orderBy: [{ timestamp: "asc" }, { codigoUnidad: "asc" }]
+        orderBy: [{ timestamp: "asc" }, { codigoUnidad: "asc" }],
+        select: MEDPER_QH_RECORD_SELECT
       })
     );
 
@@ -1399,6 +1430,7 @@ export class ImportsService {
       this.prisma.medperqhRecord.findMany({
         where: buildMedperqhWhere(query),
         orderBy: [{ timestamp: "asc" }, { codigoUnidad: "asc" }],
+        select: MEDPER_QH_RECORD_SELECT,
         take: 20000
       })
     );
@@ -1477,29 +1509,32 @@ export class ImportsService {
       addMetric(bucket.losses, decimalToOptionalNumber(row.perdidasMwh));
     }
 
-    return monthKeys.flatMap((month) =>
-      versions.map((version) => {
-        const bucket = grouped.get(monthVersionKey(month, version)) ?? { pf: emptyMetric(), losses: emptyMetric() };
-        const pfValue = metricValue(bucket.pf) ?? 0;
-        const lossesValue = metricValue(bucket.losses) ?? 0;
-        const bcValue = pfValue + lossesValue;
-        return {
-          month,
-          version,
-          pfMwh: formatOptionalMwh(pfValue),
-          perdidasMwh: formatOptionalMwh(lossesValue),
-          bcMwh: formatOptionalMwh(bcValue),
-          consumoMwh: formatOptionalMwh(bcValue)
-        };
-      })
-    );
-  }
+  return monthKeys.flatMap((month) =>
+    versions.map((version) => {
+      const bucket = grouped.get(monthVersionKey(month, version));
+      const hasData = Boolean(bucket?.pf.hasValue || bucket?.losses.hasValue);
+      const pfValue = hasData ? metricValue(bucket?.pf ?? emptyMetric()) : undefined;
+      const lossesValue = hasData ? metricValue(bucket?.losses ?? emptyMetric()) : undefined;
+      const bcValue = hasData ? (pfValue ?? 0) + (lossesValue ?? 0) : undefined;
+      return {
+        month,
+        version,
+        pfMwh: formatOptionalMwh(pfValue),
+        perdidasMwh: formatOptionalMwh(lossesValue),
+        bcMwh: formatOptionalMwh(bcValue),
+        consumoMwh: formatOptionalMwh(bcValue),
+        hasData
+      };
+    })
+  );
+}
 
   async medperLosses(query: MedperQueryDto) {
     const records = await runWithPrismaRetry(() =>
       this.prisma.medperqhRecord.findMany({
         where: buildMedperqhWhere(query),
-        orderBy: [{ fecha: "asc" }, { timestamp: "asc" }, { codigoUnidad: "asc" }]
+        orderBy: [{ fecha: "asc" }, { timestamp: "asc" }, { codigoUnidad: "asc" }],
+        select: MEDPER_QH_RECORD_SELECT
       })
     );
 
@@ -1510,7 +1545,8 @@ export class ImportsService {
     const medperRecords = await runWithPrismaRetry(() =>
       this.prisma.medperqhRecord.findMany({
         where: buildMedperqhWhere(query),
-        orderBy: [{ fecha: "asc" }, { codigoUnidad: "asc" }, { timestamp: "asc" }]
+        orderBy: [{ fecha: "asc" }, { codigoUnidad: "asc" }, { timestamp: "asc" }],
+        select: MEDPER_QH_RECORD_SELECT
       })
     );
     const reganecuHourly = await runWithPrismaRetry(() =>
@@ -1572,7 +1608,8 @@ export class ImportsService {
       runWithPrismaRetry(() =>
         this.prisma.medperqhRecord.findMany({
           where: buildLiquidationAnalysisMedperWhere(query),
-          orderBy: [{ fecha: "asc" }, { codigoUnidad: "asc" }, { timestamp: "asc" }]
+          orderBy: [{ fecha: "asc" }, { codigoUnidad: "asc" }, { timestamp: "asc" }],
+          select: MEDPER_QH_RECORD_SELECT
         })
       ),
       runWithPrismaRetry(() =>

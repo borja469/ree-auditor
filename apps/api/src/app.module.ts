@@ -1,4 +1,5 @@
 import { Module } from "@nestjs/common";
+import { EsiosModule } from "./esios/esios.module";
 import { HealthModule } from "./health/health.module";
 import { ImportsModule } from "./imports/imports.module";
 import { OmieAnalisisModule } from "./omie-analisis/omie-analisis.module";
@@ -21,7 +22,8 @@ import { ReeLossesModule } from "./ree-losses/ree-losses.module";
     OmiePreciosModule,
     OmieTransaccionesModule,
     OmieAnalisisModule,
-    OmieDescargasModule
+    OmieDescargasModule,
+    EsiosModule
   ]
 })
 export class AppModule {}

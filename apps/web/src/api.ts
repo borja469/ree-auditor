@@ -585,6 +585,355 @@ export type OmieTransactionStagingRowsResponse = {
   filas: OmieTransactionStagingRow[];
 };
 
+export type EsiosConfig = {
+  apiUrl: string;
+  tokenConfigured: boolean;
+  timeoutSeconds: number;
+  retries: number;
+  active: boolean;
+};
+
+export type EsiosConnectionResult = {
+  status: "ok" | "invalid_token" | "network_error" | "api_error" | "inactive";
+  message: string;
+  statusCode?: number;
+};
+
+export type EsiosIndicator = {
+  id: string;
+  indicatorId: number;
+  name: string | null;
+  description: string | null;
+  shortName: string | null;
+  unit: string | null;
+  frequency: string | null;
+  active: boolean;
+  hasData?: boolean;
+  latestDownload?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosIndicatorValue = {
+  id: string;
+  indicatorId: number;
+  datetime: string;
+  datetimeUtc: string | null;
+  value: number | null;
+  geoId: number | null;
+  geoName: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosValuesFilters = {
+  fechaDesde?: string;
+  fechaHasta?: string;
+  year?: number | string;
+  month?: number | string;
+  skip?: number;
+  take?: number;
+};
+
+export type EsiosValuesResponse = {
+  indicator: EsiosIndicator | null;
+  filters: {
+    startDate: string;
+    endDate: string;
+    skip: number;
+    take: number;
+  };
+  total: number;
+  hasNext: boolean;
+  kpis: {
+    firstRecord: string | null;
+    lastRecord: string | null;
+    totalRecords: number;
+    average: number | null;
+    maximum: number | null;
+    minimum: number | null;
+    latestDownload: string | null;
+  };
+  rows: EsiosIndicatorValue[];
+};
+
+export type EsiosDownloadSummary = {
+  indicatorId: number;
+  startDate: string;
+  endDate: string;
+  downloadedRecords: number;
+  insertedRecords: number;
+  updatedRecords: number;
+  executionTimeMs: number;
+  status: "SUCCESS" | "ERROR";
+  errorMessage: string | null;
+};
+
+export type EsiosDownloadLog = {
+  id: string;
+  indicatorId: number | null;
+  indicatorName: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  downloadedRecords: number;
+  insertedRecords: number;
+  updatedRecords: number;
+  executionTimeMs: number;
+  status: string;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+export type EsiosDownloadLogsResponse = {
+  total: number;
+  hasNext: boolean;
+  logs: EsiosDownloadLog[];
+};
+
+export type EsiosSyncIndicatorsResponse = {
+  downloadedRecords: number;
+  savedRecords: number;
+  indicators: EsiosIndicator[];
+};
+
+export type EsiosProfileTariff = "2.0TD" | "3.0TD" | "3.0TDVE";
+
+export type EsiosInitialProfile = {
+  id: string;
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  datetime: string;
+  profile20td: number;
+  profile30td: number;
+  profile30tdve: number;
+  referenceDemandMw: number;
+  uploadId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosProfileCoefficient = {
+  id?: string;
+  year?: number;
+  tariff: EsiosProfileTariff;
+  alpha: number;
+  beta: number;
+  gamma: number;
+  uploadId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type EsiosProfileUpload = {
+  id: string;
+  year: number;
+  fileName: string;
+  uploadedAt: string;
+  uploadedBy: string | null;
+  status: string;
+  errorMessage: string | null;
+  totalRows: number;
+  validRows: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosProfilesFilters = {
+  year?: number | string;
+  month?: number | string;
+  tariff?: EsiosProfileTariff | "";
+  fechaDesde?: string;
+  fechaHasta?: string;
+  skip?: number;
+  take?: number;
+};
+
+export type EsiosInitialProfilesResponse = {
+  rows: EsiosInitialProfile[];
+  total: number;
+  hasNext: boolean;
+  filters: EsiosProfilesFilters;
+};
+
+export type EsiosProfilesSummary = {
+  year: number;
+  expectedHours: number;
+  loadedHours: number;
+  loadStatus: string;
+  latestUpload: EsiosProfileUpload | null;
+  sumProfile20td: number | null;
+  sumProfile30td: number | null;
+  sumProfile30tdve: number | null;
+  totalReferenceDemandMw: number | null;
+  coefficientCount: number;
+};
+
+export type EsiosProfileIntermediateRow = {
+  id: string;
+  year: number;
+  datetime: string;
+  month: number;
+  day: number;
+  hour: number;
+  tariff: EsiosProfileTariff;
+  initialProfile: number;
+  h0: number;
+  h1: number;
+  hf: number;
+  c0: number;
+  c1: number;
+  cf: number;
+  m0: number;
+  m1: number;
+  intermediateProfile: number;
+  demandUsedMw: number;
+  demandSource: "REE_DEMR" | "FINAL_1335" | "FORECAST_460" | "REFERENCE_REE";
+  referenceDemandMw: number;
+  forecastDemandMw: number | null;
+  finalDemandMw: number | null;
+  systemDemandMw?: number | null;
+  reeFinalProfile: number | null;
+  finalProfileDifference: number | null;
+  finalProfileValidationStatus: "VALIDADO" | "DIFERENTE" | "SIN_PERFF";
+  calculatedIntermediateProfile: number;
+  profileValidationDifference: number;
+  profileValidationStatus: "VALIDADO" | "DIFERENTE";
+  validationStatus: "VALIDADO" | "DIFERENTE" | "SIN_PERFF";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosProfileIntermediateLog = {
+  id: string;
+  year: number;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  executionTimeMs: number | null;
+  rowsProcessed: number;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+export type EsiosProfileIntermediateSummary = {
+  year: number;
+  expectedHours: number;
+  calculatedHours: number;
+  calculatedTariffs: number;
+  status: string;
+  latestCalculation: EsiosProfileIntermediateLog | null;
+  sumIntermediateProfiles: Record<EsiosProfileTariff, number | null>;
+  totalDemandUsedMw: number | null;
+  totalForecastDemandMw: number | null;
+  totalFinalDemandMw: number | null;
+  totalReferenceDemandMw: number | null;
+  finalDemandValidation?: {
+    loadedHours: number;
+    matchedHours: number;
+    mismatchedHours: number;
+    pendingHours: number;
+    toleranceMw: number;
+  };
+  finalProfileValidation?: {
+    loadedHours: number;
+    matchedRows: number;
+    mismatchedRows: number;
+    pendingRows: number;
+    tolerance: number;
+  };
+  profileValidation?: {
+    matchedRows: number;
+    mismatchedRows: number;
+    tolerance: number;
+  };
+};
+
+export type EsiosProfileIntermediatesResponse = {
+  rows: EsiosProfileIntermediateRow[];
+  total: number;
+  hasNext: boolean;
+  filters: EsiosProfilesFilters & { year: number };
+};
+
+export type EsiosProfileCalculationLogsResponse = {
+  total: number;
+  hasNext: boolean;
+  logs: EsiosProfileIntermediateLog[];
+};
+
+export type EsiosProfilesUploadsResponse = {
+  uploads: EsiosProfileUpload[];
+  total: number;
+  hasNext: boolean;
+};
+
+export type EsiosProfilesUploadResponse = {
+  upload: EsiosProfileUpload;
+  summary: EsiosProfilesSummary;
+  rowsImported: number;
+  coefficientsImported: number;
+};
+
+export type EsiosReeFinalDemandUpload = {
+  id: string;
+  year: number;
+  month: number;
+  day: number | null;
+  periodKey: string | null;
+  fileName: string;
+  fileHash: string;
+  uploadedAt: string;
+  uploadedBy: string | null;
+  status: string;
+  errorMessage: string | null;
+  totalRows: number;
+  validRows: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosReeFinalDemandUploadsResponse = {
+  uploads: EsiosReeFinalDemandUpload[];
+  total: number;
+  hasNext: boolean;
+};
+
+export type EsiosReeFinalDemandUploadResponse = {
+  upload: EsiosReeFinalDemandUpload;
+  rowsImported: number;
+  validation: EsiosProfileIntermediateSummary;
+};
+
+export type EsiosReeFinalProfileUpload = {
+  id: string;
+  year: number;
+  month: number;
+  fileName: string;
+  fileHash: string;
+  uploadedAt: string;
+  uploadedBy: string | null;
+  status: string;
+  errorMessage: string | null;
+  totalRows: number;
+  validRows: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosReeFinalProfileUploadsResponse = {
+  uploads: EsiosReeFinalProfileUpload[];
+  total: number;
+  hasNext: boolean;
+};
+
+export type EsiosReeFinalProfileUploadResponse = {
+  upload: EsiosReeFinalProfileUpload;
+  rowsImported: number;
+  validation: EsiosProfileIntermediateSummary;
+};
+
 export type UploadOptions = {
   overwrite?: boolean;
 };
@@ -829,6 +1178,7 @@ export type MedperMonthlyConsumptionRow = {
   perdidasMwh?: string | null;
   bcMwh?: string | null;
   consumoMwh?: string | null;
+  hasData?: boolean;
 };
 
 export type MedperLossRow = {
@@ -998,8 +1348,21 @@ export type ReeLossesAnalyticsSummary = {
   versionComparison: ReeLossesVersionComparisonRow[];
 };
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const API_URL = resolveApiUrl();
 const REQUEST_TIMEOUT_MS = 60000;
+
+function resolveApiUrl() {
+  const configured = import.meta.env.VITE_API_URL?.trim();
+  if (configured && configured !== "auto") {
+    return configured;
+  }
+
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:3000`;
+  }
+
+  return "http://localhost:3000";
+}
 
 export async function listImports(query: Pick<Filters, "skip" | "take"> = {}): Promise<ReeFile[]> {
   return getJson(`/imports${toQuery(query)}`);
@@ -1230,6 +1593,132 @@ export async function getOmieTransactionStagingRows(downloadId: string, take = 1
   return getJson(`/omie/transacciones/historico/${encodeURIComponent(downloadId)}/filas${toQuery({ take })}`);
 }
 
+export async function getEsiosConfig(): Promise<EsiosConfig> {
+  return getJson(`/esios/config`);
+}
+
+export async function saveEsiosConfig(config: Partial<EsiosConfig> & { apiToken?: string }): Promise<EsiosConfig> {
+  return sendJson(`/esios/config`, "PUT", "Guardando configuracion ESIOS", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function testEsiosConnection(): Promise<EsiosConnectionResult> {
+  return sendJson(`/esios/test-connection`, "POST", "Probando conexion ESIOS", REQUEST_TIMEOUT_MS * 2);
+}
+
+export async function getEsiosIndicators(): Promise<EsiosIndicator[]> {
+  return getJson(`/esios/indicators`);
+}
+
+export async function getEsiosIndicatorValues(indicatorId: number, filters: EsiosValuesFilters = {}): Promise<EsiosValuesResponse> {
+  return getJson(`/esios/indicators/${encodeURIComponent(indicatorId)}/values${toQuery(filters)}`);
+}
+
+export async function syncEsiosIndicators(): Promise<EsiosSyncIndicatorsResponse> {
+  return sendJson(`/esios/indicators/sync`, "POST", "Sincronizando catalogo ESIOS", REQUEST_TIMEOUT_MS * 4);
+}
+
+export async function getEsiosDemandForecast(filters: EsiosValuesFilters = {}): Promise<EsiosValuesResponse> {
+  return getJson(`/esios/demanda-prevista${toQuery(filters)}`);
+}
+
+export async function downloadEsiosDemandForecast(startDate: string, endDate: string): Promise<EsiosDownloadSummary> {
+  return downloadEsiosIndicator(460, startDate, endDate);
+}
+
+export async function downloadEsiosIndicator(indicatorId: number, startDate: string, endDate: string): Promise<EsiosDownloadSummary> {
+  return sendJson(
+    `/esios/indicators/${encodeURIComponent(indicatorId)}/download`,
+    "POST",
+    "Descargando ESIOS",
+    REQUEST_TIMEOUT_MS * 6,
+    { startDate, endDate }
+  );
+}
+
+export async function getEsiosDownloadLogs(query: { indicatorId?: number; skip?: number; take?: number } = {}): Promise<EsiosDownloadLogsResponse> {
+  return getJson(`/esios/download-logs${toQuery(query)}`);
+}
+
+export async function getEsiosInitialProfiles(filters: EsiosProfilesFilters = {}): Promise<EsiosInitialProfilesResponse> {
+  return getJson(`/esios/profiles/initial${toQuery(filters)}`);
+}
+
+export async function getEsiosProfilesSummary(year: number | string): Promise<EsiosProfilesSummary> {
+  return getJson(`/esios/profiles/summary/${encodeURIComponent(year)}`);
+}
+
+export async function getEsiosProfileCoefficients(year: number | string): Promise<EsiosProfileCoefficient[]> {
+  return getJson(`/esios/profiles/coefficients/${encodeURIComponent(year)}`);
+}
+
+export async function saveEsiosProfileCoefficients(year: number | string, coefficients: EsiosProfileCoefficient[]): Promise<EsiosProfileCoefficient[]> {
+  return sendJson(`/esios/profiles/coefficients/${encodeURIComponent(year)}`, "PUT", "Guardando coeficientes ESIOS", REQUEST_TIMEOUT_MS, { coefficients });
+}
+
+export async function getEsiosProfileUploads(query: { year?: number | string; skip?: number; take?: number } = {}): Promise<EsiosProfilesUploadsResponse> {
+  return getJson(`/esios/profiles/uploads${toQuery(query)}`);
+}
+
+export async function calculateEsiosIntermediateProfiles(year: number | string): Promise<{ summary: EsiosProfileIntermediateSummary; rowsProcessed: number; tariffsProcessed: number }> {
+  return sendJson<{ summary: EsiosProfileIntermediateSummary; rowsProcessed: number; tariffsProcessed: number }>(
+    `/esios/profiles/intermediate/${encodeURIComponent(year)}/calculate`,
+    "POST",
+    "Calculando perfiles intermedios",
+    REQUEST_TIMEOUT_MS * 8
+  );
+}
+
+export async function getEsiosIntermediateProfiles(filters: EsiosProfilesFilters = {}): Promise<EsiosProfileIntermediatesResponse> {
+  return getJson(`/esios/profiles/intermediate${toQuery(filters)}`);
+}
+
+export async function getEsiosIntermediateProfilesSummary(year: number | string): Promise<EsiosProfileIntermediateSummary> {
+  return getJson(`/esios/profiles/intermediate/summary/${encodeURIComponent(year)}`);
+}
+
+export async function getEsiosProfileCalculationLogs(query: { year?: number | string; skip?: number; take?: number } = {}): Promise<EsiosProfileCalculationLogsResponse> {
+  return getJson(`/esios/profiles/intermediate/logs${toQuery(query)}`);
+}
+
+export async function uploadEsiosProfiles(file: File, year: number | string, replace = false, onProgress?: (progress: number) => void): Promise<EsiosProfilesUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  return sendMultipart<EsiosProfilesUploadResponse>(`${API_URL}/esios/profiles/upload${toQuery({ year, replace: replace ? "true" : undefined })}`, formData, onProgress);
+}
+
+export async function getEsiosReeFinalDemandUploads(query: { year?: number | string; month?: number | string; day?: number | string; skip?: number; take?: number } = {}): Promise<EsiosReeFinalDemandUploadsResponse> {
+  return getJson(`/esios/profiles/final-demand/uploads${toQuery(query)}`);
+}
+
+export async function uploadEsiosReeFinalDemand(
+  file: File,
+  year: number | string,
+  month: number | string,
+  replace = false,
+  onProgress?: (progress: number) => void,
+  day?: number | string
+): Promise<EsiosReeFinalDemandUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  return sendMultipart<EsiosReeFinalDemandUploadResponse>(`${API_URL}/esios/profiles/final-demand/upload${toQuery({ year, month, day, replace: replace ? "true" : undefined })}`, formData, onProgress);
+}
+
+export async function getEsiosReeFinalProfileUploads(query: { year?: number | string; month?: number | string; skip?: number; take?: number } = {}): Promise<EsiosReeFinalProfileUploadsResponse> {
+  return getJson(`/esios/profiles/final-profiles/uploads${toQuery(query)}`);
+}
+
+export async function uploadEsiosReeFinalProfiles(
+  file: File,
+  year: number | string,
+  month: number | string,
+  replace = false,
+  onProgress?: (progress: number) => void
+): Promise<EsiosReeFinalProfileUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  return sendMultipart<EsiosReeFinalProfileUploadResponse>(`${API_URL}/esios/profiles/final-profiles/upload${toQuery({ year, month, replace: replace ? "true" : undefined })}`, formData, onProgress);
+}
+
 async function getJson<T>(path: string): Promise<T> {
   return withGlobalLoading(async () => {
     const controller = new AbortController();
@@ -1252,7 +1741,7 @@ async function getJson<T>(path: string): Promise<T> {
   }, { label: "Cargando datos" });
 }
 
-async function sendJson<T>(path: string, method: "POST" | "DELETE", label: string, timeoutMs = REQUEST_TIMEOUT_MS, body?: unknown): Promise<T> {
+async function sendJson<T>(path: string, method: "POST" | "PUT" | "DELETE", label: string, timeoutMs = REQUEST_TIMEOUT_MS, body?: unknown): Promise<T> {
   return withGlobalLoading(async () => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -1267,13 +1756,13 @@ async function sendJson<T>(path: string, method: "POST" | "DELETE", label: strin
         body: body === undefined ? undefined : JSON.stringify(body)
       });
       if (!response.ok) {
-        throw new Error(await readError(response, "Error procesando la accion."));
+        throw new Error(await readError(response, "Error procesando la acción."));
       }
 
       return response.json();
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new Error("Tiempo de espera agotado procesando la accion.");
+        throw new Error("Tiempo de espera agotado procesando la acción.");
       }
       throw error;
     } finally {
