@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Headers, Param, Post, Put, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
-import { memoryStorage } from "multer";
+import { attachUploadedFileBuffer, cleanupUploadedFile, uploadDiskStorage, uploadLimits } from "../common/upload-storage";
 import { EsiosApiService } from "./esios-api.service";
 import {
   EsiosProfilesService,
@@ -118,34 +118,35 @@ export class EsiosController {
   @Post("profiles/upload")
   @UseInterceptors(
     FileInterceptor("file", {
-      storage: memoryStorage(),
-      limits: {
-        fileSize: 100 * 1024 * 1024
-      }
+      storage: uploadDiskStorage,
+      limits: uploadLimits({ fileSizeMb: 100 })
     })
   )
-  uploadProfiles(
+  async uploadProfiles(
     @UploadedFile() file: Express.Multer.File,
     @Query("year") year: string,
     @Query("replace") replace?: string,
     @Headers("x-user") uploadedBy?: string
   ) {
-    return this.esiosProfilesService.uploadInitialProfiles(file, parseRequiredInteger(year, "Año"), {
-      replace: parseBooleanQuery(replace),
-      uploadedBy
-    });
+    try {
+      await attachUploadedFileBuffer(file);
+      return await this.esiosProfilesService.uploadInitialProfiles(file, parseRequiredInteger(year, "Año"), {
+        replace: parseBooleanQuery(replace),
+        uploadedBy
+      });
+    } finally {
+      await cleanupUploadedFile(file);
+    }
   }
 
   @Post("profiles/final-demand/upload")
   @UseInterceptors(
     FileInterceptor("file", {
-      storage: memoryStorage(),
-      limits: {
-        fileSize: 20 * 1024 * 1024
-      }
+      storage: uploadDiskStorage,
+      limits: uploadLimits({ fileSizeMb: 20 })
     })
   )
-  uploadFinalDemand(
+  async uploadFinalDemand(
     @UploadedFile() file: Express.Multer.File,
     @Query("year") year: string,
     @Query("month") month: string,
@@ -153,11 +154,16 @@ export class EsiosController {
     @Query("replace") replace?: string,
     @Headers("x-user") uploadedBy?: string
   ) {
-    return this.esiosProfilesService.uploadReeFinalDemand(file, parseRequiredInteger(year, "Año"), parseRequiredInteger(month, "Mes"), {
-      day: parseOptionalInteger(day),
-      replace: parseBooleanQuery(replace),
-      uploadedBy
-    });
+    try {
+      await attachUploadedFileBuffer(file);
+      return await this.esiosProfilesService.uploadReeFinalDemand(file, parseRequiredInteger(year, "Año"), parseRequiredInteger(month, "Mes"), {
+        day: parseOptionalInteger(day),
+        replace: parseBooleanQuery(replace),
+        uploadedBy
+      });
+    } finally {
+      await cleanupUploadedFile(file);
+    }
   }
 
   @Get("profiles/final-demand/uploads")
@@ -174,23 +180,26 @@ export class EsiosController {
   @Post("profiles/final-profiles/upload")
   @UseInterceptors(
     FileInterceptor("file", {
-      storage: memoryStorage(),
-      limits: {
-        fileSize: 20 * 1024 * 1024
-      }
+      storage: uploadDiskStorage,
+      limits: uploadLimits({ fileSizeMb: 20 })
     })
   )
-  uploadFinalProfiles(
+  async uploadFinalProfiles(
     @UploadedFile() file: Express.Multer.File,
     @Query("year") year: string,
     @Query("month") month: string,
     @Query("replace") replace?: string,
     @Headers("x-user") uploadedBy?: string
   ) {
-    return this.esiosProfilesService.uploadReeFinalProfiles(file, parseRequiredInteger(year, "AÃ±o"), parseRequiredInteger(month, "Mes"), {
-      replace: parseBooleanQuery(replace),
-      uploadedBy
-    });
+    try {
+      await attachUploadedFileBuffer(file);
+      return await this.esiosProfilesService.uploadReeFinalProfiles(file, parseRequiredInteger(year, "AÃ±o"), parseRequiredInteger(month, "Mes"), {
+        replace: parseBooleanQuery(replace),
+        uploadedBy
+      });
+    } finally {
+      await cleanupUploadedFile(file);
+    }
   }
 
   @Get("profiles/final-profiles/uploads")

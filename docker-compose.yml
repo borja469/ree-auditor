@@ -31,22 +31,24 @@ services:
       PORT: 3000
       CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
       OMIE_SIOM2_ENDPOINT: ${OMIE_SIOM2_ENDPOINT:-https://www.mercado.omie.es/jsiom/webServices/SIOMServiceRouter}
-      OMIE_SIOM2_P12_PATH: /app/51627TC_STROM.p12
+      OMIE_SIOM2_P12_PATH: /app/omie-siom2.p12
       OMIE_SIOM2_P12_BASE64: ${OMIE_SIOM2_P12_BASE64:-}
       OMIE_SIOM2_P12_PASSPHRASE: ${OMIE_SIOM2_P12_PASSPHRASE:-}
       OMIE_SIOM2_REJECT_UNAUTHORIZED: ${OMIE_SIOM2_REJECT_UNAUTHORIZED:-true}
       OMIE_SIOM2_DNS_SERVERS: ${OMIE_SIOM2_DNS_SERVERS:-1.1.1.1,8.8.8.8}
       OMIE_SIOM2_TIMEOUT_MS: ${OMIE_SIOM2_TIMEOUT_MS:-30000}
       OMIE_CATALOGO_PATH: ${OMIE_CATALOGO_PATH:-/app/data/omie-catalogo.json}
+      DATA_DIR: ${DATA_DIR:-/app/data}
+      UPLOAD_TMP_DIR: ${UPLOAD_TMP_DIR:-/app/data/tmp/uploads}
     ports:
       - "3000:3000"
     volumes:
-      - ./51627TC_STROM.p12:/app/51627TC_STROM.p12:ro
+      - ${OMIE_SIOM2_P12_HOST_PATH:-./certs/omie-siom2.p12}:/app/omie-siom2.p12:ro
       - ./data:/app/data
     depends_on:
       postgres:
         condition: service_healthy
-    command: sh -c "npx prisma db push --accept-data-loss && npm run start:dev"
+    command: sh -c "npx prisma migrate deploy && npm run start:prod"
 
   web:
     build:
@@ -57,10 +59,9 @@ services:
     environment:
       VITE_API_URL: ${VITE_API_URL:-auto}
     ports:
-      - "5173:5173"
+      - "5173:80"
     depends_on:
       - api
-    command: npm run dev -- --host 0.0.0.0
 
 volumes:
   postgres_data:

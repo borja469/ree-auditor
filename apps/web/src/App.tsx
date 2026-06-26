@@ -300,6 +300,7 @@ export function App() {
   });
   const [openSidebarItems, setOpenSidebarItems] = useState<Record<string, boolean>>({
     "ree-reganecu-menu": true,
+    "ree-losses-menu": true,
     "omie-programas-menu": true,
     "omie-hoja-control-menu": true,
     "esios-menu": true
@@ -1626,28 +1627,36 @@ export function App() {
           }
         },
         {
-          key: "ree-losses-detail",
-          label: "Detalle de pérdidas",
-          description: "tabla y exportaciones",
-          active: section === "reeLosses" && reeLossesView === "detail",
-          onSelect: () => {
-            setSection("reeLosses");
-            setImportMode("reeLosses");
-            setReeLossesView("detail");
-            void refreshReeLosses(reeLossesFilters);
-          }
-        },
-        {
-          key: "ree-losses-system",
-          label: "Sistema + evolución",
-          description: "peninsular y KPIs",
-          active: section === "reeLosses" && reeLossesView === "system",
-          onSelect: () => {
-            setSection("reeLosses");
-            setImportMode("reeLosses");
-            setReeLossesView("system");
-            void refreshReeLosses(reeLossesFilters);
-          }
+          key: "ree-losses-menu",
+          label: "Pérdidas",
+          description: "detalle y evolución",
+          active: section === "reeLosses" && (reeLossesView === "detail" || reeLossesView === "system"),
+          children: [
+            {
+              key: "ree-losses-detail",
+              label: "Detalle de pérdidas",
+              description: "tabla y exportaciones",
+              active: section === "reeLosses" && reeLossesView === "detail",
+              onSelect: () => {
+                setSection("reeLosses");
+                setImportMode("reeLosses");
+                setReeLossesView("detail");
+                void refreshReeLosses(reeLossesFilters);
+              }
+            },
+            {
+              key: "ree-losses-system",
+              label: "Sistema + evolución",
+              description: "peninsular y KPIs",
+              active: section === "reeLosses" && reeLossesView === "system",
+              onSelect: () => {
+                setSection("reeLosses");
+                setImportMode("reeLosses");
+                setReeLossesView("system");
+                void refreshReeLosses(reeLossesFilters);
+              }
+            }
+          ]
         }
       ]
     },
