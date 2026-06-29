@@ -58,6 +58,9 @@ Crear `D:\ree-auditor\config\.env.production` con al menos:
 - `PORT=3000`
 - `DATABASE_URL=postgresql://...`
 - `CORS_ORIGIN=http://intranet-ree-auditor`
+- `APP_AUTH_USERNAME=operaciones`
+- `APP_AUTH_PASSWORD=CHANGE_ME`
+- `APP_AUTH_TOKEN_SECRET=CHANGE_ME_LONG_RANDOM_VALUE`
 - `VITE_API_URL=/api` si hay proxy
 - `DATA_DIR=D:\ree-auditor\data`
 - `UPLOAD_TMP_DIR=D:\ree-auditor\uploads\tmp`
@@ -171,7 +174,7 @@ Instalacion del servicio recomendado:
 $nssm = 'C:\Tools\nssm\nssm.exe'
 & $nssm install ree-auditor-api 'C:\Program Files\nodejs\node.exe' 'D:\ree-auditor\app\apps\api\dist\main.js'
 & $nssm set ree-auditor-api AppDirectory 'D:\ree-auditor\app'
-& $nssm set ree-auditor-api AppEnvironmentExtra 'NODE_ENV=production' 'PORT=3000' 'DATABASE_URL=postgresql://ree_user:CHANGE_ME@localhost:5432/ree_auditor?schema=public' 'CORS_ORIGIN=http://intranet-ree-auditor' 'DATA_DIR=D:\ree-auditor\data' 'UPLOAD_TMP_DIR=D:\ree-auditor\uploads\tmp' 'OMIE_SIOM2_P12_PATH=D:\ree-auditor\certs\omie-siom2.p12'
+& $nssm set ree-auditor-api AppEnvironmentExtra 'NODE_ENV=production' 'PORT=3000' 'DATABASE_URL=postgresql://ree_user:CHANGE_ME@localhost:5432/ree_auditor?schema=public' 'CORS_ORIGIN=http://intranet-ree-auditor' 'APP_AUTH_USERNAME=operaciones' 'APP_AUTH_PASSWORD=CHANGE_ME' 'APP_AUTH_TOKEN_SECRET=CHANGE_ME_LONG_RANDOM_VALUE' 'DATA_DIR=D:\ree-auditor\data' 'UPLOAD_TMP_DIR=D:\ree-auditor\uploads\tmp' 'OMIE_SIOM2_P12_PATH=D:\ree-auditor\certs\omie-siom2.p12'
 & $nssm set ree-auditor-api AppStdout 'D:\ree-auditor\logs\api-out.log'
 & $nssm set ree-auditor-api AppStderr 'D:\ree-auditor\logs\api-error.log'
 & $nssm set ree-auditor-api AppStopMethodConsole 15000

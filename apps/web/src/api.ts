@@ -1350,6 +1350,13 @@ export type ReeLossesAnalyticsSummary = {
 
 const API_URL = resolveApiUrl();
 const REQUEST_TIMEOUT_MS = 60000;
+const AUTH_STORAGE_KEY = "ree-auditor-auth";
+
+export type AuthSession = {
+  token: string;
+  user: string;
+  expiresAt: string;
+};
 
 function resolveApiUrl() {
   const configured = import.meta.env.VITE_API_URL?.trim();
@@ -1368,6 +1375,42 @@ export async function listImports(query: Pick<Filters, "skip" | "take"> = {}): P
   return getJson(`/imports${toQuery(query)}`);
 }
 
+export async function login(username: string, password: string): Promise<AuthSession> {
+  const response = await fetch(`${API_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password })
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "No se pudo iniciar sesion."));
+  }
+
+  const session = (await response.json()) as AuthSession;
+  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  window.localStorage.setItem("ree-auditor-user", session.user);
+  return session;
+}
+
+export function logout() {
+  window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  window.localStorage.removeItem("ree-auditor-user");
+}
+
+export function getStoredAuthSession() {
+  const text = window.localStorage.getItem(AUTH_STORAGE_KEY);
+  if (!text) {
+    return undefined;
+  }
+
+  const session = parseJson(text) as Partial<AuthSession> | undefined;
+  if (!session?.token || !session.user || !session.expiresAt || new Date(session.expiresAt).getTime() <= Date.now()) {
+    logout();
+    return undefined;
+  }
+
+  return session as AuthSession;
+}
+
 export async function getImportFileDetail(id: string): Promise<ImportHistoryDetail> {
   return getJson(`/imports/${encodeURIComponent(id)}/detail`);
 }
@@ -1381,8 +1424,12 @@ export async function getImportFileErrorsCsv(id: string): Promise<string> {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS * 2);
     try {
-      const response = await fetch(`${API_URL}/imports/${encodeURIComponent(id)}/errors`, { signal: controller.signal });
+      const response = await fetch(`${API_URL}/imports/${encodeURIComponent(id)}/errors`, {
+        signal: controller.signal,
+        headers: authHeaders()
+      });
       if (!response.ok) {
+        handleUnauthorized(response);
         throw new Error(await readError(response, "Error descargando errores."));
       }
 
@@ -1724,8 +1771,9 @@ async function getJson<T>(path: string): Promise<T> {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch(`${API_URL}${path}`, { signal: controller.signal });
+      const response = await fetch(`${API_URL}${path}`, { signal: controller.signal, headers: authHeaders() });
       if (!response.ok) {
+        handleUnauthorized(response);
         throw new Error(await readError(response, "Error consultando la API."));
       }
 
@@ -1750,12 +1798,14 @@ async function sendJson<T>(path: string, method: "POST" | "PUT" | "DELETE", labe
         method,
         signal: controller.signal,
         headers: {
+          ...authHeaders(),
           "X-User": getAuditUser(),
           ...(body === undefined ? {} : { "Content-Type": "application/json" })
         },
         body: body === undefined ? undefined : JSON.stringify(body)
       });
       if (!response.ok) {
+        handleUnauthorized(response);
         throw new Error(await readError(response, "Error procesando la acción."));
       }
 
@@ -1782,6 +1832,10 @@ function sendMultipart<TResponse = ImportResponse>(
     const request = new XMLHttpRequest();
     request.timeout = REQUEST_TIMEOUT_MS * 4;
     request.open("POST", url);
+    const authHeader = authHeaders().Authorization;
+    if (authHeader) {
+      request.setRequestHeader("Authorization", authHeader);
+    }
     request.setRequestHeader("X-User", getAuditUser());
     const finish = (callback: () => void) => {
       if (settled) {
@@ -1809,6 +1863,10 @@ function sendMultipart<TResponse = ImportResponse>(
         return;
       }
 
+      if (request.status === 401) {
+        logout();
+        window.dispatchEvent(new Event("ree-auditor-auth-expired"));
+      }
       finish(() => reject(new Error(readErrorPayload(payload) ?? (request.responseText || "No se pudo importar."))));
     };
     request.onerror = () => finish(() => reject(new Error("No se pudo conectar con la API.")));
@@ -1829,6 +1887,18 @@ function isUploadConflictPayload(payload: unknown): payload is { conflicts: Uplo
 
 function getAuditUser() {
   return window.localStorage.getItem("ree-auditor-user")?.trim() || "web";
+}
+
+function authHeaders(): Record<string, string> {
+  const session = getStoredAuthSession();
+  return session ? { Authorization: `Bearer ${session.token}` } : {};
+}
+
+function handleUnauthorized(response: Response) {
+  if (response.status === 401) {
+    logout();
+    window.dispatchEvent(new Event("ree-auditor-auth-expired"));
+  }
 }
 
 function toQuery(filters: Record<string, string | number | undefined>) {

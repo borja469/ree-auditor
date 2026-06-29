@@ -1,4 +1,4 @@
-import { type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -15,6 +15,8 @@ import {
   FileSpreadsheet,
   Gauge,
   Info,
+  LockKeyhole,
+  LogOut,
   Maximize2,
   Minimize2,
   RefreshCw,
@@ -98,6 +100,7 @@ import { OmieDetalleCargaModule } from "./modules/omie/detalle-carga/OmieDetalle
 import { OmieLiquidacionesModule } from "./modules/omie/liquidaciones/OmieLiquidacionesModule";
 import {
   type A1Record,
+  type AuthSession,
   type Filters,
   type ImportHistoryDetail,
   type ImportHistoryLogs,
@@ -148,6 +151,7 @@ import {
   deleteImportFile,
   executeOmieDescarga,
   executeOmieDescargaDiaria,
+  getStoredAuthSession,
   getImportFileDetail,
   getImportFileErrorsCsv,
   getImportFileLogs,
@@ -177,6 +181,8 @@ import {
   listImports,
   listReganecu,
   listReganecuQh,
+  login,
+  logout,
   redownloadOmieDescarga,
   reprocessImportFile,
   reprocessOmieDescarga,
@@ -234,6 +240,30 @@ const SUMMARY_SEGMENTS = [
 ] as const;
 
 export function App() {
+  const [authSession, setAuthSession] = useState(() => getStoredAuthSession());
+
+  useEffect(() => {
+    const onAuthExpired = () => setAuthSession(undefined);
+    window.addEventListener("ree-auditor-auth-expired", onAuthExpired);
+    return () => window.removeEventListener("ree-auditor-auth-expired", onAuthExpired);
+  }, []);
+
+  if (!authSession) {
+    return <LoginView onLogin={setAuthSession} />;
+  }
+
+  return (
+    <AuthenticatedApp
+      user={authSession.user}
+      onLogout={() => {
+        logout();
+        setAuthSession(undefined);
+      }}
+    />
+  );
+}
+
+function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => void }) {
   const globalLoading = useGlobalLoadingState();
   const refreshInFlight = useRef(false);
   const uploadInFlight = useRef(false);
@@ -1790,8 +1820,8 @@ export function App() {
         <GlobalLoadingOverlay />
         <aside className="sidebar">
           <div className="sidebar-brand">
-            <p>Liquidaciones REE</p>
-            <strong>Auditoria</strong>
+            <p>Operacional</p>
+            <strong>Operacional</strong>
           </div>
           <nav className="sidebar-nav">
             {sidebarGroups.map((group) => {
@@ -1816,12 +1846,18 @@ export function App() {
         <main className="app-shell">
           <header className="topbar">
             <div>
-              <p className="eyebrow">Facturacion A1 - Liquidaciones REE</p>
+              <p className="eyebrow">Operacional</p>
               <h1>{workspaceTitle}</h1>
             </div>
-            <button className="icon-button" onClick={refreshCurrent} disabled={isBusy} title="Actualizar">
-              {loading ? <LoadingSquares compact /> : <RefreshCw size={18} />}
-            </button>
+            <div className="topbar-actions">
+              <span className="session-user">{user}</span>
+              <button className="icon-button" onClick={refreshCurrent} disabled={isBusy} title="Actualizar">
+                {loading ? <LoadingSquares compact /> : <RefreshCw size={18} />}
+              </button>
+              <button className="icon-button" onClick={onLogout} disabled={isBusy} title="Cerrar sesion">
+                <LogOut size={18} />
+              </button>
+            </div>
           </header>
 
           {showGlobalUploadBand && !isOmieSection(section) && section !== "reeDownloads" && (
@@ -2117,6 +2153,54 @@ export function App() {
           )}
         </main>
     </div>
+  );
+}
+
+function LoginView({ onLogin }: { onLogin: (session: AuthSession) => void }) {
+  const [username, setUsername] = useState("operaciones");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      onLogin(await login(username.trim(), password));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "No se pudo iniciar sesion.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="login-shell">
+      <form className="login-panel" onSubmit={submit}>
+        <div className="login-mark">
+          <LockKeyhole size={24} />
+        </div>
+        <div className="login-heading">
+          <p>Operacional</p>
+          <h1>Acceso a auditoria</h1>
+        </div>
+        <label className="login-field">
+          <span>Usuario</span>
+          <input autoComplete="username" autoFocus value={username} onChange={(event) => setUsername(event.target.value)} />
+        </label>
+        <label className="login-field">
+          <span>Contrasena</span>
+          <input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+        </label>
+        {error && <div className="login-error">{error}</div>}
+        <button className="primary-button login-button" disabled={loading || !username.trim() || !password} type="submit">
+          <ButtonLoadingContent loading={loading} loadingLabel="Entrando" icon={<LockKeyhole size={18} />}>
+            Entrar
+          </ButtonLoadingContent>
+        </button>
+      </form>
+    </main>
   );
 }
 
