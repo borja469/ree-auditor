@@ -127,6 +127,8 @@ import {
   type OmieDailyBulkDownloadResponse,
   type OmieAnalisisMensualResponse,
   type OmieComprobacionLiquidacionesResponse,
+  type OmieAutomationConfig,
+  type OmieAutomationRunResponse,
   type OmiePrecioPeriodo,
   type OmiePreciosResponse,
   type OmieProgramaEvolucionPeriodo,
@@ -151,6 +153,7 @@ import {
   deleteImportFile,
   executeOmieDescarga,
   executeOmieDescargaDiaria,
+  executeOmieAutomation,
   getStoredAuthSession,
   getImportFileDetail,
   getImportFileErrorsCsv,
@@ -165,6 +168,7 @@ import {
   getOmieComprobacionLiquidaciones,
   getOmieDescargaDetalle,
   getOmieDescargasControl,
+  getOmieAutomationConfig,
   getOmiePrecios,
   getOmieProgramaIntradiario,
   getOmieProgramaMercadoDiario,
@@ -186,6 +190,7 @@ import {
   redownloadOmieDescarga,
   reprocessImportFile,
   reprocessOmieDescarga,
+  saveOmieAutomationConfig,
   uploadMedperFiles,
   uploadReeLossesFiles,
   uploadReganecuFiles,
@@ -310,6 +315,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   const [omieAnalisisMensual, setOmieAnalisisMensual] = useState<OmieAnalisisMensualResponse>();
   const [omieComprobacionLiquidaciones, setOmieComprobacionLiquidaciones] = useState<OmieComprobacionLiquidacionesResponse>();
   const [omieDescargas, setOmieDescargas] = useState<OmieDownloadControlRow[]>([]);
+  const [omieAutomationConfig, setOmieAutomationConfig] = useState<OmieAutomationConfig>();
+  const [latestOmieAutomationRun, setLatestOmieAutomationRun] = useState<OmieAutomationRunResponse>();
   const [omieDownloadFilters, setOmieDownloadFilters] = useState<OmieDownloadControlFilters>({});
   const [omieDownloadDraft, setOmieDownloadDraft] = useState<OmieDownloadExecuteRequest>(() => {
     const today = getTodayInputValue();
@@ -660,9 +667,58 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     }
 
     try {
-      setOmieDescargas(await getOmieDescargasControl(nextFilters));
+      const [nextDescargas, nextAutomationConfig] = await Promise.all([
+        getOmieDescargasControl(nextFilters),
+        getOmieAutomationConfig()
+      ]);
+      setOmieDescargas(nextDescargas);
+      setOmieAutomationConfig(nextAutomationConfig);
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando control de descargas OMIE." });
+    } finally {
+      stopLoading();
+    }
+  }
+
+  async function saveOmieAutomation(nextConfig: OmieAutomationConfig) {
+    const stopLoading = beginDataRefresh();
+    if (!stopLoading) {
+      return;
+    }
+
+    try {
+      const saved = await saveOmieAutomationConfig(nextConfig);
+      setOmieAutomationConfig(saved);
+      setMessage({ tone: "success", text: "Automatismo OMIE guardado." });
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error guardando automatismo OMIE." });
+    } finally {
+      stopLoading();
+    }
+  }
+
+  async function runOmieAutomationNow() {
+    const stopLoading = beginDataRefresh();
+    if (!stopLoading) {
+      return;
+    }
+
+    try {
+      const daysBack = omieAutomationConfig?.daysBack ?? 3;
+      const response = await executeOmieAutomation(daysBack);
+      setLatestOmieAutomationRun(response);
+      setMessage({
+        tone: response.errores > 0 ? "error" : "success",
+        text: `Automatismo OMIE: ${response.totalConsultasEjecutadas} ejecutadas, ${response.procesadas} procesadas, ${response.sinDatos} sin datos, ${response.errores} errores, ${formatDurationMs(response.tiempoTotalMs)}.`
+      });
+      const [nextDescargas, nextAutomationConfig] = await Promise.all([
+        getOmieDescargasControl(omieDownloadFilters),
+        getOmieAutomationConfig()
+      ]);
+      setOmieDescargas(nextDescargas);
+      setOmieAutomationConfig(nextAutomationConfig);
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error ejecutando automatismo OMIE." });
     } finally {
       stopLoading();
     }
@@ -2036,11 +2092,16 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           {section === "omieDescargas" && (
             <OmieDescargasControlModule
               descargas={omieDescargas}
+              automationConfig={omieAutomationConfig}
               filters={omieDownloadFilters}
               draft={omieDownloadDraft}
               detail={selectedOmieDownloadDetail}
               latestDailyBulkDownload={latestOmieDailyBulkDownload}
+              latestAutomationRun={latestOmieAutomationRun}
               loading={loading}
+              onAutomationChange={setOmieAutomationConfig}
+              onAutomationSave={saveOmieAutomation}
+              onAutomationRunNow={runOmieAutomationNow}
               onFiltersChange={setOmieDownloadFilters}
               onDraftChange={setOmieDownloadDraft}
               onApply={() => refreshOmieDescargas(omieDownloadFilters)}

@@ -93,6 +93,37 @@ export type OmieDownloadDailyBulkResponse = {
   resultados: OmieDownloadDailyBulkItem[];
 };
 
+export type OmieAutomationConfigDto = {
+  active: boolean;
+  daysBack: number;
+  sessions: [string, string, string];
+  lastRunKey: string | null;
+  lastRunAt: string | null;
+};
+
+export type OmieAutomationRunResponse = {
+  session: string;
+  startedAt: string;
+  finishedAt: string;
+  force: true;
+  daysBack: number;
+  dates: string[];
+  totalConsultas: number;
+  totalConsultasEjecutadas: number;
+  procesadas: number;
+  sinDatos: number;
+  errores: number;
+  omitidas: number;
+  tiempoTotalMs: number;
+  resultados: OmieDownloadDailyBulkResponse[];
+};
+
+export type OmieAutomationConfigInput = {
+  active?: boolean;
+  daysBack?: number;
+  sessions?: string[];
+};
+
 type SyncOptions = {
   force?: boolean;
 };
@@ -270,6 +301,104 @@ export class OmieDescargasService {
     };
   }
 
+  async obtenerAutomatizacion(): Promise<OmieAutomationConfigDto> {
+    const config = await this.getOrCreateAutomationConfig();
+    return serializeAutomationConfig(config);
+  }
+
+  async guardarAutomatizacion(input: OmieAutomationConfigInput): Promise<OmieAutomationConfigDto> {
+    const sessions = normalizeAutomationSessions(input.sessions);
+    const data: {
+      active?: boolean;
+      daysBack?: number;
+      session1?: string;
+      session2?: string;
+      session3?: string;
+    } = {};
+
+    if (typeof input.active === "boolean") {
+      data.active = input.active;
+    }
+    if (input.daysBack !== undefined) {
+      data.daysBack = normalizeDaysBack(input.daysBack);
+    }
+    if (sessions) {
+      data.session1 = sessions[0];
+      data.session2 = sessions[1];
+      data.session3 = sessions[2];
+    }
+
+    const config = await this.prisma.omieAutomationConfig.upsert({
+      where: { id: 1 },
+      create: {
+        id: 1,
+        active: data.active ?? false,
+        daysBack: data.daysBack ?? 3,
+        session1: data.session1 ?? "06:00",
+        session2: data.session2 ?? "12:00",
+        session3: data.session3 ?? "18:00"
+      },
+      update: data
+    });
+    return serializeAutomationConfig(config);
+  }
+
+  async ejecutarAutomatizacion(session: string, daysBack?: number): Promise<OmieAutomationRunResponse> {
+    const normalizedSession = normalizeAutomationTime(session);
+    const config = await this.getOrCreateAutomationConfig();
+    const resolvedDaysBack = normalizeDaysBack(daysBack ?? config.daysBack);
+    const startedAt = new Date();
+    const dates = buildRecentDates(resolvedDaysBack, startedAt);
+    const resultados: OmieDownloadDailyBulkResponse[] = [];
+
+    for (const fecha of dates) {
+      resultados.push(await this.descargarTodoElDia({ fecha }, { force: true }));
+    }
+
+    const finishedAt = new Date();
+    return {
+      session: normalizedSession,
+      startedAt: startedAt.toISOString(),
+      finishedAt: finishedAt.toISOString(),
+      force: true,
+      daysBack: resolvedDaysBack,
+      dates,
+      totalConsultas: sumAutomation(resultados, "totalConsultas"),
+      totalConsultasEjecutadas: sumAutomation(resultados, "totalConsultasEjecutadas"),
+      procesadas: sumAutomation(resultados, "procesadas"),
+      sinDatos: sumAutomation(resultados, "sinDatos"),
+      errores: sumAutomation(resultados, "errores"),
+      omitidas: sumAutomation(resultados, "omitidas"),
+      tiempoTotalMs: finishedAt.getTime() - startedAt.getTime(),
+      resultados
+    };
+  }
+
+  async markAutomationRun(runKey: string) {
+    await this.prisma.omieAutomationConfig.update({
+      where: { id: 1 },
+      data: {
+        lastRunKey: runKey,
+        lastRunAt: new Date()
+      }
+    });
+  }
+
+  private async getOrCreateAutomationConfig() {
+    return this.prisma.omieAutomationConfig.upsert({
+      where: { id: 1 },
+      create: {
+        id: 1,
+        active: false,
+        daysBack: 3,
+        session1: "06:00",
+        session2: "12:00",
+        session3: "18:00"
+      },
+      update: {}
+    });
+  }
+
   async reprocesar(id: string) {
     const row = await this.obtenerDetalle(id);
     return this.ejecutarDescarga(buildRequestFromRow(row), { force: false });
@@ -300,6 +429,96 @@ export class OmieDescargasService {
       result
     };
   }
+}
+
+function serializeAutomationConfig(config: {
+  active: boolean;
+  daysBack: number;
+  session1: string | null;
+  session2: string | null;
+  session3: string | null;
+  lastRunKey: string | null;
+  lastRunAt: Date | null;
+}): OmieAutomationConfigDto {
+  return {
+    active: config.active,
+    daysBack: config.daysBack,
+    sessions: [
+      normalizeAutomationTime(config.session1 ?? "06:00"),
+      normalizeAutomationTime(config.session2 ?? "12:00"),
+      normalizeAutomationTime(config.session3 ?? "18:00")
+    ],
+    lastRunKey: config.lastRunKey,
+    lastRunAt: config.lastRunAt?.toISOString() ?? null
+  };
+}
+
+function normalizeAutomationSessions(value: string[] | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+  const sessions = value.slice(0, 3).map(normalizeAutomationTime);
+  while (sessions.length < 3) {
+    sessions.push(["06:00", "12:00", "18:00"][sessions.length]);
+  }
+  return sessions as [string, string, string];
+}
+
+function normalizeAutomationTime(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) {
+    throw new BadRequestException("Las sesiones automaticas deben tener formato HH:mm.");
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isSafeInteger(hour) || !Number.isSafeInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new BadRequestException("Las sesiones automaticas deben tener una hora valida.");
+  }
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function normalizeDaysBack(value: number) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > 31) {
+    throw new BadRequestException("Los dias atras deben estar entre 1 y 31.");
+  }
+  return parsed;
+}
+
+function buildRecentDates(daysBack: number, referenceDate: Date) {
+  const todayMadrid = madridDateParts(referenceDate).date;
+  const dates: string[] = [];
+  const base = new Date(`${todayMadrid}T00:00:00.000Z`);
+  for (let offset = 0; offset < daysBack; offset += 1) {
+    const date = new Date(base);
+    date.setUTCDate(base.getUTCDate() - offset);
+    dates.push(formatDateOnly(date));
+  }
+  return dates;
+}
+
+function sumAutomation<K extends "totalConsultas" | "totalConsultasEjecutadas" | "procesadas" | "sinDatos" | "errores" | "omitidas">(
+  resultados: OmieDownloadDailyBulkResponse[],
+  key: K
+) {
+  return resultados.reduce((sum, result) => sum + result[key], 0);
+}
+
+function madridDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "00";
+  return {
+    date: `${value("year")}-${value("month")}-${value("day")}`,
+    time: `${value("hour")}:${value("minute")}`
+  };
 }
 
 function buildDailyBulkTasks(fecha: string) {

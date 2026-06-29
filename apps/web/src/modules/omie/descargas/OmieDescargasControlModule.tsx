@@ -1,18 +1,23 @@
 ﻿import { useMemo } from "react";
-import { BarChart3, Download, Eye, FileDown, RotateCw, Search, TrendingUp } from "lucide-react";
+import { BarChart3, Clock3, Download, Eye, FileDown, RotateCw, Search, TrendingUp } from "lucide-react";
 import { TechnicalDataTable } from "../../../components/technical-data-table/TechnicalDataTable";
 import type { RowQuality, TechnicalColumn } from "../../../components/technical-data-table/TechnicalDataTableTypes";
 import { normalizeOmieSesionInput } from "../../../app-shell/AppState";
-import type { OmieDailyBulkDownloadResponse, OmieDownloadCodigo, OmieDownloadControlFilters, OmieDownloadControlRow, OmieDownloadDetail, OmieDownloadDocumentType, OmieDownloadEstado, OmieDownloadExecuteRequest, OmieDownloadModulo } from "../../../api";
+import type { OmieAutomationConfig, OmieAutomationRunResponse, OmieDailyBulkDownloadResponse, OmieDownloadCodigo, OmieDownloadControlFilters, OmieDownloadControlRow, OmieDownloadDetail, OmieDownloadDocumentType, OmieDownloadEstado, OmieDownloadExecuteRequest, OmieDownloadModulo } from "../../../api";
 import { formatDateTime } from "../../ree-losses/ReeLossesHelpers";
 import { LoadStatusBadge, PanelTitle, formatFullDate, formatNumber } from "../../shared/RestoredModuleCommon";
 type OmieDownloadControlProps = {
   descargas: OmieDownloadControlRow[];
+  automationConfig?: OmieAutomationConfig;
   filters: OmieDownloadControlFilters;
   draft: OmieDownloadExecuteRequest;
   detail?: OmieDownloadDetail;
   latestDailyBulkDownload?: OmieDailyBulkDownloadResponse;
+  latestAutomationRun?: OmieAutomationRunResponse;
   loading: boolean;
+  onAutomationChange: (value: OmieAutomationConfig) => void;
+  onAutomationSave: (value: OmieAutomationConfig) => void;
+  onAutomationRunNow: () => void;
   onFiltersChange: (value: OmieDownloadControlFilters) => void;
   onDraftChange: (value: OmieDownloadExecuteRequest) => void;
   onApply: () => void;
@@ -28,11 +33,16 @@ type OmieDownloadControlProps = {
 
 export function OmieDescargasControlModule({
   descargas,
+  automationConfig,
   filters,
   draft,
   detail,
   latestDailyBulkDownload,
+  latestAutomationRun,
   loading,
+  onAutomationChange,
+  onAutomationSave,
+  onAutomationRunNow,
   onFiltersChange,
   onDraftChange,
   onApply,
@@ -54,9 +64,26 @@ export function OmieDescargasControlModule({
   const draftFechaDesde = draft.fechaDesde ?? "";
   const draftFechaHasta = draft.fechaHasta ?? "";
   const draftSesion = draft.sesion ?? "";
+  const automation = automationConfig ?? {
+    active: false,
+    daysBack: 3,
+    sessions: ["06:00", "12:00", "18:00"] as [string, string, string],
+    lastRunKey: null,
+    lastRunAt: null
+  };
 
   function updateDraft(patch: Partial<OmieDownloadExecuteRequest>) {
     onDraftChange({ ...draft, ...patch });
+  }
+
+  function updateAutomation(patch: Partial<OmieAutomationConfig>) {
+    onAutomationChange({ ...automation, ...patch });
+  }
+
+  function updateAutomationSession(index: number, value: string) {
+    const sessions = [...automation.sessions] as [string, string, string];
+    sessions[index] = value;
+    updateAutomation({ sessions });
   }
 
   return (
@@ -187,83 +214,55 @@ export function OmieDescargasControlModule({
         </div>
       </div>
 
-      {selectedDetail ? (
-        <div className="panel wide omie-compact-detail">
-          <PanelTitle
-            icon={<TrendingUp size={18} />}
-            title="Detalle de descarga"
-            subtitle={`${selectedDetail.modulo} · ${selectedDetail.consulta} · ${selectedDetail.codigoOmie}`}
-          />
-          <div className="technical-toolbar omie-detail-actions" style={{ marginBottom: 12 }}>
-            <button className="secondary-button" disabled={loading} onClick={onCloseDetail} type="button">
-              Cerrar detalle
-            </button>
-            <button className="secondary-button" disabled={loading} onClick={() => onReprocess(selectedDetail)} type="button">
-              Reprocesar
-            </button>
-            <button className="secondary-button" disabled={loading} onClick={() => onRedownload(selectedDetail)} type="button">
-              Redescargar
-            </button>
-          </div>
-          <div className="technical-kpis">
-            <div className="technical-kpi neutral">
-              <span>Estado</span>
-              <strong>
-                <LoadStatusBadge status={selectedDetail.estado} />
-              </strong>
-              <small>{selectedDetail.id}</small>
-            </div>
-            <div className="technical-kpi neutral">
-              <span>Periodo</span>
-              <strong>
-                {formatFullDate(selectedDetail.fechaPrograma)}
-                {selectedDetail.fechaHasta ? ` - ${formatFullDate(selectedDetail.fechaHasta)}` : ""}
-              </strong>
-              <small>{selectedDetail.sesion ?? "Sin sesión"}</small>
-            </div>
-            <div className="technical-kpi neutral">
-              <span>Duración</span>
-              <strong>{formatDurationMs(selectedDetail.tiempoEjecucionMs)}</strong>
-              <small>{selectedDetail.registros.toLocaleString("es-ES")} registros</small>
-            </div>
-          </div>
-          <div className="omie-download-detail-grid">
-            <div className="empty-state">
-              <strong>Errores</strong>
-              <div>{selectedDetail.mensajeError ?? "Sin errores"}</div>
-            </div>
-            <div className="empty-state">
-              <strong>Resumen</strong>
-              <div>{selectedDetail.descripcion}</div>
-            </div>
-          </div>
-          <div className="omie-detail-grid">
-            <div className="panel">
-              <strong>Parametros utilizados</strong>
-              <pre style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>{JSON.stringify(selectedDetail.parametrosUtilizados, null, 2)}</pre>
-            </div>
-            <div className="panel">
-              <strong>JSON / RAW</strong>
-              <pre style={{ whiteSpace: "pre-wrap", marginTop: 8 }}>{JSON.stringify(selectedDetail.rawJson, null, 2)}</pre>
-            </div>
-            <div className="panel">
-              <strong>Log</strong>
-              <ul>
-                {selectedDetail.log.map((line) => (
-                  <li key={line}>{line}</li>
-                ))}
-              </ul>
-            </div>
-          </div>
+      <div className="panel wide omie-compact-detail">
+        <PanelTitle icon={<Clock3 size={18} />} title="Automatismo OMIE" subtitle={automation.active ? "Activo" : "Pausado"} />
+        <div className="omie-toolbar compact">
+          <label className="filter-field">
+            <span>Estado</span>
+            <select disabled={loading} value={automation.active ? "yes" : "no"} onChange={(event) => updateAutomation({ active: event.target.value === "yes" })}>
+              <option value="yes">Activo</option>
+              <option value="no">Pausado</option>
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>Días recientes</span>
+            <input disabled={loading} min={1} max={31} type="number" value={automation.daysBack} onChange={(event) => updateAutomation({ daysBack: Number(event.target.value) })} />
+          </label>
+          {automation.sessions.map((session, index) => (
+            <label className="filter-field" key={index}>
+              <span>Sesión {index + 1}</span>
+              <input disabled={loading} type="time" value={session} onChange={(event) => updateAutomationSession(index, event.target.value)} />
+            </label>
+          ))}
+          <button className="secondary-button" disabled={loading || !automationConfig} onClick={() => onAutomationSave(automation)} type="button">
+            <Clock3 size={16} />
+            Guardar
+          </button>
+          <button className="secondary-button" disabled={loading || !automationConfig} onClick={onAutomationRunNow} type="button">
+            <FileDown size={16} />
+            Ejecutar ahora
+          </button>
         </div>
-      ) : (
-        <div className="panel wide omie-compact-detail">
-          <div className="empty-state">
-            <strong>Detalle de descarga</strong>
-            <div>Selecciona una descarga en el histórico para ver detalle, log y raw JSON.</div>
+        <div className="technical-kpis">
+          <div className="technical-kpi neutral">
+            <span>Modo</span>
+            <strong>Forzado</strong>
+            <small>Igual que descarga día forzada</small>
           </div>
+          <div className="technical-kpi neutral">
+            <span>Última sesión</span>
+            <strong>{automation.lastRunKey ?? "-"}</strong>
+            <small>{automation.lastRunAt ? formatDateTime(automation.lastRunAt) : "Sin ejecución"}</small>
+          </div>
+          {latestAutomationRun && (
+            <div className="technical-kpi neutral">
+              <span>Última ejecución manual</span>
+              <strong>{latestAutomationRun.procesadas.toLocaleString("es-ES")} procesadas</strong>
+              <small>{latestAutomationRun.errores.toLocaleString("es-ES")} errores · {formatDurationMs(latestAutomationRun.tiempoTotalMs)}</small>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {latestDailyBulkDownload && (
         <div className="panel wide omie-compact-detail">
@@ -335,6 +334,157 @@ export function OmieDescargasControlModule({
         showPagination={false}
         title="Histórico de descargas OMIE"
       />
+
+      {selectedDetail && (
+        <OmieDownloadDetailDialog
+          detail={selectedDetail}
+          loading={loading}
+          onClose={onCloseDetail}
+          onReprocess={onReprocess}
+          onRedownload={onRedownload}
+        />
+      )}
+    </div>
+  );
+}
+
+function OmieDownloadDetailDialog({
+  detail,
+  loading,
+  onClose,
+  onReprocess,
+  onRedownload
+}: {
+  detail: OmieDownloadDetail;
+  loading: boolean;
+  onClose: () => void;
+  onReprocess: (row: OmieDownloadControlRow) => void;
+  onRedownload: (row: OmieDownloadControlRow) => void;
+}) {
+  const periodLabel = `${formatFullDate(detail.fechaPrograma)}${detail.fechaHasta ? ` - ${formatFullDate(detail.fechaHasta)}` : ""}`;
+  const sessionLabel = detail.sesion ? `Sesión ${detail.sesion}` : "Sin sesión";
+  const hasError = Boolean(detail.mensajeError);
+  const controlSummary = {
+    id: detail.id,
+    estado: detail.estado,
+    modulo: detail.modulo,
+    consulta: detail.consulta,
+    codigoOmie: detail.codigoOmie,
+    tipoDocumento: detail.tipoDocumento,
+    fechaPrograma: detail.fechaPrograma,
+    fechaHasta: detail.fechaHasta,
+    sesion: detail.sesion,
+    fechaDescarga: detail.fechaDescarga,
+    registros: detail.registros,
+    hashContenido: detail.hashContenido,
+    rawXmlDisponible: detail.rawXmlDisponible,
+    rawJsonDisponible: detail.rawJsonDisponible,
+    logDisponible: detail.logDisponible,
+    createdAt: detail.createdAt,
+    updatedAt: detail.updatedAt
+  };
+
+  return (
+    <div className="ops-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="ops-modal omie-detail-modal" role="dialog" aria-modal="true" aria-label="Detalle de descarga OMIE" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="ops-modal-head">
+          <div>
+            <strong>Detalle de descarga OMIE</strong>
+            <span>{`${detail.modulo} / ${detail.consulta} / ${detail.codigoOmie}`}</span>
+          </div>
+          <button onClick={onClose} type="button">Cerrar</button>
+        </div>
+        <div className="ops-modal-body">
+          <div className={`omie-detail-hero ${hasError ? "has-error" : ""}`}>
+            <div className="omie-detail-title">
+              <span>{detail.modulo}</span>
+              <h2>{detail.consulta}</h2>
+              <p>{detail.descripcion}</p>
+            </div>
+            <div className="omie-detail-status">
+              <LoadStatusBadge status={detail.estado} />
+              <strong>{detail.registros.toLocaleString("es-ES")}</strong>
+              <small>registros</small>
+            </div>
+          </div>
+
+          <div className="omie-detail-summary-grid">
+            <div>
+              <span>Periodo</span>
+              <strong>{periodLabel}</strong>
+              <small>{sessionLabel}</small>
+            </div>
+            <div>
+              <span>Descarga</span>
+              <strong>{formatDateTime(detail.fechaDescarga)}</strong>
+              <small>{detail.nombreFichero ?? "Sin fichero"}</small>
+            </div>
+            <div>
+              <span>Duración</span>
+              <strong>{formatDurationMs(detail.tiempoEjecucionMs)}</strong>
+              <small>versión {detail.version ?? "-"}</small>
+            </div>
+            <div>
+              <span>Identificador</span>
+              <strong>{detail.id.slice(0, 8)}</strong>
+              <small>{detail.id}</small>
+            </div>
+          </div>
+
+          <div className="omie-detail-action-bar">
+            <button className="secondary-button" disabled={loading} onClick={() => onReprocess(detail)} type="button">
+              <RotateCw size={16} />
+              Reprocesar
+            </button>
+            <button className="secondary-button" disabled={loading} onClick={() => onRedownload(detail)} type="button">
+              <Download size={16} />
+              Redescargar
+            </button>
+          </div>
+
+          {hasError && (
+            <div className="omie-detail-error">
+              <strong>Error registrado</strong>
+              <span>{detail.mensajeError}</span>
+            </div>
+          )}
+
+          <div className="omie-detail-grid">
+            <div className="omie-detail-section">
+              <div>
+                <strong>Parámetros</strong>
+                <span>Datos usados en la consulta OMIE</span>
+              </div>
+              <pre>{JSON.stringify(detail.parametrosUtilizados, null, 2)}</pre>
+            </div>
+            <div className="omie-detail-section">
+              <div>
+                <strong>Control</strong>
+                <span>Estado interno y respuesta normalizada</span>
+              </div>
+              <pre>{JSON.stringify(controlSummary, null, 2)}</pre>
+            </div>
+            <div className="omie-detail-section wide">
+              <div>
+                <strong>JSON / RAW</strong>
+                <span>Payload técnico almacenado para auditoría</span>
+              </div>
+              <pre>{JSON.stringify(detail.rawJson, null, 2)}</pre>
+            </div>
+            <div className="omie-detail-section wide">
+              <div>
+                <strong>Log</strong>
+                <span>Trazabilidad reconstruida de la descarga</span>
+              </div>
+              <ol className="omie-detail-log">
+                {detail.log.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ol>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

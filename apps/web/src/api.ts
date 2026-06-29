@@ -309,6 +309,31 @@ export type OmieDailyBulkDownloadResponse = {
   resultados: OmieDailyBulkDownloadItem[];
 };
 
+export type OmieAutomationConfig = {
+  active: boolean;
+  daysBack: number;
+  sessions: [string, string, string];
+  lastRunKey: string | null;
+  lastRunAt: string | null;
+};
+
+export type OmieAutomationRunResponse = {
+  session: string;
+  startedAt: string;
+  finishedAt: string;
+  force: true;
+  daysBack: number;
+  dates: string[];
+  totalConsultas: number;
+  totalConsultasEjecutadas: number;
+  procesadas: number;
+  sinDatos: number;
+  errores: number;
+  omitidas: number;
+  tiempoTotalMs: number;
+  resultados: OmieDailyBulkDownloadResponse[];
+};
+
 export type OmiePrecioPeriodo = {
   fecha: string;
   periodo: number;
@@ -1602,6 +1627,21 @@ export async function executeOmieDescargaDiaria(fecha: string, force = false): P
     REQUEST_TIMEOUT_MS * 20,
     { fecha }
   );
+}
+
+export async function getOmieAutomationConfig(): Promise<OmieAutomationConfig> {
+  return getJson(`/omie/descargas/automatizacion`);
+}
+
+export async function saveOmieAutomationConfig(config: Partial<OmieAutomationConfig>): Promise<OmieAutomationConfig> {
+  return sendJson(`/omie/descargas/automatizacion`, "PUT", "Guardando automatismo OMIE", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function executeOmieAutomation(daysBack: number): Promise<OmieAutomationRunResponse> {
+  return sendJson(`/omie/descargas/automatizacion/ejecutar`, "POST", "Ejecutando automatismo OMIE", REQUEST_TIMEOUT_MS * 20, {
+    session: "00:00",
+    daysBack
+  });
 }
 
 export async function reprocessOmieDescarga(id: string): Promise<OmieDownloadExecuteResponse> {

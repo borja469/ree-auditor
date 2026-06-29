@@ -1,8 +1,9 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query } from "@nestjs/common";
 import { OmieDownloadEstado, OmieTipoDocumento, OmieTipoPrecio } from "@prisma/client";
 import {
   OmieControlCodigo,
   OmieControlModulo,
+  OmieAutomationConfigInput,
   OmieControlTipo,
   OmieDescargasService,
   OmieDownloadExecuteRequest
@@ -48,6 +49,22 @@ export class OmieDescargasController {
     return this.omieDescargasService.descargarTodoElDia(parseDailyBulkBody(body), { force: parseBoolean(force) });
   }
 
+  @Get("automatizacion")
+  async obtenerAutomatizacion() {
+    return this.omieDescargasService.obtenerAutomatizacion();
+  }
+
+  @Put("automatizacion")
+  async guardarAutomatizacion(@Body() body: unknown) {
+    return this.omieDescargasService.guardarAutomatizacion(parseAutomationBody(body));
+  }
+
+  @Post("automatizacion/ejecutar")
+  async ejecutarAutomatizacion(@Body() body: unknown) {
+    const request = parseAutomationRunBody(body);
+    return this.omieDescargasService.ejecutarAutomatizacion(request.session, request.daysBack);
+  }
+
   @Post("control/:id/reprocesar")
   async reprocesar(@Param("id") id: string) {
     return this.omieDescargasService.reprocesar(id);
@@ -78,6 +95,28 @@ function parseDailyBulkBody(body: unknown) {
   }
   return {
     fecha: parseFechaQuery(readString(body, "fecha"), "fecha")
+  };
+}
+
+function parseAutomationBody(body: unknown): OmieAutomationConfigInput {
+  if (!isRecord(body)) {
+    throw new BadRequestException("El body debe ser un objeto JSON.");
+  }
+  const sessions = Array.isArray(body.sessions) ? body.sessions.map((item) => String(item)) : undefined;
+  return {
+    active: typeof body.active === "boolean" ? body.active : undefined,
+    daysBack: body.daysBack === undefined ? undefined : parsePositiveInteger(body.daysBack, "daysBack"),
+    sessions
+  };
+}
+
+function parseAutomationRunBody(body: unknown) {
+  if (!isRecord(body)) {
+    throw new BadRequestException("El body debe ser un objeto JSON.");
+  }
+  return {
+    session: readString(body, "session") ?? "00:00",
+    daysBack: body.daysBack === undefined ? undefined : parsePositiveInteger(body.daysBack, "daysBack")
   };
 }
 
@@ -178,6 +217,14 @@ function parseSesion(value: string) {
 
 function parseBoolean(value: string | undefined) {
   return value === "1" || value?.toLowerCase() === "true" || value?.toLowerCase() === "si";
+}
+
+function parsePositiveInteger(value: unknown, fieldName: string) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    throw new BadRequestException(`${fieldName} debe ser un entero positivo.`);
+  }
+  return parsed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
