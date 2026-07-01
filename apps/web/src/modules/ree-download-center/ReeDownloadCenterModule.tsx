@@ -305,7 +305,7 @@ export function ReeDownloadCenterModule({
       <div className="ops-hero">
         <div>
           <p className="ops-eyebrow">Liquidaciones REE</p>
-          <h2>Centro de Descargas Liquidaciones REE</h2>
+          <h2>Centro de cargas</h2>
           <span>Consola operativa unica para cargas REGANECU, MEDPER y K REE.</span>
         </div>
         <div className="ops-hero-actions">
@@ -328,7 +328,7 @@ export function ReeDownloadCenterModule({
         onDrop={handleDrop}
       >
         <UploadCloud size={28} />
-        <span>{files.length ? `${files.length} fichero(s) preparados` : "Soltar TXT, CSV, ZIP o ficheros Liquidaciones REE"}</span>
+        <span>{files.length ? `${files.length} fichero(s) preparados` : "Soltar TXT, CSV, ZIP o ficheros de carga"}</span>
         <input
           disabled={disabled}
           multiple
@@ -398,7 +398,7 @@ export function ReeDownloadCenterModule({
         </div>
       </div>
 
-      <div className="ree-monthly-coverage" aria-label="Cobertura mensual Liquidaciones REE">
+      <div className="ree-monthly-coverage" aria-label="Cobertura mensual Centro de cargas">
         <div className="ree-coverage-row header">
           <span>Mes</span>
           <span>MEDPER</span>
@@ -479,7 +479,7 @@ export function ReeDownloadCenterModule({
               {filteredRows.length === 0 && (
                 <tr>
                   <td colSpan={13}>
-                    <div className="empty-state">Sin cargas de Liquidaciones REE para los filtros seleccionados.</div>
+                    <div className="empty-state">Sin cargas para los filtros seleccionados.</div>
                   </td>
                 </tr>
               )}

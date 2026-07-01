@@ -315,6 +315,7 @@ export type OmieAutomationConfig = {
   sessions: [string, string, string];
   lastRunKey: string | null;
   lastRunAt: string | null;
+  lastRunAtUtc?: string | null;
 };
 
 export type OmieAutomationRunResponse = {

@@ -569,7 +569,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       setMedperMonthlyConsumption(nextMedperMonthlyConsumption);
       setReeLossesImports(nextReeLossesImports);
     } catch (error) {
-      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando centro de descargas Liquidaciones REE." });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando Centro de cargas." });
     } finally {
       stopLoading();
     }
@@ -1474,7 +1474,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 
   const workspaceTitle =
     section === "reeDownloads"
-      ? "Centro de Descargas Liquidaciones REE"
+      ? "Centro de cargas"
       : section === "reganecu"
         ? "Auditoria de liquidaciones REGANECU"
       : section === "liquidationAnalysis"
@@ -1584,7 +1584,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       items: [
         {
           key: "ree-download-center",
-          label: "Centro de descargas",
+          label: "Centro de cargas",
           description: "control operativo de liquidaciones",
           active: section === "reeDownloads",
           onSelect: () => changeSection("reeDownloads")

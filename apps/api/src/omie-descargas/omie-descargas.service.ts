@@ -99,6 +99,7 @@ export type OmieAutomationConfigDto = {
   sessions: [string, string, string];
   lastRunKey: string | null;
   lastRunAt: string | null;
+  lastRunAtUtc: string | null;
 };
 
 export type OmieAutomationRunResponse = {
@@ -348,7 +349,7 @@ export class OmieDescargasService {
     const config = await this.getOrCreateAutomationConfig();
     const resolvedDaysBack = normalizeDaysBack(daysBack ?? config.daysBack);
     const startedAt = new Date();
-    const dates = buildRecentDates(resolvedDaysBack, startedAt);
+    const dates = buildAutomationDownloadDates(resolvedDaysBack, startedAt);
     const resultados: OmieDownloadDailyBulkResponse[] = [];
 
     for (const fecha of dates) {
@@ -449,7 +450,8 @@ function serializeAutomationConfig(config: {
       normalizeAutomationTime(config.session3 ?? "18:00")
     ],
     lastRunKey: config.lastRunKey,
-    lastRunAt: config.lastRunAt?.toISOString() ?? null
+    lastRunAt: config.lastRunAt ? formatMadridDateTime(config.lastRunAt) : null,
+    lastRunAtUtc: config.lastRunAt?.toISOString() ?? null
   };
 }
 
@@ -485,11 +487,11 @@ function normalizeDaysBack(value: number) {
   return parsed;
 }
 
-function buildRecentDates(daysBack: number, referenceDate: Date) {
+export function buildAutomationDownloadDates(daysBack: number, referenceDate: Date) {
   const todayMadrid = madridDateParts(referenceDate).date;
   const dates: string[] = [];
   const base = new Date(`${todayMadrid}T00:00:00.000Z`);
-  for (let offset = 0; offset < daysBack; offset += 1) {
+  for (let offset = -1; offset < daysBack; offset += 1) {
     const date = new Date(base);
     date.setUTCDate(base.getUTCDate() - offset);
     dates.push(formatDateOnly(date));
@@ -519,6 +521,21 @@ function madridDateParts(date: Date) {
     date: `${value("year")}-${value("month")}-${value("day")}`,
     time: `${value("hour")}:${value("minute")}`
   };
+}
+
+function formatMadridDateTime(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "00";
+  return `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}:${value("second")}`;
 }
 
 function buildDailyBulkTasks(fecha: string) {

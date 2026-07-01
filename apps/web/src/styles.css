@@ -3526,6 +3526,16 @@ select:disabled {
   font-weight: 800;
 }
 
+.omie-automation-time-select {
+  display: grid;
+  grid-template-columns: minmax(72px, 1fr) minmax(86px, 1fr);
+  gap: 6px;
+}
+
+.omie-toolbar .filter-field .omie-automation-time-select select {
+  min-width: 0;
+}
+
 .omie-summary-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));

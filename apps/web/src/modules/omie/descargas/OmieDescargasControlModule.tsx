@@ -6,6 +6,10 @@ import { normalizeOmieSesionInput } from "../../../app-shell/AppState";
 import type { OmieAutomationConfig, OmieAutomationRunResponse, OmieDailyBulkDownloadResponse, OmieDownloadCodigo, OmieDownloadControlFilters, OmieDownloadControlRow, OmieDownloadDetail, OmieDownloadDocumentType, OmieDownloadEstado, OmieDownloadExecuteRequest, OmieDownloadModulo } from "../../../api";
 import { formatDateTime } from "../../ree-losses/ReeLossesHelpers";
 import { LoadStatusBadge, PanelTitle, formatFullDate, formatNumber } from "../../shared/RestoredModuleCommon";
+
+const AUTOMATION_HOUR_OPTIONS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"));
+const AUTOMATION_MINUTE_OPTIONS = ["00", "15", "30", "45"];
+
 type OmieDownloadControlProps = {
   descargas: OmieDownloadControlRow[];
   automationConfig?: OmieAutomationConfig;
@@ -225,13 +229,13 @@ export function OmieDescargasControlModule({
             </select>
           </label>
           <label className="filter-field">
-            <span>Días recientes</span>
+            <span>Días atrás</span>
             <input disabled={loading} min={1} max={31} type="number" value={automation.daysBack} onChange={(event) => updateAutomation({ daysBack: Number(event.target.value) })} />
           </label>
           {automation.sessions.map((session, index) => (
             <label className="filter-field" key={index}>
               <span>Sesión {index + 1}</span>
-              <input disabled={loading} type="time" value={session} onChange={(event) => updateAutomationSession(index, event.target.value)} />
+              <AutomationTimeSelect disabled={loading} value={session} onChange={(value) => updateAutomationSession(index, value)} />
             </label>
           ))}
           <button className="secondary-button" disabled={loading || !automationConfig} onClick={() => onAutomationSave(automation)} type="button">
@@ -252,7 +256,7 @@ export function OmieDescargasControlModule({
           <div className="technical-kpi neutral">
             <span>Última sesión</span>
             <strong>{automation.lastRunKey ?? "-"}</strong>
-            <small>{automation.lastRunAt ? formatDateTime(automation.lastRunAt) : "Sin ejecución"}</small>
+            <small>{automation.lastRunAt ? formatAutomationLocalDateTime(automation.lastRunAt) : "Sin ejecución"}</small>
           </div>
           {latestAutomationRun && (
             <div className="technical-kpi neutral">
@@ -346,6 +350,47 @@ export function OmieDescargasControlModule({
       )}
     </div>
   );
+}
+
+function AutomationTimeSelect({ disabled, value, onChange }: { disabled: boolean; value: string; onChange: (value: string) => void }) {
+  const [hour = "00", minute = "00"] = normalizeAutomationTimeValue(value).split(":");
+
+  return (
+    <div className="omie-automation-time-select" aria-label="Hora local Madrid en formato 24 horas">
+      <select disabled={disabled} value={hour} onChange={(event) => onChange(`${event.target.value}:${minute}`)}>
+        {AUTOMATION_HOUR_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option} h
+          </option>
+        ))}
+      </select>
+      <select disabled={disabled} value={minute} onChange={(event) => onChange(`${hour}:${event.target.value}`)}>
+        {AUTOMATION_MINUTE_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option} min
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function normalizeAutomationTimeValue(value: string) {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) {
+    return "00:00";
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isSafeInteger(hour) || !Number.isSafeInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return "00:00";
+  }
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function formatAutomationLocalDateTime(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::\d{2})?$/.exec(value.trim());
+  return match ? `${match[3]}/${match[2]} ${match[4]}:${match[5]}` : value;
 }
 
 function OmieDownloadDetailDialog({
