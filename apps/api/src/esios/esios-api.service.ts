@@ -203,17 +203,18 @@ export class EsiosApiService {
   }
 
   async saveIndicatorValues(values: EsiosIndicatorValueInput[]) {
-    if (values.length === 0) {
+    const uniqueValues = deduplicateIndicatorValues(values);
+    if (uniqueValues.length === 0) {
       return { insertedRecords: 0, updatedRecords: 0 };
     }
 
-    const existingKeys = await this.findExistingValueKeys(values);
-    for (const chunk of chunkArray(values, UPSERT_CHUNK_SIZE)) {
+    const existingKeys = await this.findExistingValueKeys(uniqueValues);
+    for (const chunk of chunkArray(uniqueValues, UPSERT_CHUNK_SIZE)) {
       await this.upsertValuesChunk(chunk);
     }
-    const updatedRecords = values.filter((value) => existingKeys.has(valueKey(value.indicatorId, value.datetimeUtc ?? value.datetime))).length;
+    const updatedRecords = uniqueValues.filter((value) => existingKeys.has(valueKey(value.indicatorId, value.datetimeUtc ?? value.datetime))).length;
     return {
-      insertedRecords: values.length - updatedRecords,
+      insertedRecords: uniqueValues.length - updatedRecords,
       updatedRecords
     };
   }
@@ -598,6 +599,14 @@ function normalizeIndicatorValue(payload: unknown, indicatorId: number): EsiosIn
     geoId: toInteger(item.geo_id) ?? toInteger(item.geoId) ?? null,
     geoName: toText(item.geo_name) ?? toText(item.geoName)
   };
+}
+
+function deduplicateIndicatorValues(values: EsiosIndicatorValueInput[]) {
+  const byKey = new Map<string, EsiosIndicatorValueInput>();
+  for (const value of values) {
+    byKey.set(valueKey(value.indicatorId, value.datetimeUtc ?? value.datetime), value);
+  }
+  return [...byKey.values()];
 }
 
 function readUnit(item: Record<string, unknown>) {

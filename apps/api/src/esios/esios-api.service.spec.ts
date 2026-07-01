@@ -100,6 +100,41 @@ describe("EsiosApiService", () => {
       })
     );
   });
+
+  it("deduplica valores repetidos dentro del mismo lote antes del upsert", async () => {
+    const prisma = mockPrisma();
+    const service = new EsiosApiService(prisma as never);
+
+    const repeatedInstant = new Date("2026-10-25T00:00:00.000Z");
+    const result = await service.saveIndicatorValues([
+      {
+        indicatorId: 460,
+        datetime: new Date("2026-10-25T02:00:00.000Z"),
+        datetimeUtc: repeatedInstant,
+        value: new Prisma.Decimal("21000.000000"),
+        geoId: 3,
+        geoName: "Peninsula"
+      },
+      {
+        indicatorId: 460,
+        datetime: new Date("2026-10-25T02:00:00.000Z"),
+        datetimeUtc: repeatedInstant,
+        value: new Prisma.Decimal("21050.000000"),
+        geoId: 3,
+        geoName: "Peninsula"
+      }
+    ]);
+
+    expect(result).toEqual({ insertedRecords: 1, updatedRecords: 0 });
+    expect(prisma.esiosIndicatorValue.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [{ indicatorId: 460, datetimeUtc: repeatedInstant }]
+        }
+      })
+    );
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+  });
 });
 
 function mockPrisma(options: { apiToken?: string; existingDatetime?: Date; existingDatetimeUtc?: Date } = {}) {
