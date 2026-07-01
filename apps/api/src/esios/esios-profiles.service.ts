@@ -1075,6 +1075,7 @@ function parseReeFinalDemandFile(buffer: Buffer, expectedYear: number, expectedM
   };
   const rows: ReeFinalDemandInput[] = [];
   const seen = new Set<string>();
+  const dstEndRepeatedHours = new Map<string, number>();
 
   for (let index = 1; index < lines.length; index += 1) {
     const rawLine = lines[index];
@@ -1102,7 +1103,7 @@ function parseReeFinalDemandFile(buffer: Buffer, expectedYear: number, expectedM
     if (demandMw.lt(0)) {
       throw new Error(`Demanda DEMR negativa en fila ${sourceLine}.`);
     }
-    const normalizedHour = normalizeDstStartHour(year, month, day, hour);
+    const normalizedHour = normalizeFinalProfileHour(year, month, day, hour, dstEndRepeatedHours);
     const key = buildProfileDateKey(year, month, day, normalizedHour);
     if (seen.has(key)) {
       throw new Error(`Hora DEMR duplicada en fila ${sourceLine}: ${key}.`);
@@ -1164,6 +1165,7 @@ function parseReeFinalProfileFile(buffer: Buffer, expectedYear: number, expected
 
   const rows: ReeFinalProfileInput[] = [];
   const seen = new Set<string>();
+  const dstEndRepeatedHours = new Map<string, number>();
   for (let index = 1; index < lines.length; index += 1) {
     const rawLine = lines[index];
     const values = rawLine.split(";");
@@ -1189,7 +1191,7 @@ function parseReeFinalProfileFile(buffer: Buffer, expectedYear: number, expected
     if (profile20td.lt(0) || profile30td.lt(0) || profile30tdve.lt(0)) {
       throw new Error(`Perfil final PERFF negativo en fila ${sourceLine}.`);
     }
-    const normalizedHour = normalizeDstStartHour(year, month, day, hour);
+    const normalizedHour = normalizeFinalProfileHour(year, month, day, hour, dstEndRepeatedHours);
     const key = buildProfileDateKey(year, month, day, normalizedHour);
     if (seen.has(key)) {
       throw new Error(`Hora PERFF duplicada en fila ${sourceLine}: ${key}.`);
@@ -1329,17 +1331,20 @@ function buildDemandUploadPeriodKey(year: number, month: number, day?: number | 
     : `${year}-${padNumber(month, 2)}-${padNumber(day, 2)}`;
 }
 
-function normalizeDstStartHour(year: number, month: number, day: number, hour: number) {
-  if (isDstStartDay(year, month, day) && hour >= 3) {
-    return hour - 1;
-  }
-  return hour;
-}
-
 function buildIndicatorDateKey(date: Date) {
   const parts = madridDateParts(date);
   const hour = Number(parts.hour);
   return buildProfileDateKey(Number(parts.year), Number(parts.month), Number(parts.day), hour === 0 ? 1 : hour + 1);
+}
+
+function normalizeFinalProfileHour(year: number, month: number, day: number, hour: number, dstEndRepeatedHours: Map<string, number>) {
+  if (!isDstEndDay(year, month, day) || hour !== 2) {
+    return hour;
+  }
+  const key = `${year}-${padNumber(month, 2)}-${padNumber(day, 2)}-02`;
+  const occurrence = dstEndRepeatedHours.get(key) ?? 0;
+  dstEndRepeatedHours.set(key, occurrence + 1);
+  return occurrence === 0 ? 2 : 25;
 }
 
 function madridDateParts(date: Date) {
