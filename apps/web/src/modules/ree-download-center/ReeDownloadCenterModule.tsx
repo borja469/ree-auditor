@@ -671,11 +671,20 @@ function coverageStatus(rows: UnifiedRow[]): UnifiedStatus {
   if (rows.length === 0) {
     return "pending";
   }
-  if (rows.some((row) => row.status === "error")) {
-    return "error";
-  }
   if (rows.some((row) => row.status === "pending" || row.status === "incomplete")) {
     return "incomplete";
+  }
+  if (rows.some((row) => row.status === "correct")) {
+    return "correct";
+  }
+  if (rows.some((row) => row.status === "warning")) {
+    return "warning";
+  }
+  if (rows.some((row) => row.status === "duplicated")) {
+    return "duplicated";
+  }
+  if (rows.some((row) => row.status === "error")) {
+    return "error";
   }
   return "correct";
 }

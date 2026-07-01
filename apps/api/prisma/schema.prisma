@@ -628,7 +628,7 @@ model EsiosIndicatorValue {
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  @@unique([indicatorId, datetime], map: "ux_esios_indicator_values")
+  @@unique([indicatorId, datetimeUtc], map: "ux_esios_indicator_values_utc")
   @@index([indicatorId, datetimeUtc])
   @@index([datetime])
   @@map("esios_indicator_values")

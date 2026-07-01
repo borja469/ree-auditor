@@ -1210,7 +1210,7 @@ function IndicatorSeriesPanel({
       <TechnicalDataTable
         columns={columns}
         exportFileName={`esios-${indicator?.indicatorId ?? "serie"}`}
-        getDuplicateKey={(row) => `${row.indicatorId}|${row.datetime}`}
+        getDuplicateKey={(row) => `${row.indicatorId}|${row.datetimeUtc ?? row.datetime}`}
         getGroupLabel={() => indicator?.name ?? "Serie ESIOS"}
         getRowId={(row) => row.id}
         getRowQuality={buildSeriesRowQuality}

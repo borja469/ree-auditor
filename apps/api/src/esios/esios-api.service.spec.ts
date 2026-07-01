@@ -40,7 +40,7 @@ describe("EsiosApiService", () => {
   });
 
   it("guarda valores insertados y actualizados con upsert", async () => {
-    const prisma = mockPrisma({ existingDatetime: new Date("2026-01-01T01:00:00.000Z") });
+    const prisma = mockPrisma({ existingDatetime: new Date("2026-01-01T01:00:00.000Z"), existingDatetimeUtc: new Date("2026-01-01T00:00:00.000Z") });
     const service = new EsiosApiService(prisma as never);
     const result = await service.saveIndicatorValues([
       {
@@ -64,9 +64,45 @@ describe("EsiosApiService", () => {
     expect(result).toEqual({ insertedRecords: 1, updatedRecords: 1 });
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
   });
+
+  it("permite dos horas locales iguales en el cambio horario si datetimeUtc es distinto", async () => {
+    const prisma = mockPrisma();
+    const service = new EsiosApiService(prisma as never);
+
+    const result = await service.saveIndicatorValues([
+      {
+        indicatorId: 460,
+        datetime: new Date("2026-10-25T02:00:00.000Z"),
+        datetimeUtc: new Date("2026-10-25T00:00:00.000Z"),
+        value: new Prisma.Decimal("21000.000000"),
+        geoId: 3,
+        geoName: "Peninsula"
+      },
+      {
+        indicatorId: 460,
+        datetime: new Date("2026-10-25T02:00:00.000Z"),
+        datetimeUtc: new Date("2026-10-25T01:00:00.000Z"),
+        value: new Prisma.Decimal("21100.000000"),
+        geoId: 3,
+        geoName: "Peninsula"
+      }
+    ]);
+
+    expect(result).toEqual({ insertedRecords: 2, updatedRecords: 0 });
+    expect(prisma.esiosIndicatorValue.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { indicatorId: 460, datetimeUtc: new Date("2026-10-25T00:00:00.000Z") },
+            { indicatorId: 460, datetimeUtc: new Date("2026-10-25T01:00:00.000Z") }
+          ]
+        }
+      })
+    );
+  });
 });
 
-function mockPrisma(options: { apiToken?: string; existingDatetime?: Date } = {}) {
+function mockPrisma(options: { apiToken?: string; existingDatetime?: Date; existingDatetimeUtc?: Date } = {}) {
   return {
     esiosConfig: {
       findUnique: jest.fn().mockResolvedValue({
@@ -88,7 +124,8 @@ function mockPrisma(options: { apiToken?: string; existingDatetime?: Date } = {}
           ? [
               {
                 indicatorId: 460,
-                datetime: options.existingDatetime
+                datetime: options.existingDatetime,
+                datetimeUtc: options.existingDatetimeUtc ?? null
               }
             ]
           : []

@@ -211,7 +211,7 @@ export class EsiosApiService {
     for (const chunk of chunkArray(values, UPSERT_CHUNK_SIZE)) {
       await this.upsertValuesChunk(chunk);
     }
-    const updatedRecords = values.filter((value) => existingKeys.has(valueKey(value.indicatorId, value.datetime))).length;
+    const updatedRecords = values.filter((value) => existingKeys.has(valueKey(value.indicatorId, value.datetimeUtc ?? value.datetime))).length;
     return {
       insertedRecords: values.length - updatedRecords,
       updatedRecords
@@ -408,16 +408,17 @@ export class EsiosApiService {
         where: {
           OR: chunk.map((value) => ({
             indicatorId: value.indicatorId,
-            datetime: value.datetime
+            ...(value.datetimeUtc ? { datetimeUtc: value.datetimeUtc } : { datetime: value.datetime })
           }))
         },
         select: {
           indicatorId: true,
-          datetime: true
+          datetime: true,
+          datetimeUtc: true
         }
       });
       for (const row of rows) {
-        keys.add(valueKey(row.indicatorId, row.datetime));
+        keys.add(valueKey(row.indicatorId, row.datetimeUtc ?? row.datetime));
       }
     }
     return keys;
@@ -438,8 +439,9 @@ export class EsiosApiService {
       INSERT INTO esios_indicator_values
         (indicator_id, datetime, datetime_utc, value, geo_id, geo_name, created_at, updated_at)
       VALUES ${Prisma.join(rows)}
-      ON CONFLICT (indicator_id, datetime)
+      ON CONFLICT (indicator_id, datetime_utc)
       DO UPDATE SET
+        datetime = EXCLUDED.datetime,
         datetime_utc = EXCLUDED.datetime_utc,
         value = EXCLUDED.value,
         geo_id = EXCLUDED.geo_id,
@@ -586,7 +588,7 @@ function normalizeIndicatorValue(payload: unknown, indicatorId: number): EsiosIn
   if (!datetime) {
     return undefined;
   }
-  const datetimeUtc = parseDateValue(toText(item.datetime_utc) ?? toText(item.datetimeUtc));
+  const datetimeUtc = parseDateValue(toText(item.datetime_utc) ?? toText(item.datetimeUtc)) ?? datetime;
   const numeric = toNumber(item.value);
   return {
     indicatorId,
