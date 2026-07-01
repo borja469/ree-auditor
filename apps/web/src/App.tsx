@@ -139,6 +139,7 @@ import {
   type OmieTransactionDownloadRow,
   type OmieTransactionStagingRow,
   type ReeFile,
+  type ReeDownloadCenterSummaryRow,
   type ReeLossesFilterOptions,
   type ReeLossesFilters,
   type ReeLossesImportFile,
@@ -175,6 +176,7 @@ import {
   getOmieProgramasEvolucion,
   getOmieTransactionStagingRows,
   getOmieTransactionsHistorico,
+  getReeDownloadCenterSummary,
   getReeLossesFilterOptions,
   getReeLossesReport,
   getSettlementFilterOptions,
@@ -302,6 +304,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   const [reeLossesFilters, setReeLossesFilters] = useState<ReeLossesFilters>({});
   const [reeLossesReport, setReeLossesReport] = useState<ReeLossesReport>();
   const [reeLossesImports, setReeLossesImports] = useState<ReeLossesImportFile[]>([]);
+  const [reeDownloadCenterSummary, setReeDownloadCenterSummary] = useState<ReeDownloadCenterSummaryRow[]>([]);
   const [latestReeLossesImport, setLatestReeLossesImport] = useState<ReeLossesImportResponse>();
   const [omieFecha, setOmieFecha] = useState(getTodayInputValue);
   const [omieSesion, setOmieSesion] = useState("01");
@@ -558,16 +561,18 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     }
 
     try {
-      const [nextImports, nextMedperFiles, nextMedperMonthlyConsumption, nextReeLossesImports] = await Promise.all([
+      const [nextImports, nextMedperFiles, nextMedperMonthlyConsumption, nextReeLossesImports, nextReeDownloadCenterSummary] = await Promise.all([
         listImports({ take: 200 }),
         listMedperFiles({ take: 200 }),
         getMedperMonthlyConsumption(),
-        listReeLossesImports({ take: 200 })
+        listReeLossesImports({ take: 200 }),
+        getReeDownloadCenterSummary()
       ]);
       setImports(nextImports);
       setMedperFiles(nextMedperFiles);
       setMedperMonthlyConsumption(nextMedperMonthlyConsumption);
       setReeLossesImports(nextReeLossesImports);
+      setReeDownloadCenterSummary(nextReeDownloadCenterSummary);
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando Centro de cargas." });
     } finally {
@@ -2121,6 +2126,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           {section === "reeDownloads" && (
             <ReeDownloadCenterModule
               reganecuFiles={imports}
+              coverageSummary={reeDownloadCenterSummary}
               medperFiles={medperFiles}
               medperMonthlyConsumption={medperMonthlyConsumption}
               reeLossesImports={reeLossesImports}

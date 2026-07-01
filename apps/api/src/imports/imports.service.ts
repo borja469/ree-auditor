@@ -25,6 +25,30 @@ import {
 
 type ImportResultStatus = "IMPORTED" | "FAILED" | "DUPLICATE";
 type ImportableFile = Pick<Express.Multer.File, "originalname" | "buffer" | "size">;
+type DownloadCenterModule = "REGANECU" | "MEDPER" | "K REE";
+type DownloadCenterStatus = "correct" | "error" | "pending" | "incomplete" | "duplicated" | "warning";
+
+type DownloadCenterAggregateDbRow = {
+  month: string;
+  module: DownloadCenterModule;
+  version: string | null;
+  status: string;
+  loads: bigint | number;
+  records: bigint | number | null;
+  invalidRecords: bigint | number | null;
+  duplicatedRecords: bigint | number | null;
+  latestLoad: Date | null;
+};
+
+type DownloadCenterSummaryRow = {
+  month: string;
+  module: DownloadCenterModule;
+  status: DownloadCenterStatus;
+  label: string | null;
+  loads: number;
+  records: number;
+  latestLoad: string | null;
+};
 
 const FILE_SELECT = {
   id: true,
@@ -250,6 +274,53 @@ export class ImportsService {
         take: clampTake(query.take)
       })
     );
+  }
+
+  async downloadCenterSummary(): Promise<DownloadCenterSummaryRow[]> {
+    const rows = await runWithPrismaRetry(() =>
+      this.prisma.$queryRaw<DownloadCenterAggregateDbRow[]>`
+        SELECT
+          to_char(fecha_liquidacion, 'YYYY-MM') AS month,
+          'REGANECU'::text AS module,
+          version::text AS version,
+          status::text AS status,
+          count(*) AS loads,
+          coalesce(sum(total_records), 0) AS records,
+          coalesce(sum(invalid_records), 0) AS "invalidRecords",
+          coalesce(sum(duplicated_records), 0) AS "duplicatedRecords",
+          max(imported_at) AS "latestLoad"
+        FROM ree_files
+        GROUP BY 1, 2, 3, 4
+        UNION ALL
+        SELECT
+          to_char(fecha_inicio, 'YYYY-MM') AS month,
+          'MEDPER'::text AS module,
+          version::text AS version,
+          status::text AS status,
+          count(*) AS loads,
+          coalesce(sum(total_records), 0) AS records,
+          coalesce(sum(invalid_records), 0) AS "invalidRecords",
+          coalesce(sum(duplicated_records), 0) AS "duplicatedRecords",
+          max(imported_at) AS "latestLoad"
+        FROM medper_files
+        GROUP BY 1, 2, 3, 4
+        UNION ALL
+        SELECT
+          to_char(coalesce(fecha_inicio, fecha_fin, imported_at::date), 'YYYY-MM') AS month,
+          'K REE'::text AS module,
+          version::text AS version,
+          status::text AS status,
+          count(*) AS loads,
+          coalesce(sum(total_records), 0) AS records,
+          coalesce(sum(invalid_records), 0) AS "invalidRecords",
+          coalesce(sum(duplicated_records), 0) AS "duplicatedRecords",
+          max(imported_at) AS "latestLoad"
+        FROM ree_k_factor_imports
+        GROUP BY 1, 2, 3, 4
+      `
+    );
+
+    return buildDownloadCenterSummary(rows);
   }
 
   async getFile(id: string) {
@@ -3704,6 +3775,109 @@ function formatIssue(error: ParseIssue) {
 
 function formatMedperIssue(error: MedperParseIssue) {
   return `${error.sourceFileName}:${error.lineNumber} ${error.message}`;
+}
+
+function buildDownloadCenterSummary(rows: DownloadCenterAggregateDbRow[]): DownloadCenterSummaryRow[] {
+  const groups = new Map<string, DownloadCenterAggregateDbRow[]>();
+  for (const row of rows) {
+    if (!row.month || !row.module) {
+      continue;
+    }
+    const key = `${row.month}|${row.module}`;
+    const group = groups.get(key) ?? [];
+    group.push(row);
+    groups.set(key, group);
+  }
+
+  return [...groups.entries()]
+    .map(([key, groupRows]) => {
+      const [month, module] = key.split("|") as [string, DownloadCenterModule];
+      const status = downloadCenterGroupStatus(module, groupRows);
+      const version = latestCorrectVersion(groupRows);
+      return {
+        month,
+        module,
+        status,
+        label: status === "correct" && version ? `Completo (${version})` : null,
+        loads: groupRows.reduce((sum, row) => sum + numberFromDb(row.loads), 0),
+        records: groupRows.reduce((sum, row) => sum + numberFromDb(row.records), 0),
+        latestLoad: latestLoad(groupRows)
+      };
+    })
+    .sort((left, right) => right.month.localeCompare(left.month) || left.module.localeCompare(right.module));
+}
+
+function downloadCenterGroupStatus(module: DownloadCenterModule, rows: DownloadCenterAggregateDbRow[]): DownloadCenterStatus {
+  if (rows.length === 0) {
+    return "pending";
+  }
+  const rowStatuses = rows.map(downloadCenterRowStatus);
+  if (module === "MEDPER") {
+    const versions = new Set(rows.filter((row) => downloadCenterRowStatus(row) === "correct").map((row) => row.version?.toUpperCase()).filter(Boolean));
+    if (["C3", "C4", "C5"].every((version) => versions.has(version))) {
+      return "correct";
+    }
+    return versions.size > 0 || rowStatuses.includes("correct") ? "incomplete" : firstNonPendingStatus(rowStatuses);
+  }
+  if (rowStatuses.includes("correct")) {
+    return "correct";
+  }
+  return firstNonPendingStatus(rowStatuses);
+}
+
+function firstNonPendingStatus(statuses: DownloadCenterStatus[]): DownloadCenterStatus {
+  if (statuses.includes("warning")) {
+    return "warning";
+  }
+  if (statuses.includes("duplicated")) {
+    return "duplicated";
+  }
+  if (statuses.includes("error")) {
+    return "error";
+  }
+  if (statuses.includes("incomplete")) {
+    return "incomplete";
+  }
+  return "pending";
+}
+
+function downloadCenterRowStatus(row: DownloadCenterAggregateDbRow): DownloadCenterStatus {
+  if (row.status === "FAILED") {
+    return "error";
+  }
+  if (row.status === "DUPLICATED" || numberFromDb(row.duplicatedRecords) > 0) {
+    return "duplicated";
+  }
+  if (numberFromDb(row.invalidRecords) > 0) {
+    return "warning";
+  }
+  return "correct";
+}
+
+function latestCorrectVersion(rows: DownloadCenterAggregateDbRow[]) {
+  return rows
+    .filter((row) => downloadCenterRowStatus(row) === "correct")
+    .map((row) => row.version?.toUpperCase())
+    .filter((value): value is string => Boolean(value))
+    .sort(compareVersionLabels)
+    .at(-1);
+}
+
+function compareVersionLabels(left: string, right: string) {
+  return Number(left.replace(/\D/g, "")) - Number(right.replace(/\D/g, ""));
+}
+
+function latestLoad(rows: DownloadCenterAggregateDbRow[]) {
+  return rows
+    .map((row) => row.latestLoad)
+    .filter((value): value is Date => value instanceof Date)
+    .sort((left, right) => right.getTime() - left.getTime())[0]
+    ?.toISOString() ?? null;
+}
+
+function numberFromDb(value: bigint | number | null | undefined) {
+  const numeric = typeof value === "bigint" ? Number(value) : Number(value ?? 0);
+  return Number.isFinite(numeric) ? numeric : 0;
 }
 
 async function runWithPrismaRetry<T>(operation: () => Promise<T>, retries = PRISMA_POOL_RETRIES): Promise<T> {

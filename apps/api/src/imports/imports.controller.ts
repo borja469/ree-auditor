@@ -27,6 +27,11 @@ export class ImportsController {
     return this.importsService.listFiles(query);
   }
 
+  @Get("download-center-summary")
+  downloadCenterSummary() {
+    return this.importsService.downloadCenterSummary();
+  }
+
   @Get(":id")
   getFile(@Param("id") id: string) {
     return this.importsService.getFile(id);

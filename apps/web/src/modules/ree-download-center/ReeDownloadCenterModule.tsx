@@ -23,6 +23,7 @@ import {
   type MedperFile,
   type MedperMonthlyConsumptionRow,
   type ReeFile,
+  type ReeDownloadCenterSummaryRow,
   type ReeLossesImportFile
 } from "../../api";
 import type { ImportMode } from "../../app-shell/AppShellTypes";
@@ -69,6 +70,7 @@ type ActionModal = {
 
 type ReeDownloadCenterProps = {
   reganecuFiles: ReeFile[];
+  coverageSummary: ReeDownloadCenterSummaryRow[];
   medperFiles: MedperFile[];
   medperMonthlyConsumption: MedperMonthlyConsumptionRow[];
   reeLossesImports: ReeLossesImportFile[];
@@ -100,6 +102,7 @@ const STATUS_LABELS: Record<UnifiedStatus, string> = {
 
 export function ReeDownloadCenterModule({
   reganecuFiles,
+  coverageSummary,
   medperFiles,
   medperMonthlyConsumption,
   reeLossesImports,
@@ -177,7 +180,7 @@ export function ReeDownloadCenterModule({
 
   const globalKpis = useMemo(() => buildGlobalKpis(rows), [rows]);
   const moduleKpis = useMemo(() => buildModuleKpis(rows), [rows]);
-  const coverageRows = useMemo(() => buildMonthlyCoverageRows(rows), [rows]);
+  const coverageRows = useMemo(() => buildMonthlyCoverageRows(coverageSummary), [coverageSummary]);
 
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
@@ -664,63 +667,22 @@ function buildModuleKpis(rows: UnifiedRow[]) {
   });
 }
 
-function buildMonthlyCoverageRows(rows: UnifiedRow[]): MonthlyCoverageRow[] {
-  const months = [...new Set(rows.map((row) => row.periodKey).filter(Boolean))].sort((left, right) => right.localeCompare(left));
+function buildMonthlyCoverageRows(rows: ReeDownloadCenterSummaryRow[]): MonthlyCoverageRow[] {
+  const months = [...new Set(rows.map((row) => row.month).filter(Boolean))].sort((left, right) => right.localeCompare(left));
   return months.map((month) => {
-    const medperRows = rows.filter((row) => row.periodKey === month && row.module === "MEDPER");
-    const reganecuRows = rows.filter((row) => row.periodKey === month && row.module === "REGANECU");
-    const reeLossesRows = rows.filter((row) => row.periodKey === month && row.module === "K REE");
-    const medper = coverageStatus(medperRows);
-    const reganecu = coverageStatus(reganecuRows);
-    const reeLosses = coverageStatus(reeLossesRows);
+    const medperRow = rows.find((row) => row.month === month && row.module === "MEDPER");
+    const reganecuRow = rows.find((row) => row.month === month && row.module === "REGANECU");
+    const reeLossesRow = rows.find((row) => row.month === month && row.module === "K REE");
     return {
       month,
-      medper,
-      medperLabel: coverageVersionLabel(medper, medperRows),
-      reganecu,
-      reganecuLabel: coverageVersionLabel(reganecu, reganecuRows),
-      reeLosses,
-      reeLossesLabel: coverageVersionLabel(reeLosses, reeLossesRows)
+      medper: medperRow?.status ?? "pending",
+      medperLabel: medperRow?.label ?? undefined,
+      reganecu: reganecuRow?.status ?? "pending",
+      reganecuLabel: reganecuRow?.label ?? undefined,
+      reeLosses: reeLossesRow?.status ?? "pending",
+      reeLossesLabel: reeLossesRow?.label ?? undefined
     };
   });
-}
-
-function coverageVersionLabel(status: UnifiedStatus, rows: UnifiedRow[]) {
-  if (status !== "correct") {
-    return undefined;
-  }
-  const versions = rows
-    .filter((row) => row.source !== "medperCoverage" && row.status === "correct")
-    .map((row) => row.version?.toUpperCase() ?? row.type.match(/C\d+/i)?.[0]?.toUpperCase())
-    .filter((value): value is string => Boolean(value))
-    .sort(compareVersionLabels);
-  return versions.at(-1) ? `Completo (${versions.at(-1)})` : undefined;
-}
-
-function compareVersionLabels(left: string, right: string) {
-  return Number(left.replace(/\D/g, "")) - Number(right.replace(/\D/g, ""));
-}
-
-function coverageStatus(rows: UnifiedRow[]): UnifiedStatus {
-  if (rows.length === 0) {
-    return "pending";
-  }
-  if (rows.some((row) => row.status === "pending" || row.status === "incomplete")) {
-    return "incomplete";
-  }
-  if (rows.some((row) => row.status === "correct")) {
-    return "correct";
-  }
-  if (rows.some((row) => row.status === "warning")) {
-    return "warning";
-  }
-  if (rows.some((row) => row.status === "duplicated")) {
-    return "duplicated";
-  }
-  if (rows.some((row) => row.status === "error")) {
-    return "error";
-  }
-  return "correct";
 }
 
 function compareRows(left: UnifiedRow, right: UnifiedRow) {

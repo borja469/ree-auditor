@@ -139,6 +139,16 @@ export type ReeLossesImportFile = {
   duplicatedRecords: number;
 };
 
+export type ReeDownloadCenterSummaryRow = {
+  month: string;
+  module: "REGANECU" | "MEDPER" | "K REE";
+  status: "correct" | "error" | "pending" | "incomplete" | "duplicated" | "warning";
+  label: string | null;
+  loads: number;
+  records: number;
+  latestLoad: string | null;
+};
+
 export type ImportHistoryKind = "reganecu" | "medper";
 export type ImportHistoryIssue = {
   sourceFileName: string;
@@ -1399,6 +1409,10 @@ function resolveApiUrl() {
 
 export async function listImports(query: Pick<Filters, "skip" | "take"> = {}): Promise<ReeFile[]> {
   return getJson(`/imports${toQuery(query)}`);
+}
+
+export async function getReeDownloadCenterSummary(): Promise<ReeDownloadCenterSummaryRow[]> {
+  return getJson(`/imports/download-center-summary`);
 }
 
 export async function login(username: string, password: string): Promise<AuthSession> {
