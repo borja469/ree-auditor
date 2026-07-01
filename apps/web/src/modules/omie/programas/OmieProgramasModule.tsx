@@ -7,6 +7,8 @@ import type { OmieProgramaEvolucionPeriodo, OmieProgramaEvolucionResponse, OmieP
 import type { OmieProgramasViewKey } from "../../../app-shell/AppShellTypes";
 import { formatOmieEnergy } from "../liquidaciones/OmieLiquidacionesHelpers";
 import { EChart, PanelTitle, formatFullDate, formatFullDateTime, formatNumber, sumNumeric } from "../../shared/RestoredModuleCommon";
+const OMIE_INTRADAY_SESSIONS = ["01", "02", "03", "04", "05", "06", "07"];
+
 type OmieProgramasProps = {
   view: OmieProgramasViewKey;
   fecha: string;
@@ -52,10 +54,7 @@ export function OmieProgramasModule({
             <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
           </label>
           {view === "intradiarios" && (
-            <label className="filter-field">
-              <span>Sesión</span>
-              <input disabled={loading} inputMode="numeric" maxLength={2} value={sesion} onChange={(event) => onSesionChange(event.target.value)} />
-            </label>
+            <SessionSelect disabled={loading} value={sesion} onChange={onSesionChange} />
           )}
           <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
             <Search size={16} />
@@ -78,10 +77,7 @@ export function OmieProgramasModule({
               <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
             </label>
             {view === "intradiarios" && (
-              <label className="filter-field">
-                <span>Sesión</span>
-                <input disabled={loading} inputMode="numeric" maxLength={2} value={sesion} onChange={(event) => onSesionChange(event.target.value)} />
-              </label>
+              <SessionSelect disabled={loading} value={sesion} onChange={onSesionChange} />
             )}
             <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
               <Search size={16} />
@@ -112,10 +108,7 @@ export function OmieProgramasModule({
             <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
           </label>
           {view === "intradiarios" && (
-            <label className="filter-field">
-              <span>Sesión</span>
-              <input disabled={loading} inputMode="numeric" maxLength={2} value={sesion} onChange={(event) => onSesionChange(event.target.value)} />
-            </label>
+            <SessionSelect disabled={loading} value={sesion} onChange={onSesionChange} />
           )}
           <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
             <Search size={16} />
@@ -152,6 +145,21 @@ export function OmieProgramasModule({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SessionSelect({ disabled, value, onChange }: { disabled: boolean; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="filter-field">
+      <span>Sesión</span>
+      <select disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)}>
+        {OMIE_INTRADAY_SESSIONS.map((session) => (
+          <option key={session} value={session}>
+            Sesión {session}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

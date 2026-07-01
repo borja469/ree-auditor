@@ -89,6 +89,8 @@ type UnifiedProfileUploadRow = {
   uploadedBy: string | null;
 };
 
+type SeriesIndicatorFilter = "all" | "withData";
+
 export function EsiosModule({ view }: { view: EsiosViewKey }) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error" | "info"; text: string }>();
@@ -1096,6 +1098,34 @@ function SeriesView({
   onSelectAll: () => void;
   onToggleIndicator: (indicatorId: number) => void;
 }) {
+  const [pickerSearch, setPickerSearch] = useState("");
+  const [pickerFilter, setPickerFilter] = useState<SeriesIndicatorFilter>("all");
+  const selectedIndicators = useMemo(
+    () => selectedIndicatorIds
+      .map((indicatorId) => availableIndicators.find((indicator) => indicator.indicatorId === indicatorId))
+      .filter((indicator): indicator is EsiosIndicator => Boolean(indicator)),
+    [availableIndicators, selectedIndicatorIds]
+  );
+  const filteredIndicators = useMemo(() => {
+    const needle = pickerSearch.trim().toLowerCase();
+    return availableIndicators.filter((indicator) => {
+      if (pickerFilter === "withData" && !indicator.hasData) {
+        return false;
+      }
+      if (!needle) {
+        return true;
+      }
+      return [
+        String(indicator.indicatorId),
+        indicator.name ?? "",
+        indicator.shortName ?? "",
+        indicator.description ?? "",
+        indicator.frequency ?? "",
+        indicator.unit ?? ""
+      ].join(" ").toLowerCase().includes(needle);
+    });
+  }, [availableIndicators, pickerFilter, pickerSearch]);
+
   return (
     <>
       <div className="panel wide omie-control-panel">
@@ -1149,26 +1179,78 @@ function SeriesView({
       </div>
 
       <div className="panel wide">
-        <div className="esios-indicator-picker">
-          {availableIndicators.length === 0 ? (
-            <div className="empty-state">No hay indicadores con datos descargados.</div>
-          ) : (
-            availableIndicators.map((indicator) => {
-              const selected = selectedIndicatorIds.includes(indicator.indicatorId);
-              return (
-                <button
-                  key={indicator.id}
-                  className={`esios-chip ${selected ? "active" : ""}`}
-                  disabled={loading}
-                  onClick={() => onToggleIndicator(indicator.indicatorId)}
-                  type="button"
-                >
+        <div className="esios-indicator-selector">
+          <div className="esios-selected-summary">
+            <div>
+              <strong>{formatNumber(selectedIndicators.length)} seleccionados</strong>
+              <span>{selectedIndicators.length === 0 ? "Sin indicador seleccionado" : selectedIndicators.map((indicator) => `${indicator.indicatorId} - ${indicator.shortName ?? indicator.name ?? "-"}`).join(" · ")}</span>
+            </div>
+            <button className="secondary-button" disabled={loading || selectedIndicatorIds.length === 0} onClick={onClearIndicators} type="button">
+              <XCircle size={16} />
+              Limpiar
+            </button>
+          </div>
+
+          {selectedIndicators.length > 0 && (
+            <div className="esios-selected-list">
+              {selectedIndicators.map((indicator) => (
+                <button disabled={loading} key={indicator.id} onClick={() => onToggleIndicator(indicator.indicatorId)} title="Quitar indicador" type="button">
                   <strong>{indicator.indicatorId}</strong>
                   <span>{indicator.shortName ?? indicator.name ?? "-"}</span>
+                  <XCircle size={14} />
                 </button>
-              );
-            })
+              ))}
+            </div>
           )}
+
+          <div className="esios-indicator-filterbar">
+            <label className="ops-search">
+              <Search size={16} />
+              <input
+                aria-label="Buscar indicador ESIOS"
+                placeholder="Buscar ID, nombre, familia..."
+                value={pickerSearch}
+                onChange={(event) => setPickerSearch(event.target.value)}
+              />
+            </label>
+            <div className="technical-mode" aria-label="Filtro de indicadores ESIOS">
+              <button className={pickerFilter === "all" ? "active" : ""} onClick={() => setPickerFilter("all")} type="button">Todos</button>
+              <button className={pickerFilter === "withData" ? "active" : ""} onClick={() => setPickerFilter("withData")} type="button">Con datos</button>
+            </div>
+            <span>{formatNumber(filteredIndicators.length)} de {formatNumber(availableIndicators.length)}</span>
+          </div>
+
+          <div className="esios-indicator-table-shell">
+            <div className="esios-indicator-row header">
+              <span>ID</span>
+              <span>Nombre</span>
+              <span>Familia</span>
+              <span>Datos</span>
+              <span>Acción</span>
+            </div>
+            {availableIndicators.length === 0 ? (
+              <div className="empty-state">No hay indicadores con datos descargados.</div>
+            ) : filteredIndicators.length === 0 ? (
+              <div className="empty-state">No hay coincidencias con la búsqueda.</div>
+            ) : (
+              filteredIndicators.map((indicator) => {
+                const selected = selectedIndicatorIds.includes(indicator.indicatorId);
+                return (
+                  <div className={`esios-indicator-row ${selected ? "selected" : ""}`} key={indicator.id}>
+                    <span>{indicator.indicatorId}</span>
+                    <span title={indicator.name ?? indicator.shortName ?? "-"}>{indicator.name ?? indicator.shortName ?? "-"}</span>
+                    <span title={indicator.description ?? indicator.shortName ?? indicator.frequency ?? "-"}>{indicatorFamily(indicator)}</span>
+                    <span>{indicator.hasData ? "Si" : "No"}</span>
+                    <span>
+                      <button className="secondary-button" disabled={loading} onClick={() => onToggleIndicator(indicator.indicatorId)} type="button">
+                        {selected ? "Quitar" : "Seleccionar"}
+                      </button>
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       </div>
 
@@ -1978,6 +2060,10 @@ function matchesIndicatorSearch(indicator: EsiosIndicator, search: string) {
   ].map((value) => value.toLowerCase());
 
   return haystacks.some((value) => value.includes(needle));
+}
+
+function indicatorFamily(indicator: EsiosIndicator) {
+  return indicator.frequency ?? indicator.unit ?? indicator.shortName ?? "-";
 }
 
 function exportComparisonSeries(

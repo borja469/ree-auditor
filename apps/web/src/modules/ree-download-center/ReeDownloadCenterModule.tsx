@@ -38,6 +38,7 @@ type UnifiedRow = {
   module: ReeDownloadModule;
   status: UnifiedStatus;
   type: string;
+  version: string | null;
   periodKey: string;
   periodLabel: string;
   fileName: string;
@@ -54,8 +55,11 @@ type UnifiedRow = {
 type MonthlyCoverageRow = {
   month: string;
   medper: UnifiedStatus;
+  medperLabel?: string;
   reganecu: UnifiedStatus;
+  reganecuLabel?: string;
   reeLosses: UnifiedStatus;
+  reeLossesLabel?: string;
 };
 
 type ActionModal = {
@@ -136,7 +140,7 @@ export function ReeDownloadCenterModule({
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return rows.filter((row) => {
-      const haystack = [row.module, row.status, row.type, row.periodLabel, row.fileName, row.user, row.observations].join(" ").toLowerCase();
+      const haystack = [row.module, row.status, row.type, row.version ?? "", row.periodLabel, row.fileName, row.user, row.observations].join(" ").toLowerCase();
       if (normalizedQuery && !haystack.includes(normalizedQuery)) {
         return false;
       }
@@ -173,7 +177,7 @@ export function ReeDownloadCenterModule({
 
   const globalKpis = useMemo(() => buildGlobalKpis(rows), [rows]);
   const moduleKpis = useMemo(() => buildModuleKpis(rows), [rows]);
-  const coverageRows = useMemo(() => buildMonthlyCoverageRows(rows).slice(0, 6), [rows]);
+  const coverageRows = useMemo(() => buildMonthlyCoverageRows(rows), [rows]);
 
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
@@ -407,9 +411,9 @@ export function ReeDownloadCenterModule({
           coverageRows.map((row) => (
             <div className="ree-coverage-row" key={row.month}>
               <span>{formatMonth(row.month)}</span>
-              <CoverageBadge status={row.medper} />
-              <CoverageBadge status={row.reganecu} />
-              <CoverageBadge status={row.reeLosses} />
+              <CoverageBadge status={row.medper} label={row.medperLabel} />
+              <CoverageBadge status={row.reganecu} label={row.reganecuLabel} />
+              <CoverageBadge status={row.reeLosses} label={row.reeLossesLabel} />
             </div>
           ))
         )}
@@ -541,6 +545,7 @@ function importFileRow(file: ReeFile | MedperFile, module: "REGANECU" | "MEDPER"
     module,
     status: importStatus(file),
     type: file.tipoArchivo,
+    version: file.version,
     periodKey: toMonthKey(periodStart),
     periodLabel: "fechaLiquidacion" in file ? formatDate(file.fechaLiquidacion) : `${formatDate(file.fechaInicio)} - ${formatDate(file.fechaFin)}`,
     fileName: file.fileName,
@@ -562,6 +567,7 @@ function reeLossesRow(file: ReeLossesImportFile): UnifiedRow {
     module: "K REE",
     status: importStatus(file),
     type: file.tipoArchivo ?? "K REE",
+    version: file.version,
     periodKey: toMonthKey(file.fechaInicio ?? file.fechaFin ?? file.importedAt),
     periodLabel: file.fechaInicio && file.fechaFin ? `${formatDate(file.fechaInicio)} - ${formatDate(file.fechaFin)}` : formatDate(file.fechaInicio ?? file.fechaFin),
     fileName: file.fileName,
@@ -592,6 +598,7 @@ function medperCoverageRows(rows: MedperMonthlyConsumptionRow[]): UnifiedRow[] {
       module: "MEDPER",
       status: loadedVersions.length === REQUIRED_MEDPER_VERSIONS.length ? "correct" : loadedVersions.length === 0 ? "pending" : "incomplete",
       type: "Cobertura C3/C4/C5",
+      version: loadedVersions.at(-1) ?? null,
       periodKey: month,
       periodLabel: formatMonth(month),
       fileName: "Resumen mensual de medidas",
@@ -659,12 +666,39 @@ function buildModuleKpis(rows: UnifiedRow[]) {
 
 function buildMonthlyCoverageRows(rows: UnifiedRow[]): MonthlyCoverageRow[] {
   const months = [...new Set(rows.map((row) => row.periodKey).filter(Boolean))].sort((left, right) => right.localeCompare(left));
-  return months.map((month) => ({
-    month,
-    medper: coverageStatus(rows.filter((row) => row.periodKey === month && row.module === "MEDPER")),
-    reganecu: coverageStatus(rows.filter((row) => row.periodKey === month && row.module === "REGANECU")),
-    reeLosses: coverageStatus(rows.filter((row) => row.periodKey === month && row.module === "K REE"))
-  }));
+  return months.map((month) => {
+    const medperRows = rows.filter((row) => row.periodKey === month && row.module === "MEDPER");
+    const reganecuRows = rows.filter((row) => row.periodKey === month && row.module === "REGANECU");
+    const reeLossesRows = rows.filter((row) => row.periodKey === month && row.module === "K REE");
+    const medper = coverageStatus(medperRows);
+    const reganecu = coverageStatus(reganecuRows);
+    const reeLosses = coverageStatus(reeLossesRows);
+    return {
+      month,
+      medper,
+      medperLabel: coverageVersionLabel(medper, medperRows),
+      reganecu,
+      reganecuLabel: coverageVersionLabel(reganecu, reganecuRows),
+      reeLosses,
+      reeLossesLabel: coverageVersionLabel(reeLosses, reeLossesRows)
+    };
+  });
+}
+
+function coverageVersionLabel(status: UnifiedStatus, rows: UnifiedRow[]) {
+  if (status !== "correct") {
+    return undefined;
+  }
+  const versions = rows
+    .filter((row) => row.source !== "medperCoverage" && row.status === "correct")
+    .map((row) => row.version?.toUpperCase() ?? row.type.match(/C\d+/i)?.[0]?.toUpperCase())
+    .filter((value): value is string => Boolean(value))
+    .sort(compareVersionLabels);
+  return versions.at(-1) ? `Completo (${versions.at(-1)})` : undefined;
+}
+
+function compareVersionLabels(left: string, right: string) {
+  return Number(left.replace(/\D/g, "")) - Number(right.replace(/\D/g, ""));
 }
 
 function coverageStatus(rows: UnifiedRow[]): UnifiedStatus {
@@ -699,9 +733,9 @@ function StatusBadge({ status }: { status: UnifiedStatus }) {
   return <span className={`ops-status-badge ${statusClass(status)}`}>{STATUS_LABELS[status]}</span>;
 }
 
-function CoverageBadge({ status }: { status: UnifiedStatus }) {
-  const label = status === "pending" ? "Sin datos" : status === "incomplete" ? "Incompleto" : status === "correct" ? "Completo" : STATUS_LABELS[status];
-  return <span className={`ops-status-badge ${statusClass(status)}`}>{label}</span>;
+function CoverageBadge({ status, label }: { status: UnifiedStatus; label?: string }) {
+  const resolvedLabel = label ?? (status === "pending" ? "Sin datos" : status === "incomplete" ? "Incompleto" : status === "correct" ? "Completo" : STATUS_LABELS[status]);
+  return <span className={`ops-status-badge ${statusClass(status)}`}>{resolvedLabel}</span>;
 }
 
 function statusClass(status: UnifiedStatus) {
