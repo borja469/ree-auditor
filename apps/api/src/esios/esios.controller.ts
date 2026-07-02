@@ -6,13 +6,15 @@ import {
   EsiosProfilesService,
   type EsiosProfileCoefficientInput
 } from "./esios-profiles.service";
+import { EsiosSchedulerService, type EsiosSeriesAutomationConfigInput } from "./esios-scheduler.service";
 import { ESIOS_DEFAULT_INDICATOR_ID, type EsiosConfigInput } from "./esios.types";
 
 @Controller("esios")
 export class EsiosController {
   constructor(
     private readonly esiosApiService: EsiosApiService,
-    private readonly esiosProfilesService: EsiosProfilesService
+    private readonly esiosProfilesService: EsiosProfilesService,
+    private readonly esiosSchedulerService: EsiosSchedulerService
   ) {}
 
   @Get("config")
@@ -113,6 +115,27 @@ export class EsiosController {
       skip: parseOptionalInteger(skip),
       take: parseOptionalInteger(take)
     });
+  }
+
+  @Get("series-automation")
+  getSeriesAutomation() {
+    return this.esiosSchedulerService.obtenerAutomatizacionSeries();
+  }
+
+  @Put("series-automation")
+  saveSeriesAutomation(@Body() body: EsiosSeriesAutomationConfigInput) {
+    return this.esiosSchedulerService.guardarAutomatizacionSeries({
+      active: typeof body.active === "boolean" ? body.active : undefined,
+      scheduleTime: typeof body.scheduleTime === "string" ? body.scheduleTime : undefined,
+      daysBack: body.daysBack === undefined ? undefined : parseRequiredInteger(body.daysBack, "Dias atras"),
+      daysForward: body.daysForward === undefined ? undefined : parseRequiredInteger(body.daysForward, "Dias adelante"),
+      selectedIndicatorIds: Array.isArray(body.selectedIndicatorIds) ? body.selectedIndicatorIds.map((item) => parseRequiredInteger(item, "Indicador")) : undefined
+    });
+  }
+
+  @Post("series-automation/run")
+  runSeriesAutomation() {
+    return this.esiosSchedulerService.ejecutarAutomatizacionSeries("00:00");
   }
 
   @Post("profiles/upload")

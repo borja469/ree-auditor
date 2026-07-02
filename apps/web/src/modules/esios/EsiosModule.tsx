@@ -18,8 +18,11 @@ import {
   getEsiosProfilesSummary,
   getEsiosReeFinalDemandUploads,
   getEsiosReeFinalProfileUploads,
+  getEsiosSeriesAutomationConfig,
+  runEsiosSeriesAutomation,
   saveEsiosProfileCoefficients,
   saveEsiosConfig,
+  saveEsiosSeriesAutomationConfig,
   syncEsiosIndicators,
   testEsiosConnection,
   uploadEsiosProfiles,
@@ -48,6 +51,8 @@ import {
   type EsiosReeFinalDemandUploadsResponse,
   type EsiosReeFinalProfileUpload,
   type EsiosReeFinalProfileUploadsResponse,
+  type EsiosSeriesAutomationConfig,
+  type EsiosSeriesAutomationRunResponse,
   type EsiosValuesFilters,
   type EsiosValuesResponse
 } from "../../api";
@@ -106,6 +111,8 @@ export function EsiosModule({ view }: { view: EsiosViewKey }) {
   const [connectionResult, setConnectionResult] = useState<EsiosConnectionResult>();
   const [downloadDraft, setDownloadDraft] = useState(() => defaultDownloadDraft());
   const [latestDownload, setLatestDownload] = useState<EsiosDownloadSummary>();
+  const [seriesAutomationConfig, setSeriesAutomationConfig] = useState<EsiosSeriesAutomationConfig>();
+  const [latestSeriesAutomationRun, setLatestSeriesAutomationRun] = useState<EsiosSeriesAutomationRunResponse>();
   const [downloadIndicatorId, setDownloadIndicatorId] = useState<number>(460);
   const [profilesFilters, setProfilesFilters] = useState<EsiosProfilesFilters>(() => defaultProfilesFilters());
   const [profilesPage, setProfilesPage] = useState(0);
@@ -151,7 +158,9 @@ export function EsiosModule({ view }: { view: EsiosViewKey }) {
         }
 
         if (view === "descargas") {
-          setLogs(await getEsiosDownloadLogs({ take: 100 }));
+          const [nextLogs, automation] = await Promise.all([getEsiosDownloadLogs({ take: 100 }), getEsiosSeriesAutomationConfig()]);
+          setLogs(nextLogs);
+          setSeriesAutomationConfig(automation);
         }
       } else if (view === "perfiles") {
         await loadProfiles(profilesFilters, profilesPage, profilesPageSize);
@@ -464,6 +473,51 @@ export function EsiosModule({ view }: { view: EsiosViewKey }) {
     }
   }
 
+  async function saveSeriesAutomation() {
+    if (!seriesAutomationConfig) {
+      return;
+    }
+    setLoading(true);
+    setMessage(undefined);
+    try {
+      const saved = await saveEsiosSeriesAutomationConfig(seriesAutomationConfig);
+      setSeriesAutomationConfig(saved);
+      setMessage({ tone: "success", text: "Automatismo de series ESIOS guardado." });
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error guardando automatismo ESIOS." });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function runSeriesAutomationNow() {
+    setLoading(true);
+    setMessage(undefined);
+    try {
+      const response = await runEsiosSeriesAutomation();
+      setLatestSeriesAutomationRun(response);
+      setLogs(await getEsiosDownloadLogs({ take: 100 }));
+      setMessage({
+        tone: response.errors > 0 ? "error" : "success",
+        text: `Automatismo ESIOS ejecutado: ${formatNumber(response.success)} indicadores correctos, ${formatNumber(response.errors)} errores.`
+      });
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error ejecutando automatismo ESIOS." });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function toggleAutomationIndicator(indicatorId: number) {
+    setSeriesAutomationConfig((current) => {
+      const config = current ?? defaultSeriesAutomationConfig();
+      const selected = config.selectedIndicatorIds.includes(indicatorId)
+        ? config.selectedIndicatorIds.filter((value) => value !== indicatorId)
+        : [...config.selectedIndicatorIds, indicatorId].sort((a, b) => a - b);
+      return { ...config, selectedIndicatorIds: selected };
+    });
+  }
+
   async function syncCatalog() {
     setLoading(true);
     setMessage(undefined);
@@ -602,12 +656,18 @@ export function EsiosModule({ view }: { view: EsiosViewKey }) {
           downloadDraft={downloadDraft}
           indicators={indicators}
           latestDownload={latestDownload}
+          latestSeriesAutomationRun={latestSeriesAutomationRun}
           loading={loading}
           logs={logs?.logs ?? []}
+          seriesAutomationConfig={seriesAutomationConfig}
           downloadIndicatorId={downloadIndicatorId}
           onDownload={() => runIndicatorDownload()}
           onDraftChange={setDownloadDraft}
           onDownloadIndicatorChange={setDownloadIndicatorId}
+          onRunSeriesAutomation={runSeriesAutomationNow}
+          onSaveSeriesAutomation={saveSeriesAutomation}
+          onSeriesAutomationChange={setSeriesAutomationConfig}
+          onToggleAutomationIndicator={toggleAutomationIndicator}
         />
       )}
       {view === "configuracion" && (
@@ -1380,24 +1440,37 @@ function DownloadsView({
   downloadDraft,
   indicators,
   latestDownload,
+  latestSeriesAutomationRun,
   loading,
   logs,
+  seriesAutomationConfig,
   downloadIndicatorId,
   onDownload,
   onDraftChange,
-  onDownloadIndicatorChange
+  onDownloadIndicatorChange,
+  onRunSeriesAutomation,
+  onSaveSeriesAutomation,
+  onSeriesAutomationChange,
+  onToggleAutomationIndicator
 }: {
   downloadDraft: { startDate: string; endDate: string };
   indicators: EsiosIndicator[];
   latestDownload?: EsiosDownloadSummary;
+  latestSeriesAutomationRun?: EsiosSeriesAutomationRunResponse;
   loading: boolean;
   logs: EsiosDownloadLog[];
+  seriesAutomationConfig?: EsiosSeriesAutomationConfig;
   downloadIndicatorId: number;
   onDownload: () => void;
   onDraftChange: (value: { startDate: string; endDate: string }) => void;
   onDownloadIndicatorChange: (indicatorId: number) => void;
+  onRunSeriesAutomation: () => void;
+  onSaveSeriesAutomation: () => void;
+  onSeriesAutomationChange: (config: EsiosSeriesAutomationConfig) => void;
+  onToggleAutomationIndicator: (indicatorId: number) => void;
 }) {
   const indicator = indicators.find((item) => item.indicatorId === downloadIndicatorId) ?? indicators[0];
+  const automationConfig = seriesAutomationConfig ?? defaultSeriesAutomationConfig();
   return (
     <>
       <div className="panel wide omie-control-panel">
@@ -1431,8 +1504,159 @@ function DownloadsView({
           <div className="technical-kpi"><span>Duracion</span><strong>{formatNumber(latestDownload.executionTimeMs)} ms</strong></div>
         </div>
       )}
+      <SeriesAutomationPanel
+        config={automationConfig}
+        indicators={indicators}
+        latestRun={latestSeriesAutomationRun}
+        loading={loading}
+        onChange={onSeriesAutomationChange}
+        onRunNow={onRunSeriesAutomation}
+        onSave={onSaveSeriesAutomation}
+        onToggleIndicator={onToggleAutomationIndicator}
+      />
       <HistoryTable logs={logs.slice(0, 25)} showErrors />
     </>
+  );
+}
+
+function SeriesAutomationPanel({
+  config,
+  indicators,
+  latestRun,
+  loading,
+  onChange,
+  onRunNow,
+  onSave,
+  onToggleIndicator
+}: {
+  config: EsiosSeriesAutomationConfig;
+  indicators: EsiosIndicator[];
+  latestRun?: EsiosSeriesAutomationRunResponse;
+  loading: boolean;
+  onChange: (config: EsiosSeriesAutomationConfig) => void;
+  onRunNow: () => void;
+  onSave: () => void;
+  onToggleIndicator: (indicatorId: number) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const filteredIndicators = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    const source = indicators.filter((indicator) => indicator.active);
+    if (!needle) {
+      return source;
+    }
+    return source.filter((indicator) => matchesIndicatorSearch(indicator, needle));
+  }, [indicators, search]);
+  const selectedIndicators = config.selectedIndicatorIds
+    .map((indicatorId) => indicators.find((indicator) => indicator.indicatorId === indicatorId))
+    .filter((indicator): indicator is EsiosIndicator => Boolean(indicator));
+
+  return (
+    <div className="panel wide omie-control-panel esios-automation-panel">
+      <PanelTitle icon={<Clock3 size={18} />} title="Automatismo de series" subtitle={`${formatNumber(config.selectedIndicatorIds.length)} indicadores seleccionados`} />
+      <div className="filter-band esios-automation-grid">
+        <label className="filter-field">
+          <span>Activo</span>
+          <select value={config.active ? "yes" : "no"} onChange={(event) => onChange({ ...config, active: event.target.value === "yes" })}>
+            <option value="yes">Si</option>
+            <option value="no">No</option>
+          </select>
+        </label>
+        <label className="filter-field">
+          <span>Hora diaria</span>
+          <input type="time" value={config.scheduleTime} onChange={(event) => onChange({ ...config, scheduleTime: event.target.value })} />
+        </label>
+        <label className="filter-field">
+          <span>Hoy - dias</span>
+          <input min="0" max="730" type="number" value={config.daysBack} onChange={(event) => onChange({ ...config, daysBack: Number(event.target.value) })} />
+        </label>
+        <label className="filter-field">
+          <span>Hoy + dias</span>
+          <input min="0" max="730" type="number" value={config.daysForward} onChange={(event) => onChange({ ...config, daysForward: Number(event.target.value) })} />
+        </label>
+        <div className="omie-toolbar compact">
+          <button className="primary-button" disabled={loading || config.selectedIndicatorIds.length === 0} onClick={onSave} type="button">
+            <Save size={16} />
+            Guardar
+          </button>
+          <button className="secondary-button" disabled={loading || config.selectedIndicatorIds.length === 0} onClick={onRunNow} type="button">
+            <RefreshCw size={16} />
+            Ejecutar ahora
+          </button>
+        </div>
+      </div>
+
+      <div className="esios-automation-summary">
+        <div>
+          <span>Rango diario</span>
+          <strong>Hoy - {formatNumber(config.daysBack)} / Hoy + {formatNumber(config.daysForward)}</strong>
+          <small>Horario Europe/Madrid</small>
+        </div>
+        <div>
+          <span>Ultima ejecucion</span>
+          <strong>{config.lastRunAt ? formatOptionalDateTime(config.lastRunAt) : "-"}</strong>
+          <small>{config.lastRunKey ?? "Sin ejecuciones programadas"}</small>
+        </div>
+        {latestRun && (
+          <div>
+            <span>Ultima ejecucion manual</span>
+            <strong>{formatNumber(latestRun.success)} OK / {formatNumber(latestRun.errors)} errores</strong>
+            <small>{latestRun.startDate} - {latestRun.endDate}</small>
+          </div>
+        )}
+      </div>
+
+      <div className="esios-automation-picker">
+        <div className="esios-selected-strip">
+          {selectedIndicators.length === 0 ? (
+            <span>Sin indicadores seleccionados.</span>
+          ) : (
+            selectedIndicators.map((indicator) => (
+              <button disabled={loading} key={indicator.id} onClick={() => onToggleIndicator(indicator.indicatorId)} title="Quitar indicador" type="button">
+                <strong>{indicator.indicatorId}</strong>
+                <span>{indicator.shortName ?? indicator.name ?? "-"}</span>
+              </button>
+            ))
+          )}
+        </div>
+        <div className="esios-indicator-filterbar">
+          <label className="technical-search">
+            <Search size={16} />
+            <input placeholder="Buscar indicador por ID, nombre o familia" value={search} onChange={(event) => setSearch(event.target.value)} />
+          </label>
+          <span>{formatNumber(filteredIndicators.length)} de {formatNumber(indicators.length)}</span>
+        </div>
+        <div className="esios-indicator-table-shell compact">
+          <div className="esios-indicator-row header">
+            <span>ID</span>
+            <span>Nombre</span>
+            <span>Familia</span>
+            <span>Datos</span>
+            <span>Accion</span>
+          </div>
+          {filteredIndicators.length === 0 ? (
+            <div className="empty-state">No hay indicadores para la busqueda.</div>
+          ) : (
+            filteredIndicators.map((indicator) => {
+              const selected = config.selectedIndicatorIds.includes(indicator.indicatorId);
+              return (
+                <div className={`esios-indicator-row ${selected ? "selected" : ""}`} key={indicator.id}>
+                  <span>{indicator.indicatorId}</span>
+                  <span title={indicator.name ?? indicator.shortName ?? "-"}>{indicator.name ?? indicator.shortName ?? "-"}</span>
+                  <span>{indicatorFamily(indicator)}</span>
+                  <span>{indicator.hasData ? "Si" : "No"}</span>
+                  <span>
+                    <button className="secondary-button" disabled={loading} onClick={() => onToggleIndicator(indicator.indicatorId)} type="button">
+                      {selected ? "Quitar" : "Anadir"}
+                    </button>
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2125,6 +2349,19 @@ function defaultDownloadDraft() {
   return {
     startDate: start.toISOString().slice(0, 10),
     endDate: today.toISOString().slice(0, 10)
+  };
+}
+
+function defaultSeriesAutomationConfig(): EsiosSeriesAutomationConfig {
+  return {
+    active: false,
+    scheduleTime: "06:00",
+    daysBack: 7,
+    daysForward: 0,
+    selectedIndicatorIds: [],
+    lastRunKey: null,
+    lastRunAt: null,
+    lastRunAtUtc: null
   };
 }
 

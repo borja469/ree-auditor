@@ -5442,6 +5442,98 @@ select:disabled {
   background: #ffffff;
 }
 
+.esios-automation-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.esios-automation-grid {
+  grid-template-columns: minmax(90px, 0.6fr) minmax(130px, 0.8fr) minmax(110px, 0.7fr) minmax(110px, 0.7fr) auto;
+  margin: 0;
+  padding: 0;
+}
+
+.esios-automation-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.esios-automation-summary div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fbfc;
+  border: 1px solid #dfe8ed;
+  border-radius: 8px;
+}
+
+.esios-automation-summary span,
+.esios-automation-summary small {
+  overflow: hidden;
+  color: #607482;
+  font-size: 0.72rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.esios-automation-summary strong {
+  overflow: hidden;
+  color: #17313f;
+  font-size: 0.95rem;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.esios-automation-picker {
+  display: grid;
+  gap: 8px;
+}
+
+.esios-selected-strip {
+  display: flex;
+  min-height: 36px;
+  gap: 7px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.esios-selected-strip > span {
+  align-self: center;
+  color: #607482;
+  font-size: 0.8rem;
+  font-weight: 850;
+}
+
+.esios-selected-strip button {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 6px;
+  max-width: 260px;
+  min-height: 32px;
+  padding: 0 9px;
+  color: #0f766e;
+  background: #ecfdf5;
+  border: 1px solid #99f6e4;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.esios-selected-strip button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.esios-indicator-table-shell.compact {
+  max-height: min(34vh, 300px);
+}
+
 .esios-indicator-row {
   display: grid;
   grid-template-columns: 86px minmax(220px, 1.6fr) minmax(130px, 0.8fr) 86px 118px;
@@ -5496,6 +5588,11 @@ select:disabled {
 
   .esios-indicator-table-shell {
     max-height: 55vh;
+  }
+
+  .esios-automation-grid,
+  .esios-automation-summary {
+    grid-template-columns: 1fr;
   }
 
   .esios-indicator-row {

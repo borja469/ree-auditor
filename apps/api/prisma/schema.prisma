@@ -654,6 +654,21 @@ model EsiosDownloadLog {
   @@map("esios_download_logs")
 }
 
+model EsiosSeriesAutomationConfig {
+  id                   Int       @id @default(1)
+  active               Boolean   @default(false)
+  scheduleTime         String    @default("06:00") @map("schedule_time") @db.VarChar(5)
+  daysBack             Int       @default(7) @map("days_back")
+  daysForward          Int       @default(0) @map("days_forward")
+  selectedIndicatorIds Json      @default("[]") @map("selected_indicator_ids")
+  lastRunKey           String?   @map("last_run_key") @db.VarChar(30)
+  lastRunAt            DateTime? @map("last_run_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@map("esios_series_automation_config")
+}
+
 model EsiosProfileUpload {
   id           String                    @id @default(uuid()) @db.Uuid
   year         Int

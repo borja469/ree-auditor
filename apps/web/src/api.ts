@@ -705,6 +705,44 @@ export type EsiosDownloadSummary = {
   errorMessage: string | null;
 };
 
+export type EsiosSeriesAutomationConfig = {
+  active: boolean;
+  scheduleTime: string;
+  daysBack: number;
+  daysForward: number;
+  selectedIndicatorIds: number[];
+  lastRunKey: string | null;
+  lastRunAt: string | null;
+  lastRunAtUtc?: string | null;
+};
+
+export type EsiosSeriesAutomationRunResponse = {
+  scheduleTime: string;
+  startedAt: string;
+  finishedAt: string;
+  force: true;
+  startDate: string;
+  endDate: string;
+  daysBack: number;
+  daysForward: number;
+  totalIndicators: number;
+  success: number;
+  errors: number;
+  downloadedRecords: number;
+  insertedRecords: number;
+  updatedRecords: number;
+  executionTimeMs: number;
+  results: Array<{
+    indicatorId: number;
+    status: "SUCCESS" | "ERROR";
+    downloadedRecords: number;
+    insertedRecords: number;
+    updatedRecords: number;
+    executionTimeMs: number;
+    errorMessage: string | null;
+  }>;
+};
+
 export type EsiosDownloadLog = {
   id: string;
   indicatorId: number | null;
@@ -1739,6 +1777,18 @@ export async function downloadEsiosIndicator(indicatorId: number, startDate: str
 
 export async function getEsiosDownloadLogs(query: { indicatorId?: number; skip?: number; take?: number } = {}): Promise<EsiosDownloadLogsResponse> {
   return getJson(`/esios/download-logs${toQuery(query)}`);
+}
+
+export async function getEsiosSeriesAutomationConfig(): Promise<EsiosSeriesAutomationConfig> {
+  return getJson(`/esios/series-automation`);
+}
+
+export async function saveEsiosSeriesAutomationConfig(config: Partial<EsiosSeriesAutomationConfig>): Promise<EsiosSeriesAutomationConfig> {
+  return sendJson(`/esios/series-automation`, "PUT", "Guardando automatismo ESIOS", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function runEsiosSeriesAutomation(): Promise<EsiosSeriesAutomationRunResponse> {
+  return sendJson(`/esios/series-automation/run`, "POST", "Ejecutando automatismo ESIOS", REQUEST_TIMEOUT_MS * 10);
 }
 
 export async function getEsiosInitialProfiles(filters: EsiosProfilesFilters = {}): Promise<EsiosInitialProfilesResponse> {
