@@ -1,4 +1,4 @@
-import { type DragEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertTriangle,
@@ -15,6 +15,8 @@ import {
   FileSpreadsheet,
   Gauge,
   Info,
+  LockKeyhole,
+  LogOut,
   Maximize2,
   Minimize2,
   RefreshCw,
@@ -41,6 +43,7 @@ import {
   activeSidebarItemKeys,
   getLatestLiquidationAnalysisVersionForMonth,
   getTodayInputValue,
+  isEsiosSection,
   isOmieSection,
   hasAnyReeLossesDateFilter,
   hasCompleteLiquidationAnalysisFilters,
@@ -54,9 +57,11 @@ import { OmieDescargasControlModule, formatDurationMs, getOmieDailyBulkDate, nor
 import { OmiePreciosModule } from "./modules/omie/precios/OmiePreciosModule";
 import { OmieProgramasModule } from "./modules/omie/programas/OmieProgramasModule";
 import { OmieTransaccionesModule } from "./modules/omie/transacciones/OmieTransaccionesModule";
+import { EsiosModule, type EsiosViewKey } from "./modules/esios/EsiosModule";
 import { MedperFilterBand, MedperViewPanel } from "./modules/medper/MedperModule";
 import { HistoryView } from "./modules/import-history/ImportHistoryModule";
 import { isLikelyMedperFileName, loadAllMedperRows, loadMedperRecordPage, sanitizeMedperFiltersForView } from "./modules/medper/MedperHelpers";
+import { ReeDownloadCenterModule } from "./modules/ree-download-center/ReeDownloadCenterModule";
 import type {
   ImportHistoryFile,
   ImportHistoryMode,
@@ -95,6 +100,7 @@ import { OmieDetalleCargaModule } from "./modules/omie/detalle-carga/OmieDetalle
 import { OmieLiquidacionesModule } from "./modules/omie/liquidaciones/OmieLiquidacionesModule";
 import {
   type A1Record,
+  type AuthSession,
   type Filters,
   type ImportHistoryDetail,
   type ImportHistoryLogs,
@@ -121,6 +127,8 @@ import {
   type OmieDailyBulkDownloadResponse,
   type OmieAnalisisMensualResponse,
   type OmieComprobacionLiquidacionesResponse,
+  type OmieAutomationConfig,
+  type OmieAutomationRunResponse,
   type OmiePrecioPeriodo,
   type OmiePreciosResponse,
   type OmieProgramaEvolucionPeriodo,
@@ -131,6 +139,7 @@ import {
   type OmieTransactionDownloadRow,
   type OmieTransactionStagingRow,
   type ReeFile,
+  type ReeDownloadCenterSummaryRow,
   type ReeLossesFilterOptions,
   type ReeLossesFilters,
   type ReeLossesImportFile,
@@ -145,6 +154,8 @@ import {
   deleteImportFile,
   executeOmieDescarga,
   executeOmieDescargaDiaria,
+  executeOmieAutomation,
+  getStoredAuthSession,
   getImportFileDetail,
   getImportFileErrorsCsv,
   getImportFileLogs,
@@ -158,12 +169,14 @@ import {
   getOmieComprobacionLiquidaciones,
   getOmieDescargaDetalle,
   getOmieDescargasControl,
+  getOmieAutomationConfig,
   getOmiePrecios,
   getOmieProgramaIntradiario,
   getOmieProgramaMercadoDiario,
   getOmieProgramasEvolucion,
   getOmieTransactionStagingRows,
   getOmieTransactionsHistorico,
+  getReeDownloadCenterSummary,
   getReeLossesFilterOptions,
   getReeLossesReport,
   getSettlementFilterOptions,
@@ -174,9 +187,12 @@ import {
   listImports,
   listReganecu,
   listReganecuQh,
+  login,
+  logout,
   redownloadOmieDescarga,
   reprocessImportFile,
   reprocessOmieDescarga,
+  saveOmieAutomationConfig,
   uploadMedperFiles,
   uploadReeLossesFiles,
   uploadReganecuFiles,
@@ -220,7 +236,7 @@ const OMIE_DOWNLOAD_QUERIES: Array<{
   { modulo: "Precios", consulta: "Mercado Diario", codigoOmie: "5202", requiereSesion: false, requiereRango: false },
   { modulo: "Precios", consulta: "Intradiario", codigoOmie: "5603", requiereSesion: true, requiereRango: false },
   { modulo: "Precios", consulta: "XBID", codigoOmie: "4125", requiereSesion: false, requiereRango: false },
-  { modulo: "Transacciones", consulta: "Historico", codigoOmie: "4121", requiereSesion: false, requiereRango: true }
+  { modulo: "Transacciones", consulta: "Histórico", codigoOmie: "4121", requiereSesion: false, requiereRango: true }
 ];
 const SUMMARY_SEGMENTS = [
   { code: "CAD", label: "Costes asignados a la demanda" },
@@ -231,6 +247,30 @@ const SUMMARY_SEGMENTS = [
 ] as const;
 
 export function App() {
+  const [authSession, setAuthSession] = useState(() => getStoredAuthSession());
+
+  useEffect(() => {
+    const onAuthExpired = () => setAuthSession(undefined);
+    window.addEventListener("ree-auditor-auth-expired", onAuthExpired);
+    return () => window.removeEventListener("ree-auditor-auth-expired", onAuthExpired);
+  }, []);
+
+  if (!authSession) {
+    return <LoginView onLogin={setAuthSession} />;
+  }
+
+  return (
+    <AuthenticatedApp
+      user={authSession.user}
+      onLogout={() => {
+        logout();
+        setAuthSession(undefined);
+      }}
+    />
+  );
+}
+
+function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => void }) {
   const globalLoading = useGlobalLoadingState();
   const refreshInFlight = useRef(false);
   const uploadInFlight = useRef(false);
@@ -264,6 +304,7 @@ export function App() {
   const [reeLossesFilters, setReeLossesFilters] = useState<ReeLossesFilters>({});
   const [reeLossesReport, setReeLossesReport] = useState<ReeLossesReport>();
   const [reeLossesImports, setReeLossesImports] = useState<ReeLossesImportFile[]>([]);
+  const [reeDownloadCenterSummary, setReeDownloadCenterSummary] = useState<ReeDownloadCenterSummaryRow[]>([]);
   const [latestReeLossesImport, setLatestReeLossesImport] = useState<ReeLossesImportResponse>();
   const [omieFecha, setOmieFecha] = useState(getTodayInputValue);
   const [omieSesion, setOmieSesion] = useState("01");
@@ -277,6 +318,8 @@ export function App() {
   const [omieAnalisisMensual, setOmieAnalisisMensual] = useState<OmieAnalisisMensualResponse>();
   const [omieComprobacionLiquidaciones, setOmieComprobacionLiquidaciones] = useState<OmieComprobacionLiquidacionesResponse>();
   const [omieDescargas, setOmieDescargas] = useState<OmieDownloadControlRow[]>([]);
+  const [omieAutomationConfig, setOmieAutomationConfig] = useState<OmieAutomationConfig>();
+  const [latestOmieAutomationRun, setLatestOmieAutomationRun] = useState<OmieAutomationRunResponse>();
   const [omieDownloadFilters, setOmieDownloadFilters] = useState<OmieDownloadControlFilters>({});
   const [omieDownloadDraft, setOmieDownloadDraft] = useState<OmieDownloadExecuteRequest>(() => {
     const today = getTodayInputValue();
@@ -288,15 +331,19 @@ export function App() {
   const [omieTransactionDownloads, setOmieTransactionDownloads] = useState<OmieTransactionDownloadRow[]>([]);
   const [omieTransactionRows, setOmieTransactionRows] = useState<OmieTransactionStagingRow[]>([]);
   const [selectedOmieTransactionDownloadId, setSelectedOmieTransactionDownloadId] = useState<string>();
+  const [esiosRefreshKey, setEsiosRefreshKey] = useState(0);
   const [reganecuDefaultMonthApplied, setReganecuDefaultMonthApplied] = useState(false);
   const [openSidebarGroups, setOpenSidebarGroups] = useState<Record<SidebarGroupKey, boolean>>({
     ree: true,
-    omie: false
+    omie: false,
+    esios: false
   });
   const [openSidebarItems, setOpenSidebarItems] = useState<Record<string, boolean>>({
     "ree-reganecu-menu": true,
+    "ree-losses-menu": true,
     "omie-programas-menu": true,
-    "omie-hoja-control-menu": true
+    "omie-hoja-control-menu": true,
+    "esios-menu": true
   });
   const [hourlyPage, setHourlyPage] = useState(0);
   const [qhPage, setQhPage] = useState(0);
@@ -423,23 +470,23 @@ export function App() {
       setMedperFilterOptions(nextFilterOptions);
 
       const hasDateFilter = Boolean(nextFilters.fecha || nextFilters.fechaInicio || nextFilters.fechaFin);
-      const defaultDateFilter =
-        nextMedidasView === "summary"
-          ? { fecha: nextFilterOptions.latestMonth ?? undefined }
-          : { fecha: nextFilterOptions.latestMonth ?? undefined };
+      const defaultDateFilter = nextMedidasView === "summary" ? {} : { fecha: nextFilterOptions.latestMonth ?? undefined };
       const resolvedFilters =
-        !medperDefaultMonthApplied && !hasDateFilter && nextFilterOptions.latestMonth
+        nextMedidasView === "summary"
+          ? ({} as MedperFilters)
+          : !medperDefaultMonthApplied && !hasDateFilter && nextFilterOptions.latestMonth
           ? { ...nextFilters, ...defaultDateFilter }
           : nextFilters;
-      if (!medperDefaultMonthApplied && !hasDateFilter && nextFilterOptions.latestMonth) {
+      if (nextMedidasView !== "summary" && !medperDefaultMonthApplied && !hasDateFilter && nextFilterOptions.latestMonth) {
         setMedperDefaultMonthApplied(true);
         setMedperFilters(resolvedFilters);
       }
 
-      if (nextMedidasView === "summary" || nextMedidasView === "graphs") {
+      if (nextMedidasView === "graphs") {
         setMedperSummary(await getMedperSummary(resolvedFilters));
       }
       if (nextMedidasView === "summary") {
+        setMedperSummary(undefined);
         setMedperMonthlyConsumption(await getMedperMonthlyConsumption());
       }
       if (nextMedidasView === "qh") {
@@ -476,7 +523,7 @@ export function App() {
 
       setLiquidationAnalysisRows(await getLiquidationAnalysisReport(resolvedFilters));
     } catch (error) {
-      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando anï¿½lisis de liquidaciones." });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando análisis de liquidaciones." });
     } finally {
       stopLoading();
     }
@@ -501,7 +548,33 @@ export function App() {
       }
       setReeLossesReport(await getReeLossesReport(resolvedFilters));
     } catch (error) {
-      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando anï¿½lisis de pï¿½rdidas REE." });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando análisis de Liquidaciones REE." });
+    } finally {
+      stopLoading();
+    }
+  }
+
+  async function refreshReeDownloadCenter() {
+    const stopLoading = beginDataRefresh();
+    if (!stopLoading) {
+      return;
+    }
+
+    try {
+      const [nextImports, nextMedperFiles, nextMedperMonthlyConsumption, nextReeLossesImports, nextReeDownloadCenterSummary] = await Promise.all([
+        listImports({ take: 200 }),
+        listMedperFiles({ take: 200 }),
+        getMedperMonthlyConsumption(),
+        listReeLossesImports({ take: 200 }),
+        getReeDownloadCenterSummary()
+      ]);
+      setImports(nextImports);
+      setMedperFiles(nextMedperFiles);
+      setMedperMonthlyConsumption(nextMedperMonthlyConsumption);
+      setReeLossesImports(nextReeLossesImports);
+      setReeDownloadCenterSummary(nextReeDownloadCenterSummary);
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando Centro de cargas." });
     } finally {
       stopLoading();
     }
@@ -562,12 +635,12 @@ export function App() {
 
     try {
       if (!year || !month) {
-        setMessage({ tone: "error", text: "Selecciona mes y aï¿½o para el anï¿½lisis mensual." });
+        setMessage({ tone: "error", text: "Selecciona mes y año para el análisis mensual." });
         return;
       }
       setOmieAnalisisMensual(await getOmieAnalisisMensual(year, month));
     } catch (error) {
-      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando anï¿½lisis mensual OMIE." });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando análisis mensual OMIE." });
     } finally {
       stopLoading();
     }
@@ -581,12 +654,12 @@ export function App() {
 
     try {
       if (!year || !month) {
-        setMessage({ tone: "error", text: "Selecciona mes y aï¿½o para la comprobaciï¿½n OMIE." });
+        setMessage({ tone: "error", text: "Selecciona mes y año para la comprobación OMIE." });
         return;
       }
       setOmieComprobacionLiquidaciones(await getOmieComprobacionLiquidaciones(year, month));
     } catch (error) {
-      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando comprobaciï¿½n de liquidaciones OMIE." });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando comprobación de liquidaciones OMIE." });
     } finally {
       stopLoading();
     }
@@ -599,9 +672,58 @@ export function App() {
     }
 
     try {
-      setOmieDescargas(await getOmieDescargasControl(nextFilters));
+      const [nextDescargas, nextAutomationConfig] = await Promise.all([
+        getOmieDescargasControl(nextFilters),
+        getOmieAutomationConfig()
+      ]);
+      setOmieDescargas(nextDescargas);
+      setOmieAutomationConfig(nextAutomationConfig);
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando control de descargas OMIE." });
+    } finally {
+      stopLoading();
+    }
+  }
+
+  async function saveOmieAutomation(nextConfig: OmieAutomationConfig) {
+    const stopLoading = beginDataRefresh();
+    if (!stopLoading) {
+      return;
+    }
+
+    try {
+      const saved = await saveOmieAutomationConfig(nextConfig);
+      setOmieAutomationConfig(saved);
+      setMessage({ tone: "success", text: "Automatismo OMIE guardado." });
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error guardando automatismo OMIE." });
+    } finally {
+      stopLoading();
+    }
+  }
+
+  async function runOmieAutomationNow() {
+    const stopLoading = beginDataRefresh();
+    if (!stopLoading) {
+      return;
+    }
+
+    try {
+      const daysBack = omieAutomationConfig?.daysBack ?? 3;
+      const response = await executeOmieAutomation(daysBack);
+      setLatestOmieAutomationRun(response);
+      setMessage({
+        tone: response.errores > 0 ? "error" : "success",
+        text: `Automatismo OMIE: ${response.totalConsultasEjecutadas} ejecutadas, ${response.procesadas} procesadas, ${response.sinDatos} sin datos, ${response.errores} errores, ${formatDurationMs(response.tiempoTotalMs)}.`
+      });
+      const [nextDescargas, nextAutomationConfig] = await Promise.all([
+        getOmieDescargasControl(omieDownloadFilters),
+        getOmieAutomationConfig()
+      ]);
+      setOmieDescargas(nextDescargas);
+      setOmieAutomationConfig(nextAutomationConfig);
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error ejecutando automatismo OMIE." });
     } finally {
       stopLoading();
     }
@@ -640,7 +762,7 @@ export function App() {
     try {
       const request = normalizeOmieDownloadRequest(omieDownloadDraft);
       if (!request) {
-        setMessage({ tone: "error", text: "Completa fecha y sesiï¿½n cuando sean obligatorias." });
+        setMessage({ tone: "error", text: "Completa fecha y sesión cuando sean obligatorias." });
         return;
       }
 
@@ -649,7 +771,7 @@ export function App() {
       await refreshAfterOmieDownload(response.download);
       setMessage({
         tone: response.message ? "info" : "success",
-        text: response.message ?? `${response.download.modulo} ï¿½ ${response.download.consulta}: ${response.download.registros.toLocaleString("es-ES")} registros.`
+        text: response.message ?? `${response.download.modulo} € ${response.download.consulta}: ${response.download.registros.toLocaleString("es-ES")} registros.`
       });
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error ejecutando descarga OMIE." });
@@ -667,7 +789,7 @@ export function App() {
     try {
       const fecha = getOmieDailyBulkDate(omieDownloadDraft);
       if (!fecha) {
-        setMessage({ tone: "error", text: "Selecciona Fecha Programa para descargar todo el dï¿½a." });
+        setMessage({ tone: "error", text: "Selecciona Fecha Programa para descargar todo el día." });
         return;
       }
 
@@ -788,7 +910,7 @@ export function App() {
         qh: qhCurves.qh
       });
     } catch (error) {
-      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando grï¿½ficas de medidas." });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando gráficas de medidas." });
     } finally {
       stopLoading();
     }
@@ -822,7 +944,7 @@ export function App() {
         qh: curves.qh
       });
     } catch (error) {
-      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando grï¿½ficas de medidas." });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando gráficas de medidas." });
     } finally {
       stopLoading();
     }
@@ -898,7 +1020,9 @@ export function App() {
         tone: failedFiles > 0 || invalidRecords > 0 ? "info" : "success",
         text: `${overwrite ? "Carga sobrescrita. " : ""}${summarizeUploadFeedback(responses, importedRecords, duplicatedFiles, invalidRecords, failedFiles)}`
       });
-      if (medperUploadFiles.length > 0) {
+      if (section === "reeDownloads") {
+        await refreshReeDownloadCenter();
+      } else if (medperUploadFiles.length > 0) {
         await refreshMedidas("summary", medperFilters);
         setMedidasView("summary");
         setSection("medidas");
@@ -1055,7 +1179,7 @@ export function App() {
 
     if (section === "liquidationAnalysis") {
       if (!hasCompleteLiquidationAnalysisFilters(liquidationAnalysisFilters)) {
-        setMessage({ tone: "error", text: "Selecciona versiï¿½n y mes." });
+        setMessage({ tone: "error", text: "Selecciona versión y mes." });
         return;
       }
       void refreshLiquidationAnalysis(liquidationAnalysisFilters);
@@ -1097,6 +1221,11 @@ export function App() {
       return;
     }
 
+    if (isEsiosSection(section)) {
+      setEsiosRefreshKey((current) => current + 1);
+      return;
+    }
+
     if (section === "medidas") {
       if (medidasView === "graphs") {
         void refreshMedperGraphs();
@@ -1134,6 +1263,10 @@ export function App() {
 
     setSection(nextSection);
     setImportMode(nextSection === "medidas" ? "medper" : nextSection === "reeLosses" ? "reeLosses" : "reganecu");
+    if (nextSection === "reeDownloads") {
+      void refreshReeDownloadCenter();
+      return;
+    }
     if (nextSection === "medidas") {
       if (medidasView === "graphs") {
         void refreshMedperGraphs();
@@ -1174,6 +1307,9 @@ export function App() {
     }
     if (nextSection === "omieDescargas") {
       void refreshOmieDescargas(omieDownloadFilters);
+      return;
+    }
+    if (isEsiosSection(nextSection)) {
       return;
     }
     const sanitized = sanitizeReganecuFiltersForView(reganecuView, filters);
@@ -1342,12 +1478,14 @@ export function App() {
   }, [filters.fechaFin, filters.fechaInicio, reganecuView, section, summary?.files]);
 
   const workspaceTitle =
-    section === "reganecu"
-      ? "Auditoria de liquidaciones REGANECU"
+    section === "reeDownloads"
+      ? "Centro de cargas"
+      : section === "reganecu"
+        ? "Auditoria de liquidaciones REGANECU"
       : section === "liquidationAnalysis"
-        ? "Anï¿½lisis de liquidaciones"
+        ? "Análisis de liquidaciones"
         : section === "reeLosses"
-          ? "Pï¿½rdidas"
+          ? "Liquidaciones REE"
           : section === "omieProgramas"
             ? "OMIE Programas"
             : section === "omiePrecios"
@@ -1355,25 +1493,40 @@ export function App() {
               : section === "omieAnalisisMensual"
                 ? "OMIE Detalle de Carga"
                 : section === "omieComprobacionLiquidaciones"
-                  ? "OMIE Comprobaciï¿½n Liquidaciones"
+                  ? "OMIE Comprobación Liquidaciones"
                   : section === "omieTransacciones"
                     ? "OMIE Transacciones"
-                    : section === "omieDescargas"
-                      ? "OMIE Control de descargas"
+                  : section === "omieDescargas"
+                    ? "OMIE Control de descargas"
+                    : section === "esiosIndicadores"
+                      ? "ESIOS Indicadores"
+                    : section === "esiosPerfiles"
+                        ? "ESIOS Perfiles"
+                      : section === "esiosSeries"
+                        ? "ESIOS Series"
+                    : section === "esiosDescargas"
+                          ? "ESIOS Descargas"
+                          : section === "esiosConfiguracion"
+                            ? "ESIOS Configuracion"
                       : "Auditoria de medidas";
   const refreshCurrent = () => {
     if (isBusy) {
       return;
     }
 
-    if (section === "reganecu") {
-      const sanitized = sanitizeReganecuFiltersForView(reganecuView, filters);
-      setFilters(sanitized);
-      void refreshReganecu(reganecuView, sanitized);
-      return;
-    }
+      if (section === "reganecu") {
+        const sanitized = sanitizeReganecuFiltersForView(reganecuView, filters);
+        setFilters(sanitized);
+        void refreshReganecu(reganecuView, sanitized);
+        return;
+      }
 
-    if (section === "liquidationAnalysis") {
+      if (section === "reeDownloads") {
+        void refreshReeDownloadCenter();
+        return;
+      }
+  
+      if (section === "liquidationAnalysis") {
       void refreshLiquidationAnalysis(liquidationAnalysisFilters);
       return;
     }
@@ -1413,6 +1566,11 @@ export function App() {
       return;
     }
 
+    if (isEsiosSection(section)) {
+      setEsiosRefreshKey((current) => current + 1);
+      return;
+    }
+
     if (medidasView === "graphs") {
       void refreshMedperGraphs();
       return;
@@ -1426,18 +1584,25 @@ export function App() {
   const sidebarGroups: SidebarGroupConfig[] = [
     {
       key: "ree",
-      title: "REE",
-      active: section === "reganecu" || section === "medidas" || section === "reeLosses" || section === "liquidationAnalysis",
+      title: "Liquidaciones REE",
+      active: section === "reeDownloads" || section === "reganecu" || section === "medidas" || section === "reeLosses",
       items: [
+        {
+          key: "ree-download-center",
+          label: "Centro de cargas",
+          description: "control operativo de liquidaciones",
+          active: section === "reeDownloads",
+          onSelect: () => changeSection("reeDownloads")
+        },
         {
           key: "ree-reganecu-menu",
           label: "REGANECU",
           description: "liquidaciones y validaciones",
-          active: section === "reganecu" || section === "liquidationAnalysis",
+          active: section === "reganecu",
           children: [
             {
               key: "reganecu-history",
-              label: "Histï¿½rico",
+              label: "Histórico",
               description: "cargas y estado de las cargas",
               active: section === "reganecu" && reganecuView === "history",
               onSelect: () => {
@@ -1449,7 +1614,7 @@ export function App() {
             {
               key: "reganecu-summary",
               label: "Resumen",
-              description: "liquidaciï¿½n y validaciones",
+              description: "liquidación y validaciones",
               active: section === "reganecu" && reganecuView === "summary",
               onSelect: () => {
                 setSection("reganecu");
@@ -1481,8 +1646,8 @@ export function App() {
             },
             {
               key: "liquidation-analysis",
-              label: "Anï¿½lisis de liquidaciones",
-              description: "cuadre econï¿½mico y energï¿½tico",
+              label: "Análisis de liquidaciones",
+              description: "cuadre económico y energético",
               active: section === "liquidationAnalysis",
               onSelect: () => changeSection("liquidationAnalysis")
             }
@@ -1496,7 +1661,7 @@ export function App() {
           children: [
             {
               key: "medidas-history",
-              label: "Histï¿½rico",
+              label: "Histórico",
               description: "cargas y estado de las cargas",
               active: section === "medidas" && medidasView === "history",
               onSelect: () => {
@@ -1508,7 +1673,7 @@ export function App() {
             {
               key: "medidas-summary",
               label: "Resumen medidas",
-              description: "mï¿½tricas agregadas",
+              description: "métricas agregadas",
               active: section === "medidas" && medidasView === "summary",
               onSelect: () => {
                 setSection("medidas");
@@ -1529,7 +1694,7 @@ export function App() {
             },
             {
               key: "medidas-graphs",
-              label: "Grï¿½ficos",
+              label: "Gráficos",
               description: "curvas BC/PF",
               active: section === "medidas" && medidasView === "graphs",
               onSelect: () => {
@@ -1541,26 +1706,26 @@ export function App() {
           ]
         },
         {
+          key: "ree-losses-history",
+          label: "Histórico",
+          description: "cargas y estado de las cargas",
+          active: section === "reeLosses" && reeLossesView === "history",
+          onSelect: () => {
+            setSection("reeLosses");
+            setImportMode("reeLosses");
+            setReeLossesView("history");
+            void refreshReeLosses(reeLossesFilters);
+          }
+        },
+        {
           key: "ree-losses-menu",
-          label: "Pï¿½rdidas",
-          description: "anï¿½lisis y detalle de pï¿½rdidas",
-          active: section === "reeLosses",
+          label: "Pérdidas",
+          description: "detalle y evolución",
+          active: section === "reeLosses" && (reeLossesView === "detail" || reeLossesView === "system"),
           children: [
             {
-              key: "ree-losses-history",
-              label: "Histï¿½rico",
-              description: "cargas y estado de las cargas",
-              active: section === "reeLosses" && reeLossesView === "history",
-              onSelect: () => {
-                setSection("reeLosses");
-                setImportMode("reeLosses");
-                setReeLossesView("history");
-                void refreshReeLosses(reeLossesFilters);
-              }
-            },
-            {
               key: "ree-losses-detail",
-              label: "Detalle de pï¿½rdidas",
+              label: "Detalle de pérdidas",
               description: "tabla y exportaciones",
               active: section === "reeLosses" && reeLossesView === "detail",
               onSelect: () => {
@@ -1572,7 +1737,7 @@ export function App() {
             },
             {
               key: "ree-losses-system",
-              label: "Sistema + evoluciï¿½n",
+              label: "Sistema + evolución",
               description: "peninsular y KPIs",
               active: section === "reeLosses" && reeLossesView === "system",
               onSelect: () => {
@@ -1581,7 +1746,7 @@ export function App() {
                 setReeLossesView("system");
                 void refreshReeLosses(reeLossesFilters);
               }
-            },
+            }
           ]
         }
       ]
@@ -1607,7 +1772,7 @@ export function App() {
             {
               key: "omie-intradiarios",
               label: "Intradiario",
-              description: "PHF por sesiï¿½n",
+              description: "PHF por sesión",
               active: section === "omieProgramas" && omieProgramasView === "intradiarios",
               onSelect: () => changeOmieProgramasView("intradiarios")
             },
@@ -1643,60 +1808,120 @@ export function App() {
             {
               key: "omie-analisis-mensual",
               label: "Detalle de carga",
-              description: "precios, programas, volï¿½menes y profit",
+              description: "precios, programas, volúmenes y profit",
               active: section === "omieAnalisisMensual",
               onSelect: () => changeSection("omieAnalisisMensual")
             },
             {
               key: "omie-comprobacion-liquidaciones",
-              label: "Comprobaciï¿½n Liquidaciones",
-              description: "cuadre econï¿½mico y energï¿½tico",
+              label: "Comprobación Liquidaciones",
+              description: "cuadre económico y energético",
               active: section === "omieComprobacionLiquidaciones",
               onSelect: () => changeSection("omieComprobacionLiquidaciones")
             }
           ]
         }
       ]
+    },
+    {
+      key: "esios",
+      title: "ESIOS",
+      active: isEsiosSection(section),
+      items: [
+        {
+          key: "esios-perfiles",
+          label: "Perfiles",
+          description: "perfiles iniciales REE",
+          active: section === "esiosPerfiles",
+          onSelect: () => changeSection("esiosPerfiles")
+        },
+        {
+          key: "esios-menu",
+          label: "Indicadores ESIOS",
+          description: "catalogo, series y descargas",
+          active: isEsiosSection(section),
+          children: [
+            {
+              key: "esios-indicadores",
+              label: "Indicadores",
+              description: "catalogo ESIOS",
+              active: section === "esiosIndicadores",
+              onSelect: () => changeSection("esiosIndicadores")
+            },
+            {
+              key: "esios-series",
+              label: "Series",
+              description: "indicadores con datos",
+              active: section === "esiosSeries",
+              onSelect: () => changeSection("esiosSeries")
+            },
+            {
+              key: "esios-descargas",
+              label: "Descargas",
+              description: "descarga manual",
+              active: section === "esiosDescargas",
+              onSelect: () => changeSection("esiosDescargas")
+            },
+            {
+              key: "esios-configuracion",
+              label: "Configuracion",
+              description: "API y token",
+              active: section === "esiosConfiguracion",
+              onSelect: () => changeSection("esiosConfiguracion")
+            }
+          ]
+        }
+      ]
     }
   ];
+  const showGlobalUploadBand = false;
 
   return (
     <div className={`app-layout ${appBusy ? "is-busy" : ""}`} aria-busy={appBusy}>
         <GlobalLoadingOverlay />
         <aside className="sidebar">
           <div className="sidebar-brand">
-            <p>Liquidaciones REE</p>
-            <strong>Auditoria</strong>
+            <p>Operacional</p>
+            <strong>Operacional</strong>
           </div>
           <nav className="sidebar-nav">
-            {sidebarGroups.map((group) => (
-              <SidebarSection
-                active={group.active}
-                disabled={isBusy}
-                items={group.items}
-                key={group.key}
-                onToggleItem={toggleSidebarItem}
-                onToggle={() => toggleSidebarGroup(group.key)}
-                open={openSidebarGroups[group.key]}
-                openItems={openSidebarItems}
-                title={group.title}
-              />
-            ))}
+            {sidebarGroups.map((group) => {
+              const visibleItems = hideOperationalHistoryItems(group.items);
+              return (
+                <SidebarSection
+                  active={group.active}
+                  disabled={isBusy}
+                  items={visibleItems}
+                  key={group.key}
+                  onToggleItem={toggleSidebarItem}
+                  onToggle={() => toggleSidebarGroup(group.key)}
+                  open={openSidebarGroups[group.key]}
+                  openItems={openSidebarItems}
+                  title={group.title}
+                />
+              );
+            })}
           </nav>
         </aside>
 
         <main className="app-shell">
           <header className="topbar">
             <div>
-              <p className="eyebrow">Facturacion A1 - REE</p>
+              <p className="eyebrow">Operacional</p>
               <h1>{workspaceTitle}</h1>
             </div>
-            <button className="icon-button" onClick={refreshCurrent} disabled={isBusy} title="Actualizar">
-              {loading ? <LoadingSquares compact /> : <RefreshCw size={18} />}
-            </button>
+            <div className="topbar-actions">
+              <span className="session-user">{user}</span>
+              <button className="icon-button" onClick={refreshCurrent} disabled={isBusy} title="Actualizar">
+                {loading ? <LoadingSquares compact /> : <RefreshCw size={18} />}
+              </button>
+              <button className="icon-button" onClick={onLogout} disabled={isBusy} title="Cerrar sesion">
+                <LogOut size={18} />
+              </button>
+            </div>
           </header>
 
-          {!isOmieSection(section) && (
+          {showGlobalUploadBand && !isOmieSection(section) && section !== "reeDownloads" && (
             <section className="upload-band">
               <label
                 className={`dropzone ${dragging ? "dragging" : ""} ${isBusy ? "disabled" : ""}`}
@@ -1872,11 +2097,16 @@ export function App() {
           {section === "omieDescargas" && (
             <OmieDescargasControlModule
               descargas={omieDescargas}
+              automationConfig={omieAutomationConfig}
               filters={omieDownloadFilters}
               draft={omieDownloadDraft}
               detail={selectedOmieDownloadDetail}
               latestDailyBulkDownload={latestOmieDailyBulkDownload}
+              latestAutomationRun={latestOmieAutomationRun}
               loading={loading}
+              onAutomationChange={setOmieAutomationConfig}
+              onAutomationSave={saveOmieAutomation}
+              onAutomationRunNow={runOmieAutomationNow}
               onFiltersChange={setOmieDownloadFilters}
               onDraftChange={setOmieDownloadDraft}
               onApply={() => refreshOmieDescargas(omieDownloadFilters)}
@@ -1888,6 +2118,29 @@ export function App() {
               onCloseDetail={() => setSelectedOmieDownloadDetail(undefined)}
               onReprocess={(row) => syncOmieDownload(row, false)}
               onRedownload={(row) => syncOmieDownload(row, true)}
+            />
+          )}
+
+          {isEsiosSection(section) && <EsiosModule key={`${section}-${esiosRefreshKey}`} view={esiosViewFromSection(section)} />}
+
+          {section === "reeDownloads" && (
+            <ReeDownloadCenterModule
+              reganecuFiles={imports}
+              coverageSummary={reeDownloadCenterSummary}
+              medperFiles={medperFiles}
+              medperMonthlyConsumption={medperMonthlyConsumption}
+              reeLossesImports={reeLossesImports}
+              loading={loading}
+              files={files}
+              importMode={importMode}
+              uploading={uploading}
+              progress={progress}
+              disabled={isBusy}
+              onImportModeChange={setImportMode}
+              onSelectFiles={selectFiles}
+              onRemoveFile={(index) => setFiles((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+              onUpload={() => void upload()}
+              onRefresh={refreshReeDownloadCenter}
             />
           )}
 
@@ -1970,6 +2223,54 @@ export function App() {
   );
 }
 
+function LoginView({ onLogin }: { onLogin: (session: AuthSession) => void }) {
+  const [username, setUsername] = useState("operaciones");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    try {
+      onLogin(await login(username.trim(), password));
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "No se pudo iniciar sesion.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="login-shell">
+      <form className="login-panel" onSubmit={submit}>
+        <div className="login-mark">
+          <LockKeyhole size={24} />
+        </div>
+        <div className="login-heading">
+          <p>Operacional</p>
+          <h1>Acceso a auditoria</h1>
+        </div>
+        <label className="login-field">
+          <span>Usuario</span>
+          <input autoComplete="username" autoFocus value={username} onChange={(event) => setUsername(event.target.value)} />
+        </label>
+        <label className="login-field">
+          <span>Contrasena</span>
+          <input autoComplete="current-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
+        </label>
+        {error && <div className="login-error">{error}</div>}
+        <button className="primary-button login-button" disabled={loading || !username.trim() || !password} type="submit">
+          <ButtonLoadingContent loading={loading} loadingLabel="Entrando" icon={<LockKeyhole size={18} />}>
+            Entrar
+          </ButtonLoadingContent>
+        </button>
+      </form>
+    </main>
+  );
+}
+
 async function loadRecordPage(
   loader: (filters: Filters) => Promise<A1Record[]>,
   filters: Filters,
@@ -2002,6 +2303,16 @@ async function loadAllPagedRows<T, TFilters extends { skip?: number; take?: numb
     }
     skip += EXPORT_PAGE_SIZE;
   }
+}
+
+function hideOperationalHistoryItems(items: SidebarMenuItem[]): SidebarMenuItem[] {
+  const hiddenKeys = new Set(["reganecu-history", "medidas-history", "ree-losses-history", "liquidation-analysis"]);
+  return items
+    .filter((item) => !hiddenKeys.has(item.key))
+    .map((item) => ({
+      ...item,
+      children: item.children ? hideOperationalHistoryItems(item.children) : undefined
+    }));
 }
 
 const SEARCHABLE_SELECT_THRESHOLD = 24;
@@ -2201,7 +2512,7 @@ function ReganecuFilterBand({
 
   return (
     <section className="filter-band">
-      {view !== "summary" && <FilterSelect disabled={disabled} loading={loadingOptions} label="Versiï¿½n" value={filters.version ?? ""} options={options?.versions ?? []} onChange={(value) => onChange("version", value)} />}
+      {view !== "summary" && <FilterSelect disabled={disabled} loading={loadingOptions} label="Versión" value={filters.version ?? ""} options={options?.versions ?? []} onChange={(value) => onChange("version", value)} />}
       <FilterSelect disabled={disabled} loading={loadingOptions} label="Mes" value={filters.fecha ?? ""} options={months} onChange={(value) => onChange("fecha", value)} />
       <FilterSelect disabled={disabled} loading={loadingOptions} label="BRP" value={filters.brp ?? ""} options={options?.brps ?? []} onChange={(value) => onChange("brp", value)} />
       <FilterSelect disabled={disabled} loading={loadingOptions} label="Sujeto" value={filters.sujeto ?? ""} options={options?.subjects ?? []} onChange={(value) => onChange("sujeto", value)} />
@@ -2240,7 +2551,7 @@ function LiquidationAnalysisFilterBand({
   return (
     <section className="filter-band liquidation-analysis-filter-band">
       <FilterSelect disabled={disabled} loading={loadingOptions} label="Mes" placeholder="Selecciona" value={filters.fecha ?? ""} options={options?.months ?? []} onChange={(value) => onChange("fecha", value)} />
-      <FilterSelect disabled={disabled} loading={loadingOptions} label="Versiï¿½n" placeholder="Selecciona" value={filters.version ?? ""} options={options?.versions ?? []} onChange={(value) => onChange("version", value)} />
+      <FilterSelect disabled={disabled} loading={loadingOptions} label="Versión" placeholder="Selecciona" value={filters.version ?? ""} options={options?.versions ?? []} onChange={(value) => onChange("version", value)} />
       <button className="secondary-button" disabled={disabled || loadingOptions || !complete} onClick={onApply} type="button">
         <Search size={16} />
         Filtrar
@@ -2299,7 +2610,7 @@ function buildLiquidationAnalysisChartOption(rows: LiquidationAnalysisRow[]): EC
       },
       {
         type: "value",
-        name: "ï¿½/MWh",
+        name: "€/MWh",
         axisLabel: { color: "#5a7381", formatter: (value: number) => formatDecimalNumber(value, 0) },
         splitLine: { show: false }
       }
@@ -2371,13 +2682,13 @@ function buildLiquidationAnalysisTotalsRow(rows: LiquidationAnalysisRow[]): Reco
 function buildLiquidationAnalysisOutlierLabels(rows: LiquidationAnalysisRow[]) {
   const labels = new Map<string, string[]>();
   const checks = [
-    { label: "DSV % anï¿½malo", value: (row: LiquidationAnalysisRow) => ratioPercentValue(row.dsvPct) },
-    { label: "DSV ABS % anï¿½malo", value: (row: LiquidationAnalysisRow) => ratioPercentValue(row.dsvAbsPct) },
-    { label: "COSTE DSV / DSV anï¿½malo", value: (row: LiquidationAnalysisRow) => normalizeNumericValue(row.precioDsvEurMwh) },
-    { label: "PRECIO CAD anï¿½malo", value: (row: LiquidationAnalysisRow) => normalizeNumericValue(row.precioCadEurMwh) },
-    { label: "PRECIO PC3 anï¿½malo", value: (row: LiquidationAnalysisRow) => normalizeNumericValue(row.precioPc3EurMwh) },
-    { label: "PRECIO BS3 anï¿½malo", value: (row: LiquidationAnalysisRow) => normalizeNumericValue(row.precioBs3EurMwh) },
-    { label: "PRECIO RAD3 anï¿½malo", value: (row: LiquidationAnalysisRow) => normalizeNumericValue(row.precioRad3EurMwh) }
+    { label: "DSV % anómalo", value: (row: LiquidationAnalysisRow) => ratioPercentValue(row.dsvPct) },
+    { label: "DSV ABS % anómalo", value: (row: LiquidationAnalysisRow) => ratioPercentValue(row.dsvAbsPct) },
+    { label: "COSTE DSV / DSV anómalo", value: (row: LiquidationAnalysisRow) => normalizeNumericValue(row.precioDsvEurMwh) },
+    { label: "PRECIO CAD anómalo", value: (row: LiquidationAnalysisRow) => normalizeNumericValue(row.precioCadEurMwh) },
+    { label: "PRECIO PC3 anómalo", value: (row: LiquidationAnalysisRow) => normalizeNumericValue(row.precioPc3EurMwh) },
+    { label: "PRECIO BS3 anómalo", value: (row: LiquidationAnalysisRow) => normalizeNumericValue(row.precioBs3EurMwh) },
+    { label: "PRECIO RAD3 anómalo", value: (row: LiquidationAnalysisRow) => normalizeNumericValue(row.precioRad3EurMwh) }
   ];
 
   for (const check of checks) {
@@ -2427,7 +2738,7 @@ function quantile(sortedValues: number[], quantileValue: number) {
 function liquidationAnalysisQuality(row: LiquidationAnalysisRow, outlierLabels: Map<string, string[]>): RowQuality {
   const labels = [
     ...(outlierLabels.get(row.fecha) ?? []),
-    row.medidaMwh === null || row.medidaMwh === undefined ? "Medida vacï¿½a" : ""
+    row.medidaMwh === null || row.medidaMwh === undefined ? "Medida vacía" : ""
   ].filter(Boolean);
   return {
     tone: outlierLabels.has(row.fecha) ? "danger" : labels.length > 0 ? "warning" : "ok",
@@ -2438,12 +2749,12 @@ function liquidationAnalysisQuality(row: LiquidationAnalysisRow, outlierLabels: 
 function buildReganecuKpis(rows: A1Record[]): TechnicalKpi[] {
   const anomalies = rows.filter((row) => reganecuQuality(row).tone !== "ok").length;
   return [
-    { label: "Total registros", value: formatNumber(rows.length), meta: "pï¿½gina cargada" },
-    { label: "MWh", value: formatNumber(sumNumeric(rows.map((row) => row.energiaMwh))), meta: "energï¿½a total" },
+    { label: "Total registros", value: formatNumber(rows.length), meta: "página cargada" },
+    { label: "MWh", value: formatNumber(sumNumeric(rows.map((row) => row.energiaMwh))), meta: "energía total" },
     { label: "Importe", value: formatCurrency(sumNumeric(rows.map((row) => row.importeEur))), meta: "importe total" },
-    { label: "Cod. precio dominante", value: dominantValue(rows.map((row) => row.codigoPrecio)) || "-", meta: "en pï¿½gina" },
-    { label: "Anomalï¿½as", value: formatNumber(anomalies), meta: "importe/precio/datos", tone: anomalies > 0 ? "warning" : "good" },
-    { label: "ï¿½ltima actualizaciï¿½n", value: latestUpdate(rows.map((row) => row.file?.importedAt)), meta: "fichero REE" }
+    { label: "Cod. precio dominante", value: dominantValue(rows.map((row) => row.codigoPrecio)) || "-", meta: "en página" },
+    { label: "Anomalías", value: formatNumber(anomalies), meta: "importe/precio/datos", tone: anomalies > 0 ? "warning" : "good" },
+    { label: "Última actualización", value: latestUpdate(rows.map((row) => row.file?.importedAt)), meta: "fichero REE" }
   ];
 }
 
@@ -2472,9 +2783,9 @@ function reganecuQuality(row: A1Record): RowQuality {
   const labels = [
     !row.importeConsistente ? "Importe/precio incoherente" : "",
     row.precioAnomalo ? "Precio fuera de rango" : "",
-    !row.fecha && !row.rawPayloadJson?.fecha ? "Fecha vacï¿½a" : "",
-    row.energiaMwh === null || row.energiaMwh === undefined ? "Energï¿½a vacï¿½a" : "",
-    row.importeEur === null || row.importeEur === undefined ? "Importe vacï¿½o" : ""
+    !row.fecha && !row.rawPayloadJson?.fecha ? "Fecha vacía" : "",
+    row.energiaMwh === null || row.energiaMwh === undefined ? "Energía vacía" : "",
+    row.importeEur === null || row.importeEur === undefined ? "Importe vacío" : ""
   ].filter(Boolean);
   return { tone: labels.length > 0 ? (row.precioAnomalo ? "danger" : "warning") : "ok", labels };
 }
@@ -2660,7 +2971,7 @@ function TechnicalDataTableV2<T extends object>({
   const bottomSpacer = Math.max((entries.length - start - visibleEntries.length) * rowHeight, 0);
   const from = rows.length === 0 ? 0 : page * pageSize + 1;
   const to = page * pageSize + rows.length;
-  const pageTotalLabel = hasNext ? `mï¿½s de ${formatNumber(to)}` : formatNumber(to);
+  const pageTotalLabel = hasNext ? `más de ${formatNumber(to)}` : formatNumber(to);
   const quality = buildTechnicalQuality(rows, activeColumns, getRowQuality, duplicateCounts);
 
   function updateSort(column: TechnicalColumn<T>) {
@@ -2771,9 +3082,9 @@ function TechnicalDataTableV2<T extends object>({
             />
           </label>
           {showModeSelector && (
-            <div className="technical-mode" aria-label="Modo de visualizaciï¿½n" role="group">
+            <div className="technical-mode" aria-label="Modo de visualización" role="group">
               <button className={mode === "basic" ? "active" : ""} disabled={loading} onClick={() => applyModePreset("basic")} type="button">
-                Bï¿½sica
+                B?sica
               </button>
               <button className={mode === "advanced" ? "active" : ""} disabled={loading} onClick={() => applyModePreset("advanced")} type="button">
                 Avanzada
@@ -2832,9 +3143,9 @@ function TechnicalDataTableV2<T extends object>({
           <span className={quality.completeness >= 98 ? "good" : quality.completeness >= 90 ? "warning" : "danger"}>
             Datos completos: {formatCompleteness(quality.completeness)}
           </span>
-          <span className={quality.anomalies > 0 ? "warning" : "good"}>{formatNumber(quality.anomalies)} registros anï¿½malos</span>
-          <span className={quality.duplicates > 0 ? "warning" : "good"}>{formatNumber(quality.duplicates)} duplicados en pï¿½gina</span>
-          <span className={quality.nulls > 0 ? "warning" : "good"}>{formatNumber(quality.nulls)} valores vacï¿½os</span>
+          <span className={quality.anomalies > 0 ? "warning" : "good"}>{formatNumber(quality.anomalies)} registros anómalos</span>
+          <span className={quality.duplicates > 0 ? "warning" : "good"}>{formatNumber(quality.duplicates)} duplicados en página</span>
+          <span className={quality.nulls > 0 ? "warning" : "good"}>{formatNumber(quality.nulls)} valores vacíos</span>
         </div>
       )}
 
@@ -2842,7 +3153,7 @@ function TechnicalDataTableV2<T extends object>({
         <div className="technical-pagination">
           <span>
             Mostrando {formatNumber(from)}-{formatNumber(to)} de {pageTotalLabel} registros
-            {visibleRows.length !== rows.length ? ` ï¿½ ${formatNumber(visibleRows.length)} visibles con filtros` : ""}
+            {visibleRows.length !== rows.length ? ` · ${formatNumber(visibleRows.length)} visibles con filtros` : ""}
           </span>
           <label>
             Filas
@@ -2854,10 +3165,10 @@ function TechnicalDataTableV2<T extends object>({
               ))}
             </select>
           </label>
-          <button className="pagination-button" disabled={loading || page === 0} onClick={() => onPageChange(page - 1)} title="Pï¿½gina anterior" type="button">
+          <button className="pagination-button" disabled={loading || page === 0} onClick={() => onPageChange(page - 1)} title="Página anterior" type="button">
             <ChevronLeft size={16} />
           </button>
-          <button className="pagination-button" disabled={loading || !hasNext} onClick={() => onPageChange(page + 1)} title="Pï¿½gina siguiente" type="button">
+          <button className="pagination-button" disabled={loading || !hasNext} onClick={() => onPageChange(page + 1)} title="Página siguiente" type="button">
             <ChevronRight size={16} />
           </button>
         </div>
@@ -2890,8 +3201,8 @@ function TechnicalDataTableV2<T extends object>({
               <div className={technicalCellClass(column, "filter")} key={column.id} style={stickyCellStyle(column, stickyOffsets)}>
                 {column.filter === "number" ? (
                   <div className="range-filter">
-                    <input aria-label={`${column.label} mï¿½nimo`} disabled={loading} onChange={(event) => updateFilter(`${column.id}:min`, event.target.value)} placeholder="Min" value={filters[`${column.id}:min`] ?? ""} />
-                    <input aria-label={`${column.label} mï¿½ximo`} disabled={loading} onChange={(event) => updateFilter(`${column.id}:max`, event.target.value)} placeholder="Max" value={filters[`${column.id}:max`] ?? ""} />
+                    <input aria-label={`${column.label} mínimo`} disabled={loading} onChange={(event) => updateFilter(`${column.id}:min`, event.target.value)} placeholder="Min" value={filters[`${column.id}:min`] ?? ""} />
+                    <input aria-label={`${column.label} máximo`} disabled={loading} onChange={(event) => updateFilter(`${column.id}:max`, event.target.value)} placeholder="Max" value={filters[`${column.id}:max`] ?? ""} />
                   </div>
                 ) : column.filter === "select" ? (
                   <select aria-label={`Filtrar ${column.label}`} disabled={loading} onChange={(event) => updateFilter(column.id, event.target.value)} value={filters[column.id] ?? ""}>
@@ -2967,7 +3278,7 @@ function TableHead({
             <ChevronLeft size={16} />
           </button>
           <span>
-            Pagina {formatNumber(page + 1)} ï¿½ {formatNumber(rows)}/{formatNumber(pageSize)}
+            Pagina {formatNumber(page + 1)} € {formatNumber(rows)}/{formatNumber(pageSize)}
           </span>
           <button className="pagination-button" disabled={loading || !hasNext} onClick={() => onPageChange(page + 1)} title="Pagina siguiente" type="button">
             <ChevronRight size={16} />
@@ -3044,12 +3355,12 @@ function formatSignedEnergy(value: number | string | null | undefined) {
 
 function formatEuroAmount(value: number | string | null | undefined) {
   const numeric = normalizeNumericValue(value);
-  return numeric === undefined ? "-" : `${formatFixedDecimalNumber(numeric, 2)} ï¿½`;
+  return numeric === undefined ? "-" : `${formatFixedDecimalNumber(numeric, 2)} €`;
 }
 
 function formatPrice(value: number | string | null | undefined) {
   const numeric = normalizeNumericValue(value);
-  return numeric === undefined ? "-" : `${formatFixedDecimalNumber(numeric, 2)} ï¿½/MWh`;
+  return numeric === undefined ? "-" : `${formatFixedDecimalNumber(numeric, 2)} €/MWh`;
 }
 
 function formatOmiePrice(value: number | string | null | undefined) {
@@ -3064,12 +3375,12 @@ function formatOmieEnergy(value: number | string | null | undefined) {
 
 function formatOmieProfit(value: number | string | null | undefined) {
   const numeric = normalizeNumericValue(value);
-  return numeric === undefined ? "-" : `${formatFixedDecimalNumber(numeric, 3)} ï¿½`;
+  return numeric === undefined ? "-" : `${formatFixedDecimalNumber(numeric, 3)} €`;
 }
 
 function formatOmieProfitRate(value: number | string | null | undefined) {
   const numeric = normalizeNumericValue(value);
-  return numeric === undefined ? "-" : `${formatFixedDecimalNumber(numeric, 3)} ï¿½/MWh`;
+  return numeric === undefined ? "-" : `${formatFixedDecimalNumber(numeric, 3)} €/MWh`;
 }
 
 function formatOmieProfitRateValue(value: number | string | null | undefined) {
@@ -3123,7 +3434,7 @@ function SummaryView({ groups }: { groups: SettlementGroup[] }) {
         <PanelTitle
           icon={<Gauge size={18} />}
           title="Costes horarios clave"
-          subtitle={latestVersion ? `${latestVersion} ï¿½ ${describeSettlementVersion(latestVersion)}` : "Sin version disponible"}
+          subtitle={latestVersion ? `${latestVersion} € ${describeSettlementVersion(latestVersion)}` : "Sin versión disponible"}
         />
         <KeyCostSegments groups={groups} version={latestVersion} />
       </div>
@@ -3153,7 +3464,7 @@ function KeyCostSegments({ groups, version }: { groups: SettlementGroup[]; versi
           <span className="key-cost-code">{row.code}</span>
           <span>{row.label}</span>
           <strong>{formatCurrency(row.totals.amount)}</strong>
-          <small>{formatNumber(row.totals.records)} registros ï¿½ {formatNumber(row.totals.energy)} MWh</small>
+          <small>{formatNumber(row.totals.records)} registros ? {formatNumber(row.totals.energy)} MWh</small>
         </div>
       ))}
     </div>
@@ -3166,7 +3477,7 @@ function getLatestSettlementVersion(groups: SettlementGroup[]) {
 }
 
 function describeSettlementVersion(version: ReeVersion) {
-  return version === "C5" ? "Version definitiva" : "Version provisional";
+  return version === "C5" ? "Versión definitiva" : "Versión provisional";
 }
 
 function DetailView({
@@ -3198,21 +3509,21 @@ function DetailView({
     const codeLabel = showRelatedHour ? "EIC UPR" : "EIC UPR";
     return [
       { id: "fecha", label: "Fecha", width: 118, sticky: true, type: "date", filter: "text", value: (row) => row.fecha ?? row.rawPayloadJson?.fecha ?? "", render: (row) => formatRecordDate(row) },
-      { id: "periodo", label: timeColumnLabel, help: showRelatedHour ? "Cuarto horario de la liquidaciï¿½n." : "Hora de la liquidaciï¿½n.", width: 90, sticky: true, align: "right", type: "number", filter: "number", value: (row) => recordQuarterHour(row) },
+      { id: "periodo", label: timeColumnLabel, help: showRelatedHour ? "Cuarto horario de la liquidación." : "Hora de la liquidación.", width: 90, sticky: true, align: "right", type: "number", filter: "number", value: (row) => recordQuarterHour(row) },
       ...(showRelatedHour
         ? [{ id: "horaRelacionada", label: "Hora", help: "Hora agregada a la que pertenece el QH.", width: 78, sticky: true, align: "right" as const, type: "number" as const, filter: "number" as const, value: (row: A1Record) => formatRelatedHour(row) }]
         : []),
       { id: "codigo", label: codeLabel, width: 154, sticky: true, filter: "text", value: (row) => row.eicUpr ?? row.codigoUpr },
-      { id: "energia", label: "Energï¿½a", help: "Energï¿½a liquidada en MWh.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.energiaMwh },
+      { id: "energia", label: "Energía", help: "Energía liquidada en MWh.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.energiaMwh },
       { id: "importe", label: "Importe", help: "Importe liquidado en euros.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.importeEur, render: (row) => formatCurrency(Number(row.importeEur ?? 0)) },
       { id: "diferencia", label: "Dif.", help: "Diferencia entre importe informado e importe calculado.", width: 110, align: "right", type: "number", filter: "number", value: (row) => row.importeDiferenciaEur },
-      { id: "version", label: "Versiï¿½n", width: 86, advanced: true, filter: "select", value: (row) => row.version },
+      { id: "version", label: "Versión", width: 86, advanced: true, filter: "select", value: (row) => row.version },
       { id: "segmento", label: "Segmento", width: 110, filter: "select", value: (row) => row.segmento },
-      { id: "codigoPrecio", label: "Cod. precio", help: "Cï¿½digo de precio REE aplicado al apunte.", width: 132, advanced: true, filter: "select", value: (row) => row.codigoPrecio },
-      { id: "codigoApunte", label: "Cod. apunte", help: "Cï¿½digo tï¿½cnico del apunte liquidado.", width: 136, advanced: true, filter: "select", value: (row) => row.codigoApunte },
+      { id: "codigoPrecio", label: "Cod. precio", help: "Código de precio REE aplicado al apunte.", width: 132, advanced: true, filter: "select", value: (row) => row.codigoPrecio },
+      { id: "codigoApunte", label: "Cod. apunte", help: "Código técnico del apunte liquidado.", width: 136, advanced: true, filter: "select", value: (row) => row.codigoApunte },
       { id: "precio", label: "Precio", width: 126, advanced: true, align: "right", type: "number", filter: "number", value: (row) => row.precioEurMwh },
       { id: "brp", label: "BRP", width: 120, advanced: true, filter: "text", value: (row) => row.brp ?? row.codigoAgenteVendedor },
-      { id: "linea", label: "Lï¿½nea", width: 86, advanced: true, align: "right", type: "number", filter: "number", value: (row) => row.sourceLineNumber }
+      { id: "linea", label: "Línea", width: 86, advanced: true, align: "right", type: "number", filter: "number", value: (row) => row.sourceLineNumber }
     ];
   }, [showRelatedHour, timeColumnLabel]);
 
@@ -3221,7 +3532,7 @@ function DetailView({
       columns={columns}
       exportFileName={showRelatedHour ? "reganecuqh-filtrado" : "reganecu-filtrado"}
       getDuplicateKey={(row) => [formatRecordDate(row), formatRecordHour(row), row.eicUpr ?? row.codigoUpr ?? "", row.codigoPrecio ?? "", row.codigoApunte ?? ""].join("|")}
-      getGroupLabel={(row) => `Fecha ${formatRecordDate(row)} ï¿½ ${showRelatedHour ? `Hora ${formatRelatedHour(row)}` : `Hora ${formatRecordHour(row)}`}`}
+      getGroupLabel={(row) => `Fecha ${formatRecordDate(row)} € ${showRelatedHour ? `Hora ${formatRelatedHour(row)}` : `Hora ${formatRecordHour(row)}`}`}
       getRowId={(row) => row.id}
       getRowQuality={reganecuQuality}
       hasNext={hasNext}
@@ -3315,7 +3626,7 @@ function EnergyChart({ groups }: { groups: SettlementGroup[] }) {
           <div className="chart-track">
             <span style={{ width: `${Math.min((Math.abs(item.amount) / max) * 100, 100)}%` }} />
           </div>
-          <small>{formatCurrency(item.amount)} Â· {formatNumber(item.energy)} MWh</small>
+          <small>{formatCurrency(item.amount)} € {formatNumber(item.energy)} MWh</small>
         </div>
       ))}
     </div>
@@ -3402,6 +3713,22 @@ function normalizeSegment(value?: string | null) {
   return value?.trim().toUpperCase() ?? "";
 }
 
+function esiosViewFromSection(section: Section): EsiosViewKey {
+  if (section === "esiosIndicadores") {
+    return "indicadores";
+  }
+  if (section === "esiosPerfiles") {
+    return "perfiles";
+  }
+  if (section === "esiosSeries") {
+    return "series";
+  }
+  if (section === "esiosDescargas") {
+    return "descargas";
+  }
+  return "configuracion";
+}
+
 function summarizeUploadFeedback(
   responses: UploadResponse[],
   importedRecords: number,
@@ -3431,15 +3758,15 @@ function summarizeUploadFeedback(
 function formatUploadConflictConfirmation(conflicts: UploadConflict[]) {
   if (conflicts.length === 1) {
     const conflict = conflicts[0];
-    return `Ya existe una carga para ${conflict.tipoArchivo} con fecha ${formatDate(conflict.fecha)} y versiï¿½n ${conflict.version}.\nï¿½Deseas sobreescribirla?`;
+    return `Ya existe una carga para ${conflict.tipoArchivo} con fecha ${formatDate(conflict.fecha)} y versión ${conflict.version}.\n¿Deseas sobreescribirla?`;
   }
 
   const details = conflicts
     .slice(0, 8)
     .map((conflict) => `- ${conflict.tipoArchivo} ${formatDate(conflict.fecha)} ${conflict.version}`)
     .join("\n");
-  const remaining = conflicts.length > 8 ? `\n... y ${conflicts.length - 8} mï¿½s` : "";
-  return `Ya existen cargas previas para estos ficheros:\n${details}${remaining}\nï¿½Deseas sobreescribirlas?`;
+  const remaining = conflicts.length > 8 ? `\n... y ${conflicts.length - 8} más` : "";
+  return `Ya existen cargas previas para estos ficheros:\n${details}${remaining}\n¿Deseas sobreescribirlas?`;
 }
 
 function isLikelyReeLossesFileName(file: File) {
@@ -3723,5 +4050,3 @@ function normalizeNumericValue(value: number | string | null | undefined) {
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
-
-

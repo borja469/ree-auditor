@@ -1,6 +1,6 @@
 import { BadRequestException, Controller, Get, Post, Query, UploadedFiles, UseInterceptors } from "@nestjs/common";
 import { AnyFilesInterceptor } from "@nestjs/platform-express";
-import { memoryStorage } from "multer";
+import { attachUploadedFileBuffers, cleanupUploadedFiles, uploadDiskStorage, uploadLimits } from "../common/upload-storage";
 import { ReeLossesQueryDto } from "./dto/ree-losses-query.dto";
 import { ReeLossesService } from "./ree-losses.service";
 
@@ -11,19 +11,21 @@ export class ReeLossesController {
   @Post("import")
   @UseInterceptors(
     AnyFilesInterceptor({
-      storage: memoryStorage(),
-      limits: {
-        fileSize: 250 * 1024 * 1024,
-        files: 100
-      }
+      storage: uploadDiskStorage,
+      limits: uploadLimits({ fileSizeMb: 250, files: 100 })
     })
   )
-  importKFactors(@UploadedFiles() files: Express.Multer.File[]) {
+  async importKFactors(@UploadedFiles() files: Express.Multer.File[]) {
     if (!files?.length) {
       throw new BadRequestException("Debe adjuntarse al menos un fichero multipart.");
     }
 
-    return this.reeLossesService.importKFactorFiles(files);
+    try {
+      await attachUploadedFileBuffers(files);
+      return await this.reeLossesService.importKFactorFiles(files);
+    } finally {
+      await cleanupUploadedFiles(files);
+    }
   }
 
   @Get("imports")

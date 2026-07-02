@@ -14,7 +14,7 @@ import {
 } from "@nestjs/common";
 import { AnyFilesInterceptor } from "@nestjs/platform-express";
 import type { Response } from "express";
-import { memoryStorage } from "multer";
+import { attachUploadedFileBuffers, cleanupUploadedFiles, uploadDiskStorage, uploadLimits } from "../common/upload-storage";
 import { ListRecordsDto } from "./dto/list-records.dto";
 import { ImportsService } from "./imports.service";
 
@@ -25,6 +25,11 @@ export class ImportsController {
   @Get()
   listFiles(@Query() query: ListRecordsDto) {
     return this.importsService.listFiles(query);
+  }
+
+  @Get("download-center-summary")
+  downloadCenterSummary() {
+    return this.importsService.downloadCenterSummary();
   }
 
   @Get(":id")
@@ -66,14 +71,11 @@ export class ImportsController {
   @Post("reganecu")
   @UseInterceptors(
     AnyFilesInterceptor({
-      storage: memoryStorage(),
-      limits: {
-        fileSize: 250 * 1024 * 1024,
-        files: 100
-      }
+      storage: uploadDiskStorage,
+      limits: uploadLimits({ fileSizeMb: 250, files: 100 })
     })
   )
-  importReganecu(
+  async importReganecu(
     @UploadedFiles() files: Express.Multer.File[],
     @Query("overwrite") overwrite?: string,
     @Headers("x-user") user?: string
@@ -82,23 +84,25 @@ export class ImportsController {
       throw new BadRequestException("Debe adjuntarse al menos un fichero multipart.");
     }
 
-    return this.importsService.importReganecuFiles(files, {
-      overwrite: parseBooleanQuery(overwrite),
-      auditUser: user?.trim() || "web"
-    });
+    try {
+      await attachUploadedFileBuffers(files);
+      return await this.importsService.importReganecuFiles(files, {
+        overwrite: parseBooleanQuery(overwrite),
+        auditUser: user?.trim() || "web"
+      });
+    } finally {
+      await cleanupUploadedFiles(files);
+    }
   }
 
   @Post("medper")
   @UseInterceptors(
     AnyFilesInterceptor({
-      storage: memoryStorage(),
-      limits: {
-        fileSize: 250 * 1024 * 1024,
-        files: 100
-      }
+      storage: uploadDiskStorage,
+      limits: uploadLimits({ fileSizeMb: 250, files: 100 })
     })
   )
-  importMedper(
+  async importMedper(
     @UploadedFiles() files: Express.Multer.File[],
     @Query("overwrite") overwrite?: string,
     @Headers("x-user") user?: string
@@ -107,10 +111,15 @@ export class ImportsController {
       throw new BadRequestException("Debe adjuntarse al menos un fichero multipart.");
     }
 
-    return this.importsService.importMedperFiles(files, {
-      overwrite: parseBooleanQuery(overwrite),
-      auditUser: user?.trim() || "web"
-    });
+    try {
+      await attachUploadedFileBuffers(files);
+      return await this.importsService.importMedperFiles(files, {
+        overwrite: parseBooleanQuery(overwrite),
+        auditUser: user?.trim() || "web"
+      });
+    } finally {
+      await cleanupUploadedFiles(files);
+    }
   }
 }
 

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { buildHierarchyWithAggregates, type TechnicalAggregateColumnDefinition } from "../../../technical-module-v2/index.js";
 import type { TechnicalDataTableAdapterColumn } from "../../../technical-module-v2/adapters/technicalDataTableAdapter";
 import { withGlobalLoading } from "../../../loading";
-import type { OmieComprobacionLiquidacionDiaria, OmieComprobacionLiquidacionesResponse } from "../../../api";
+import type { OmieComprobacionCuadre, OmieComprobacionLiquidacionDiaria, OmieComprobacionLiquidacionesResponse } from "../../../api";
 import type {
   OmieFacturaDraftRow,
   OmieFacturaDraftMap,
@@ -83,6 +83,33 @@ export function buildOmieLiquidationValidationKpis(groups: OmieLiquidationWeekly
       tone: mismatchTone(accumulatedMismatch) === "danger" ? "danger" : mismatchTone(accumulatedMismatch) === "warning" ? "warning" : "good"
     }
   ];
+}
+
+export function buildOmieEconomicCheckFromInvoices(
+  base: OmieComprobacionCuadre,
+  rows: OmieLiquidationValidationRow[]
+): OmieComprobacionCuadre {
+  const facturaCompra = sumDefinedValues(rows.map((row) => row.facturaCompra));
+  const facturaVenta = sumDefinedValues(rows.map((row) => row.facturaVenta));
+  const liquidado = facturaCompra === null || facturaVenta === null ? null : roundCurrencyAmount(facturaCompra - facturaVenta);
+  const diferencia = base.calculado === null || liquidado === null ? null : roundCurrencyAmount(base.calculado - liquidado);
+
+  return {
+    ...base,
+    liquidado,
+    diferencia,
+    estado: mismatchTone(diferencia)
+  };
+}
+
+export function withOmieEconomicCheckFromInvoices(
+  comprobacion: OmieComprobacionLiquidacionesResponse,
+  rows: OmieLiquidationValidationRow[]
+): OmieComprobacionLiquidacionesResponse {
+  return {
+    ...comprobacion,
+    cuadroEconomico: buildOmieEconomicCheckFromInvoices(comprobacion.cuadroEconomico, rows)
+  };
 }
 
 export function exportOmieLiquidationCheck(
@@ -312,7 +339,7 @@ function mismatchTone(value: number | null): "ok" | "warning" | "danger" | "pend
 }
 
 export function parseEuroInputValue(value?: string) {
-  const numeric = normalizeNumericValue(value?.replace(/€/g, ""));
+  const numeric = normalizeNumericValue(value);
   return numeric === undefined ? null : roundCurrencyAmount(numeric);
 }
 
@@ -388,7 +415,26 @@ function normalizeNumericValue(value: number | string | null | undefined) {
     return Number.isFinite(value) ? value : undefined;
   }
 
-  const parsed = Number(String(value).replace(",", "."));
+  const normalized = String(value)
+    .trim()
+    .replace(/[€\s\u00a0]/g, "");
+  if (!normalized) {
+    return undefined;
+  }
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(normalized)) {
+    const parsedThousands = Number(normalized.replace(/\./g, ""));
+    return Number.isFinite(parsedThousands) ? parsedThousands : undefined;
+  }
+
+  const lastComma = normalized.lastIndexOf(",");
+  const lastDot = normalized.lastIndexOf(".");
+  const decimalSeparator = lastComma > lastDot ? "," : lastDot > lastComma ? "." : "";
+  const integerPart = decimalSeparator ? normalized.slice(0, Math.max(lastComma, lastDot)) : normalized;
+  const decimalPart = decimalSeparator ? normalized.slice(Math.max(lastComma, lastDot) + 1) : "";
+  const integerDigits = integerPart.replace(/[.,]/g, "");
+  const decimalDigits = decimalPart.replace(/[.,]/g, "");
+  const candidate = decimalSeparator ? `${integerDigits}.${decimalDigits}` : integerDigits;
+  const parsed = Number(candidate);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 

@@ -1,4 +1,7 @@
-import { Module } from "@nestjs/common";
+import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { AuthMiddleware } from "./auth/auth.middleware";
+import { AuthModule } from "./auth/auth.module";
+import { EsiosModule } from "./esios/esios.module";
 import { HealthModule } from "./health/health.module";
 import { ImportsModule } from "./imports/imports.module";
 import { OmieAnalisisModule } from "./omie-analisis/omie-analisis.module";
@@ -12,6 +15,7 @@ import { ReeLossesModule } from "./ree-losses/ree-losses.module";
 
 @Module({
   imports: [
+    AuthModule,
     PrismaModule,
     HealthModule,
     ImportsModule,
@@ -21,7 +25,12 @@ import { ReeLossesModule } from "./ree-losses/ree-losses.module";
     OmiePreciosModule,
     OmieTransaccionesModule,
     OmieAnalisisModule,
-    OmieDescargasModule
+    OmieDescargasModule,
+    EsiosModule
   ]
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(AuthMiddleware).exclude("health", "auth/login").forRoutes("*");
+  }
+}

@@ -45,16 +45,22 @@ export function monthDateRange(monthKey?: string | null) {
 }
 
 export function activeSidebarGroupKeys(section: Section): SidebarGroupKey[] {
-  if (section === "reganecu" || section === "medidas" || section === "reeLosses" || section === "liquidationAnalysis") {
+  if (section === "reeDownloads" || section === "reganecu" || section === "medidas" || section === "reeLosses" || section === "liquidationAnalysis") {
     return ["ree"];
   }
   if (isOmieSection(section)) {
     return ["omie"];
   }
+  if (isEsiosSection(section)) {
+    return ["esios"];
+  }
   return ["ree"];
 }
 
 export function activeSidebarItemKeys(section: Section): string[] {
+  if (section === "reeDownloads") {
+    return [];
+  }
   if (section === "reganecu") {
     return ["ree-reganecu-menu"];
   }
@@ -62,7 +68,7 @@ export function activeSidebarItemKeys(section: Section): string[] {
     return ["ree-medidas-menu"];
   }
   if (section === "reeLosses") {
-    return ["ree-losses-menu"];
+    return [];
   }
   if (section === "omieProgramas" || section === "omieTransacciones") {
     return ["omie-programas-menu"];
@@ -72,6 +78,9 @@ export function activeSidebarItemKeys(section: Section): string[] {
   }
   if (section === "liquidationAnalysis") {
     return ["ree-reganecu-menu"];
+  }
+  if (isEsiosSection(section)) {
+    return ["esios-menu"];
   }
   return [];
 }
@@ -84,6 +93,16 @@ export function isOmieSection(section: Section) {
     section === "omieComprobacionLiquidaciones" ||
     section === "omieTransacciones" ||
     section === "omieDescargas"
+  );
+}
+
+export function isEsiosSection(section: Section) {
+  return (
+    section === "esiosIndicadores" ||
+    section === "esiosPerfiles" ||
+    section === "esiosSeries" ||
+    section === "esiosDescargas" ||
+    section === "esiosConfiguracion"
   );
 }
 

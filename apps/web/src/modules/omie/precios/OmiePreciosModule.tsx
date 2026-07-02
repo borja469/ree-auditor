@@ -105,69 +105,9 @@ export function OmiePreciosModule({ fecha, precios, loading, onFechaChange, onRe
 
   if (loading && !precios) {
     return (
-      <>
-        <section className="content-grid omie-grid">
-          <div className="panel wide omie-control-panel">
-            <PanelTitle icon={<BarChart3 size={18} />} title="Precios OMIE" />
-            <div className="omie-toolbar compact">
-              <label className="filter-field">
-                <span>Fecha</span>
-                <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
-              </label>
-              <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
-                <Search size={16} />
-                Consultar
-              </button>
-            </div>
-          </div>
-        </section>
-        <section className="content-grid">
-          <div className="panel wide">
-            <InlineLoading label="Cargando precios OMIE" />
-          </div>
-        </section>
-      </>
-    );
-  }
-
-  if (!precios) {
-    return (
-      <>
-        <section className="content-grid omie-grid">
-          <div className="panel wide omie-control-panel">
-            <PanelTitle icon={<BarChart3 size={18} />} title="Precios OMIE" />
-            <div className="omie-toolbar compact">
-              <label className="filter-field">
-                <span>Fecha</span>
-                <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
-              </label>
-              <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
-                <Search size={16} />
-                Consultar
-              </button>
-            </div>
-          </div>
-        </section>
-        <section className="content-grid">
-          <div className="panel wide">
-            <div className="empty-state">
-              <strong>Precios OMIE</strong>
-              <div>Selecciona una fecha y pulsa Consultar.</div>
-              <button className="secondary-button" onClick={onGoToDownloads} type="button">
-                Ir a descargas
-              </button>
-            </div>
-          </div>
-        </section>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <section className="content-grid omie-grid">
+      <div className="omie-layout omie-layout-a">
         <div className="panel wide omie-control-panel">
-          <PanelTitle icon={<BarChart3 size={18} />} title="Precios OMIE" subtitle={`${precios.resolucion} - ${rows.length.toLocaleString("es-ES")} periodos`} />
+          <PanelTitle icon={<BarChart3 size={18} />} title="Precios OMIE" />
           <div className="omie-toolbar compact">
             <label className="filter-field">
               <span>Fecha</span>
@@ -179,14 +119,62 @@ export function OmiePreciosModule({ fecha, precios, loading, onFechaChange, onRe
             </button>
           </div>
         </div>
-      </section>
-
-      <section className="content-grid">
         <div className="panel wide">
-          <PanelTitle icon={<TrendingUp size={18} />} title="Evolucion intradia" subtitle={precios.ultimaDescarga ? `Ultima descarga: ${formatFullDateTime(precios.ultimaDescarga)}` : "Sin descargas procesadas"} />
-          <EChart option={chartOption} height={360} />
+          <InlineLoading label="Cargando precios OMIE" />
         </div>
-      </section>
+      </div>
+    );
+  }
+
+  if (!precios) {
+    return (
+      <div className="omie-layout omie-layout-a">
+        <div className="panel wide omie-control-panel">
+          <PanelTitle icon={<BarChart3 size={18} />} title="Precios OMIE" />
+          <div className="omie-toolbar compact">
+            <label className="filter-field">
+              <span>Fecha</span>
+              <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
+            </label>
+            <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
+              <Search size={16} />
+              Consultar
+            </button>
+          </div>
+        </div>
+        <div className="panel wide">
+          <div className="empty-state">
+            <strong>Precios OMIE</strong>
+            <div>Selecciona una fecha y pulsa Consultar.</div>
+            <button className="secondary-button" onClick={onGoToDownloads} type="button">
+              Ir a descargas
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="omie-layout omie-layout-a">
+      <div className="panel wide omie-control-panel">
+        <PanelTitle icon={<BarChart3 size={18} />} title="Precios OMIE" subtitle={`${precios.resolucion} - ${rows.length.toLocaleString("es-ES")} periodos`} />
+        <div className="omie-toolbar compact">
+          <label className="filter-field">
+            <span>Fecha</span>
+            <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
+          </label>
+          <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
+            <Search size={16} />
+            Consultar
+          </button>
+        </div>
+      </div>
+
+      <div className="panel wide omie-secondary-chart omie-prices-primary-chart">
+        <PanelTitle icon={<TrendingUp size={18} />} title="Evolución intradía" subtitle={precios.ultimaDescarga ? `Última descarga: ${formatFullDateTime(precios.ultimaDescarga)}` : "Sin descargas procesadas"} />
+        <EChart option={chartOption} height={380} />
+      </div>
 
       <TechnicalDataTable
         columns={columns}
@@ -208,7 +196,7 @@ export function OmiePreciosModule({ fecha, precios, loading, onFechaChange, onRe
         showPagination={false}
         title="Detalle de precios"
       />
-    </>
+    </div>
   );
 }
 
@@ -280,11 +268,11 @@ function buildOmiePreciosKpis(precios?: OmiePreciosResponse): TechnicalKpi[] {
       return {
         label,
         value: formatOmiePrice(stat.media),
-        meta: `min ${formatOmiePrice(stat.min)} Â· max ${formatOmiePrice(stat.max)} Â· ${formatNumber(stat.registros)} registros`
+        meta: `min ${formatOmiePrice(stat.min)} · max ${formatOmiePrice(stat.max)} · ${formatNumber(stat.registros)} registros`
       } satisfies TechnicalKpi;
     }),
     { label: "Periodos", value: formatNumber(precios.periodos.length), meta: precios.resolucion },
-    { label: "Ultima descarga", value: precios.ultimaDescarga ? formatFullDateTime(precios.ultimaDescarga) : "-", meta: "OMIE" }
+    { label: "Última descarga", value: precios.ultimaDescarga ? formatFullDateTime(precios.ultimaDescarga) : "-", meta: "OMIE" }
   ];
 }
 

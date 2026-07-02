@@ -109,21 +109,22 @@ export function ImportHistoryDashboardView({
   const selectedCount = [...selectedIds].filter((id) => filteredFiles.some((file) => file.id === id)).length;
   const kpis = buildImportHistoryKpis(files, latestImport);
   const chartData = buildImportHistoryCharts(files);
+  const hasInvalidsChartSignal = chartData.monthlyInvalids.some((row) => row.value > 0);
   const copy = mode === "reganecu"
     ? {
-        eyebrow: "REGANECU ï¿½ Histï¿½rico",
+        eyebrow: "REGANECU · Histórico",
         title: "Consola operativa de cargas REGANECU",
-        description: "Supervisiï¿½n de ficheros horarios y cuartohorarios, calidad de datos y trazabilidad de cargas.",
-        importHint: "Arrastra TXT, CSV o ZIP en la zona superior de la aplicaciï¿½n. La validaciï¿½n bloquea duplicados por tipo, fecha y versiï¿½n.",
+        description: "Supervisión de ficheros horarios y cuartohorarios, calidad de datos y trazabilidad de cargas.",
+        importHint: "Arrastra TXT, CSV o ZIP en la zona superior de la aplicación. La validación bloquea duplicados por tipo, fecha y versión.",
         tableTitle: "Cargas REGANECU",
         empty: "Sin cargas REGANECU con los filtros seleccionados.",
         exportName: "cargas-reganecu.csv"
       }
     : {
-        eyebrow: "MEDPERQH ï¿½ Histï¿½rico",
+        eyebrow: "MEDPERQH · Histórico",
         title: "Consola operativa de cargas de medidas",
-        description: "Supervisiï¿½n de ficheros MEDPERQH, calidad de medida y trazabilidad de cargas cuartohorarias.",
-        importHint: "Arrastra TXT, CSV o ZIP en la zona superior de la aplicaciï¿½n. La validaciï¿½n bloquea duplicados por tipo, fecha y versiï¿½n.",
+        description: "Supervisión de ficheros MEDPERQH, calidad de medida y trazabilidad de cargas cuartohorarias.",
+        importHint: "Arrastra TXT, CSV o ZIP en la zona superior de la aplicación. La validación bloquea duplicados por tipo, fecha y versión.",
         tableTitle: "Cargas MEDPERQH",
         empty: "Sin cargas MEDPERQH con los filtros seleccionados.",
         exportName: "cargas-medidas.csv"
@@ -187,7 +188,7 @@ export function ImportHistoryDashboardView({
     try {
       await action();
     } catch (error) {
-      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo completar la accion." });
+      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo completar la acción." });
     } finally {
       setActionBusyId(null);
     }
@@ -197,7 +198,7 @@ export function ImportHistoryDashboardView({
     void runHistoryAction(file, async () => {
       const detail = await getImportFileDetail(file.id);
       setActionModal({
-        title: `Detalle de carga ï¿½ ${file.fileName}`,
+        title: `Detalle de carga · ${file.fileName}`,
         content: <ImportDetailModalContent detail={detail} />
       });
     });
@@ -212,7 +213,7 @@ export function ImportHistoryDashboardView({
   }
 
   function reprocessFile(file: ImportHistoryFile) {
-    if (!window.confirm(`Se reprocesara la carga ${file.fileName} y se sobrescribiran los datos anteriores. ï¿½Continuar?`)) {
+    if (!window.confirm(`Se reprocesara la carga ${file.fileName} y se sobrescribiran los datos anteriores. ¿¿Continuar?`)) {
       return;
     }
 
@@ -227,7 +228,7 @@ export function ImportHistoryDashboardView({
   }
 
   function deleteFile(file: ImportHistoryFile) {
-    if (!window.confirm(`Se eliminara la carga ${file.fileName} y sus registros relacionados. ï¿½Continuar?`)) {
+    if (!window.confirm(`Se eliminara la carga ${file.fileName} y sus registros relacionados. ¿¿Continuar?`)) {
       return;
     }
 
@@ -247,7 +248,7 @@ export function ImportHistoryDashboardView({
     void runHistoryAction(file, async () => {
       const logs = await getImportFileLogs(file.id);
       setActionModal({
-        title: `Logs de carga ï¿½ ${file.fileName}`,
+        title: `Logs de carga · ${file.fileName}`,
         content: <ImportLogsModalContent logs={logs} />
       });
     });
@@ -286,16 +287,16 @@ export function ImportHistoryDashboardView({
             <UploadCloud size={24} />
           </div>
           <div>
-            <strong>Importaciï¿½n rï¿½pida</strong>
+            <strong>Importación rápida</strong>
             <span>{copy.importHint}</span>
           </div>
           <div className="ops-progress-track">
             <span style={{ width: `${Math.min(100, Math.max(8, latestImport ? 100 : 18))}%` }} />
           </div>
-          <small>{latestImport ? `${latestImport.summary.recordsImported} registros en la ï¿½ltima carga` : "Sin carga reciente en esta sesiï¿½n"}</small>
+          <small>{latestImport ? `${latestImport.summary.recordsImported} registros en la Última carga` : "Sin carga reciente en esta sesión"}</small>
         </div>
-        <OpsMiniChart title="Evoluciï¿½n cargas" rows={chartData.monthlyLoads} valueLabel="cargas" tone="cyan" />
-        <OpsMiniChart title="Invï¿½lidos por mes" rows={chartData.monthlyInvalids} valueLabel="incidencias" tone="rose" />
+        <OpsMiniChart title="Evolución cargas" rows={chartData.monthlyLoads} valueLabel="cargas" tone="cyan" />
+        {hasInvalidsChartSignal ? <OpsMiniChart title="Inválidos por mes" rows={chartData.monthlyInvalids} valueLabel="incidencias" tone="rose" /> : null}
         <OpsMiniChart title="Volumen por tipo" rows={chartData.byVersion} valueLabel="registros" tone="emerald" />
       </div>
 
@@ -326,11 +327,11 @@ export function ImportHistoryDashboardView({
         <div className="ops-table-head">
           <div>
             <strong>{copy.tableTitle}</strong>
-            <span>{filteredFiles.length} ficheros filtrados ï¿½ {selectedCount} seleccionados</span>
+            <span>{filteredFiles.length} ficheros filtrados · {selectedCount} seleccionados</span>
           </div>
           <div className="ops-view-toggle">
             <button className={compact ? "active" : ""} onClick={() => setCompact(true)} type="button">Compacto</button>
-            <button className={!compact ? "active" : ""} onClick={() => setCompact(false)} type="button">Cï¿½modo</button>
+            <button className={!compact ? "active" : ""} onClick={() => setCompact(false)} type="button">Cómodo</button>
             <button className={cardMode ? "active" : ""} onClick={() => setCardMode((current) => !current)} type="button">Tarjetas</button>
           </div>
         </div>
@@ -363,7 +364,7 @@ export function ImportHistoryDashboardView({
         )}
 
         <div className="ops-pagination">
-          <span>Pï¿½gina {tablePage + 1} de {pageCount}</span>
+          <span>Página {tablePage + 1} de {pageCount}</span>
           <button disabled={tablePage === 0} onClick={() => setTablePage((current) => Math.max(0, current - 1))} type="button">
             <ChevronLeft size={16} />
           </button>
@@ -455,8 +456,8 @@ function OpsLoadsTable({
     { key: "period" as const, label: "Periodo" },
     { key: "fileName" as const, label: "Archivo" },
     { key: "totalRecords" as const, label: "Registros" },
-    { key: "validRecords" as const, label: "Vï¿½lidos" },
-    { key: "invalidRecords" as const, label: "Invï¿½lidos" },
+    { key: "validRecords" as const, label: "Válidos" },
+    { key: "invalidRecords" as const, label: "Inválidos" },
     { key: "duplicatedRecords" as const, label: "Duplicados" },
     { key: "importedAt" as const, label: "Fecha carga" }
   ];
@@ -537,12 +538,12 @@ function ImportDetailModalContent({ detail }: { detail: ImportHistoryDetail }) {
       <div className="ops-detail-grid">
         <Metric label="Estado" value={file.status} />
         <Metric label="Tipo fichero" value={file.tipoArchivo} />
-        <Metric label="Versiï¿½n" value={file.version} />
+        <Metric label="Versión" value={file.version} />
         <Metric label="Periodo" value={getHistoryPeriodLabel(file)} />
         <Metric label="Registros" value={file.totalRecords.toLocaleString("es-ES")} />
         <Metric label="Persistidos" value={detail.recordCounts.total.toLocaleString("es-ES")} />
-        <Metric label="Vï¿½lidos" value={file.validRecords.toLocaleString("es-ES")} />
-        <Metric label="Invï¿½lidos" value={file.invalidRecords.toLocaleString("es-ES")} />
+        <Metric label="Válidos" value={file.validRecords.toLocaleString("es-ES")} />
+        <Metric label="Inválidos" value={file.invalidRecords.toLocaleString("es-ES")} />
         <Metric label="Duplicados" value={file.duplicatedRecords.toLocaleString("es-ES")} />
         <Metric label="Carga" value={formatDateTime(file.importedAt)} />
       </div>
@@ -555,7 +556,7 @@ function ImportDetailModalContent({ detail }: { detail: ImportHistoryDetail }) {
           <div className="ops-error-preview">
             {detail.errors.slice(0, 8).map((error, index) => (
               <div key={`${error.sourceFileName}-${error.lineNumber}-${index}`}>
-                <b>Lï¿½nea {error.lineNumber}</b>
+                <b>Línea {error.lineNumber}</b>
                 <span>{error.message}</span>
               </div>
             ))}
@@ -602,12 +603,12 @@ function OpsLoadCard({ file }: { file: ImportHistoryFile }) {
       <div>
         <LoadStatusBadge status={getLoadStatus(file)} />
         <strong>{file.fileName}</strong>
-        <span>{file.version} ï¿½ {file.tipoArchivo} ï¿½ {getHistoryPeriodLabel(file)} ï¿½ {file.sujetoEic}</span>
+        <span>{file.version} € {file.tipoArchivo} € {getHistoryPeriodLabel(file)} € {file.sujetoEic}</span>
       </div>
       <div className="ops-load-card-metrics">
         <span>{file.totalRecords.toLocaleString("es-ES")} total</span>
-        <span className="good">{file.validRecords.toLocaleString("es-ES")} vï¿½lidos</span>
-        <span className="danger">{file.invalidRecords.toLocaleString("es-ES")} invï¿½lidos</span>
+        <span className="good">{file.validRecords.toLocaleString("es-ES")} válidos</span>
+        <span className="danger">{file.invalidRecords.toLocaleString("es-ES")} inválidos</span>
         <span className="warning">{file.duplicatedRecords.toLocaleString("es-ES")} dup.</span>
       </div>
     </article>
@@ -635,11 +636,11 @@ function buildImportHistoryKpis(files: ImportHistoryFile[], latestImport?: { sum
 
   return [
     { label: "Total registros", value: totals.records.toLocaleString("es-ES"), detail: `${files.length} cargas`, tone: "info", icon: <Database size={18} /> },
-    { label: "Vï¿½lidos", value: totals.valid.toLocaleString("es-ES"), detail: qualityLabel(totals.valid, totals.records), tone: "good", icon: <CheckCircle2 size={18} /> },
-    { label: "Invï¿½lidos", value: totals.invalid.toLocaleString("es-ES"), detail: qualityLabel(totals.invalid, totals.records), tone: totals.invalid > 0 ? "danger" : "good", icon: <AlertTriangle size={18} /> },
+    { label: "Válidos", value: totals.valid.toLocaleString("es-ES"), detail: qualityLabel(totals.valid, totals.records), tone: "good", icon: <CheckCircle2 size={18} /> },
+    { label: "Inválidos", value: totals.invalid.toLocaleString("es-ES"), detail: qualityLabel(totals.invalid, totals.records), tone: totals.invalid > 0 ? "danger" : "good", icon: <AlertTriangle size={18} /> },
     { label: "Duplicados", value: totals.duplicated.toLocaleString("es-ES"), detail: qualityLabel(totals.duplicated, totals.records), tone: totals.duplicated > 0 ? "warning" : "good", icon: <Clipboard size={18} /> },
-    { label: "ï¿½ltima carga", value: latestFile ? formatDateTime(latestFile.importedAt) : "-", detail: latestImport ? `${latestImport.summary.recordsImported} registros importados` : "Sin carga en sesiï¿½n", tone: "accent", icon: <FileClock size={18} /> },
-    { label: "ï¿½ltimo periodo", value: latestPeriod ? formatMonthKeyLabel(latestPeriod) : "-", detail: latestFile?.version ?? "Sin periodo", tone: "info", icon: <Activity size={18} /> }
+    { label: "Última carga", value: latestFile ? formatDateTime(latestFile.importedAt) : "-", detail: latestImport ? `${latestImport.summary.recordsImported} registros importados` : "Sin carga en sesión", tone: "accent", icon: <FileClock size={18} /> },
+    { label: "Último periodo", value: latestPeriod ? formatMonthKeyLabel(latestPeriod) : "-", detail: latestFile?.version ?? "Sin periodo", tone: "info", icon: <Activity size={18} /> }
   ];
 }
 

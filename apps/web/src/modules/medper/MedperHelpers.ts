@@ -1,7 +1,7 @@
 ﻿import type { RowQuality, TechnicalKpi } from "../../components/technical-data-table/TechnicalDataTableTypes";
 import { monthDateRange } from "../../app-shell/AppState";
 import type { MedidasView } from "../../app-shell/AppShellTypes";
-import type { MedperFilters, MedperSummary, MedperqhRecord, ReeVersion } from "../../api";
+import type { MedperFilters, MedperMonthlyConsumptionRow, MedperSummary, MedperqhRecord, ReeVersion } from "../../api";
 
 const SUMMARY_VERSIONS: ReeVersion[] = ["C3", "C4", "C5"];
 const EXPORT_PAGE_SIZE = 1000;
@@ -85,6 +85,71 @@ export function getMedperValidationByVersion(summary?: MedperSummary) {
   });
 }
 
+export type MedperMonthlyOperationalSummaryRow = {
+  month: string;
+  versions: Record<ReeVersion, { pf: number | null; bc: number | null }>;
+  totalPf: number;
+  totalBc: number;
+  difference: number;
+  differencePct: number | null;
+  tone: "good" | "warning" | "danger" | "pending";
+  missingVersions: ReeVersion[];
+};
+
+export function buildMedperMonthlyOperationalSummary(rows: MedperMonthlyConsumptionRow[]): MedperMonthlyOperationalSummaryRow[] {
+  const months = buildContinuousMonthKeys(rows.map((row) => row.month));
+  const byMonthVersion = new Map(rows.map((row) => [`${row.month}|${row.version}`, row] as const));
+
+    return months.map((month) => {
+      const versions = Object.fromEntries(
+        SUMMARY_VERSIONS.map((version) => {
+          const row = byMonthVersion.get(`${month}|${version}`);
+          const hasData = row?.hasData ?? false;
+          return [
+            version,
+            {
+              pf: hasData ? invertedSignedValue(row?.pfMwh) : null,
+              bc: hasData ? invertedSignedValue(row?.bcMwh ?? row?.consumoMwh) : null
+            }
+          ];
+        })
+      ) as Record<ReeVersion, { pf: number | null; bc: number | null }>;
+      const versionValues = SUMMARY_VERSIONS.map((version) => versions[version]);
+      const hasAnyRealData = SUMMARY_VERSIONS.some((version) => byMonthVersion.get(`${month}|${version}`)?.hasData ?? false);
+      const totalPf = sumNumeric(versionValues.map((value) => value.pf));
+      const totalBc = sumNumeric(versionValues.map((value) => value.bc));
+      const difference = totalPf - totalBc;
+      const differencePct = Math.abs(totalBc) < 0.000001 ? null : Math.abs(difference) / Math.abs(totalBc);
+      const missingVersions =
+        hasAnyRealData
+          ? SUMMARY_VERSIONS.filter((version) => !(byMonthVersion.get(`${month}|${version}`)?.hasData ?? false))
+          : [...SUMMARY_VERSIONS];
+    return {
+      month,
+      versions,
+      totalPf,
+      totalBc,
+      difference,
+      differencePct,
+      tone: hasAnyRealData ? medperDifferenceTone(differencePct) : "pending",
+      missingVersions
+    };
+  });
+}
+
+export function medperDifferenceTone(value: number | null): "good" | "warning" | "danger" | "pending" {
+  if (value === null) {
+    return "pending";
+  }
+  if (value < 0.01) {
+    return "good";
+  }
+  if (value <= 0.05) {
+    return "warning";
+  }
+  return "danger";
+}
+
 export function aggregateMedperRows<T extends { bcMwh?: string | null; pfMwh?: string | null; perdidasMwh?: string | null }>(
   rows: T[],
   getCode: (row: T) => string
@@ -104,10 +169,10 @@ export function aggregateMedperRows<T extends { bcMwh?: string | null; pfMwh?: s
 export function medperqhQuality(row: MedperqhRecord): RowQuality {
   const labels = [
     row.bcPfInconsistent ? "BC/PF incoherente" : "",
-    row.negativeEnergy ? "Signo positivo no esperado segÃ¯Â¿Â½n parser" : "",
-    row.bcMwh === null || row.bcMwh === undefined ? "BC vacÃ¯Â¿Â½o" : "",
-    row.perdidasMwh === null || row.perdidasMwh === undefined ? "PÃ¯Â¿Â½rdidas vacÃ¯Â¿Â½as" : "",
-    row.pfMwh === null || row.pfMwh === undefined ? "PF vacÃ¯Â¿Â½o" : ""
+    row.negativeEnergy ? "Signo positivo no esperado seg?n parser" : "",
+    row.bcMwh === null || row.bcMwh === undefined ? "BC vacío" : "",
+    row.perdidasMwh === null || row.perdidasMwh === undefined ? "Pérdidas vacías" : "",
+    row.pfMwh === null || row.pfMwh === undefined ? "PF vacío" : ""
   ].filter(Boolean);
   return { tone: row.bcPfInconsistent ? "danger" : labels.length > 0 ? "warning" : "ok", labels };
 }
@@ -115,12 +180,12 @@ export function medperqhQuality(row: MedperqhRecord): RowQuality {
 export function buildMedperqhKpis(rows: MedperqhRecord[]): TechnicalKpi[] {
   const anomalies = rows.filter((row) => medperqhQuality(row).tone !== "ok").length;
   return [
-    { label: "Total registros", value: formatNumber(rows.length), meta: "pÃ¯Â¿Â½gina cargada" },
+    { label: "Total registros", value: formatNumber(rows.length), meta: "página cargada" },
     { label: "BC medio", value: formatNumber(meanNumeric(rows.map((row) => row.bcMwh))), meta: "MWh" },
-    { label: "PÃ¯Â¿Â½rdidas medias", value: formatNumber(meanNumeric(rows.map((row) => row.perdidasMwh))), meta: "MWh" },
-    { label: "Peaje dominante", value: dominantValue(rows.map((row) => row.peaje)) || "-", meta: "en pÃ¯Â¿Â½gina" },
-    { label: "AnomalÃ¯Â¿Â½as", value: formatNumber(anomalies), meta: "BC/PF/signo/nulos", tone: anomalies > 0 ? "warning" : "good" },
-    { label: "Ã¯Â¿Â½ltima actualizaciÃ¯Â¿Â½n", value: latestUpdate(rows.map((row) => row.file?.importedAt)), meta: "fichero MEDPER" }
+    { label: "Pérdidas medias", value: formatNumber(meanNumeric(rows.map((row) => row.perdidasMwh))), meta: "MWh" },
+    { label: "Peaje dominante", value: dominantValue(rows.map((row) => row.peaje)) || "-", meta: "en página" },
+    { label: "Anomalías", value: formatNumber(anomalies), meta: "BC/PF/signo/nulos", tone: anomalies > 0 ? "warning" : "good" },
+    { label: "Última actualización", value: latestUpdate(rows.map((row) => row.file?.importedAt)), meta: "fichero MEDPER" }
   ];
 }
 
@@ -198,6 +263,13 @@ export function formatPercentOf(part: number, total: number) {
   return `${formatFixedDecimalNumber((part / total) * 100, 2)}%`;
 }
 
+export function formatRatio(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return "-";
+  }
+  return `${formatFixedDecimalNumber(value * 100, 2)}%`;
+}
+
 export function formatCurrency(value: number) {
   return `${formatFixedDecimalNumber(value, 2)} â‚¬`;
 }
@@ -209,7 +281,32 @@ export function normalizeNumericValue(value: number | string | null | undefined)
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : undefined;
   }
-  const parsed = Number(String(value).replace(/\./g, "").replace(",", "."));
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const normalized = trimmed.replace(/\s+/g, "");
+  const hasComma = normalized.includes(",");
+  const hasDot = normalized.includes(".");
+
+  if (hasComma && hasDot) {
+    const lastComma = normalized.lastIndexOf(",");
+    const lastDot = normalized.lastIndexOf(".");
+    const parsed =
+      lastComma > lastDot
+        ? Number(normalized.replace(/\./g, "").replace(",", "."))
+        : Number(normalized.replace(/,/g, ""));
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  if (hasComma) {
+    const parsed = Number(normalized.replace(",", "."));
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
@@ -241,4 +338,34 @@ function formatFixedDecimalNumber(value: number, decimals = 2) {
   const [integerPart, decimalPart = ""] = fixed.split(".");
   const groupedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
   return decimals > 0 ? `${sign}${groupedInteger},${decimalPart}` : `${sign}${groupedInteger}`;
+}
+
+function buildContinuousMonthKeys(values: string[]) {
+  const parsed = values
+    .map((value) => /^(\d{4})-(\d{2})$/.exec(value))
+    .filter((match): match is RegExpExecArray => Boolean(match))
+    .map((match) => ({ year: Number(match[1]), month: Number(match[2]) }))
+    .sort((left, right) => left.year - right.year || left.month - right.month);
+  if (parsed.length === 0) {
+    return [];
+  }
+  const first = parsed[0];
+  const last = parsed[parsed.length - 1];
+  const months: string[] = [];
+  let year = first.year;
+  let month = first.month;
+  while (year < last.year || (year === last.year && month <= last.month)) {
+    months.push(`${year}-${String(month).padStart(2, "0")}`);
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+  return months;
+}
+
+function invertedSignedValue(value: string | number | null | undefined) {
+  const numeric = normalizeNumericValue(value);
+  return numeric === undefined ? null : numeric * -1;
 }

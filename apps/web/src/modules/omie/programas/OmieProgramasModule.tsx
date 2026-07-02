@@ -7,6 +7,8 @@ import type { OmieProgramaEvolucionPeriodo, OmieProgramaEvolucionResponse, OmieP
 import type { OmieProgramasViewKey } from "../../../app-shell/AppShellTypes";
 import { formatOmieEnergy } from "../liquidaciones/OmieLiquidacionesHelpers";
 import { EChart, PanelTitle, formatFullDate, formatFullDateTime, formatNumber, sumNumeric } from "../../shared/RestoredModuleCommon";
+const OMIE_INTRADAY_SESSIONS = ["01", "02", "03", "04", "05", "06", "07"];
+
 type OmieProgramasProps = {
   view: OmieProgramasViewKey;
   fecha: string;
@@ -43,7 +45,30 @@ export function OmieProgramasModule({
 
   if (loading && !dataset.response) {
     return (
-      <section className="content-grid omie-grid">
+      <div className="omie-layout omie-layout-a">
+        <div className="panel wide omie-control-panel">
+        <PanelTitle icon={<BarChart3 size={18} />} title="OMIE Programas" />
+        <div className="omie-toolbar compact">
+          <label className="filter-field">
+            <span>Fecha</span>
+            <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
+          </label>
+          {view === "intradiarios" && (
+            <SessionSelect disabled={loading} value={sesion} onChange={onSesionChange} />
+          )}
+          <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
+            <Search size={16} />
+            Consultar
+          </button>
+        </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!dataset.response) {
+    return (
+      <div className="omie-layout omie-layout-a">
         <div className="panel wide omie-control-panel">
           <PanelTitle icon={<BarChart3 size={18} />} title="OMIE Programas" />
           <div className="omie-toolbar compact">
@@ -52,10 +77,7 @@ export function OmieProgramasModule({
               <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
             </label>
             {view === "intradiarios" && (
-              <label className="filter-field">
-                <span>Sesion</span>
-                <input disabled={loading} inputMode="numeric" maxLength={2} value={sesion} onChange={(event) => onSesionChange(event.target.value)} />
-              </label>
+              <SessionSelect disabled={loading} value={sesion} onChange={onSesionChange} />
             )}
             <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
               <Search size={16} />
@@ -63,13 +85,6 @@ export function OmieProgramasModule({
             </button>
           </div>
         </div>
-      </section>
-    );
-  }
-
-  if (!dataset.response) {
-    return (
-      <section className="content-grid">
         <div className="panel wide">
           <div className="empty-state">
             <strong>OMIE Programas</strong>
@@ -79,40 +94,28 @@ export function OmieProgramasModule({
             </button>
           </div>
         </div>
-      </section>
+      </div>
     );
   }
 
   return (
-    <>
-      <section className="content-grid omie-grid">
-        <div className="panel wide omie-control-panel">
-          <PanelTitle icon={<BarChart3 size={18} />} title={dataset.title} subtitle={dataset.subtitle} />
-          <div className="omie-toolbar compact">
-            <label className="filter-field">
-              <span>Fecha</span>
-              <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
-            </label>
-            {view === "intradiarios" && (
-              <label className="filter-field">
-                <span>Sesion</span>
-                <input disabled={loading} inputMode="numeric" maxLength={2} value={sesion} onChange={(event) => onSesionChange(event.target.value)} />
-              </label>
-            )}
-            <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
-              <Search size={16} />
-              Consultar
-            </button>
-          </div>
+    <div className="omie-layout omie-layout-a">
+      <div className="panel wide omie-control-panel">
+        <PanelTitle icon={<BarChart3 size={18} />} title={dataset.title} subtitle={dataset.subtitle} />
+        <div className="omie-toolbar compact">
+          <label className="filter-field">
+            <span>Fecha</span>
+            <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
+          </label>
+          {view === "intradiarios" && (
+            <SessionSelect disabled={loading} value={sesion} onChange={onSesionChange} />
+          )}
+          <button className="secondary-button" disabled={loading || !fecha} onClick={onRefresh} type="button">
+            <Search size={16} />
+            Consultar
+          </button>
         </div>
-      </section>
-
-      <section className="content-grid">
-        <div className="panel wide">
-          <PanelTitle icon={<TrendingUp size={18} />} title={dataset.chartTitle} subtitle={dataset.chartSubtitle} />
-          <EChart option={chartOption} height={360} />
-        </div>
-      </section>
+      </div>
 
       <TechnicalDataTable
         columns={columns}
@@ -134,7 +137,29 @@ export function OmieProgramasModule({
         showPagination={false}
         title={dataset.tableTitle}
       />
-    </>
+
+      {view === "evolucion" ? (
+        <div className="panel wide omie-secondary-chart">
+          <PanelTitle icon={<TrendingUp size={18} />} title={dataset.chartTitle} subtitle={dataset.chartSubtitle} />
+          <EChart option={chartOption} height={248} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SessionSelect({ disabled, value, onChange }: { disabled: boolean; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="filter-field">
+      <span>Sesión</span>
+      <select disabled={disabled} value={value} onChange={(event) => onChange(event.target.value)}>
+        {OMIE_INTRADAY_SESSIONS.map((session) => (
+          <option key={session} value={session}>
+            Sesión {session}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -155,21 +180,21 @@ function buildOmieProgramasDataset(
   evolucion?: OmieProgramaEvolucionResponse
 ): OmieProgramasDataset {
   if (view === "mercadoDiario") {
-    return buildOmieProgramasResponseDataset(mercadoDiario, "Mercado Diario", "Evolucion de energia por periodo", "Detalle de Mercado Diario");
+    return buildOmieProgramasResponseDataset(mercadoDiario, "Mercado Diario", "Evolución de energía por periodo", "Detalle de Mercado Diario");
   }
 
   if (view === "intradiarios") {
-    return buildOmieProgramasResponseDataset(intradiario, "Intradiario", "Evolucion de energia por periodo", "Detalle de Intradiario");
+    return buildOmieProgramasResponseDataset(intradiario, "Intradiario", "Evolución de energía por periodo", "Detalle de Intradiario");
   }
 
   if (!evolucion) {
     return {
       rows: [],
-      title: "Evolucion",
+      title: "Evolución",
       subtitle: "Sin datos",
-      chartTitle: "Evolucion comparativa",
+      chartTitle: "Evolución comparativa",
       chartSubtitle: "PVD y sesiones intradiarias",
-      tableTitle: "Detalle de Evolucion"
+      tableTitle: "Detalle de Evolución"
     };
   }
 
@@ -184,11 +209,11 @@ function buildOmieProgramasDataset(
   return {
     response: evolucion,
     rows: evolucion.periodos,
-    title: "Evolucion",
+    title: "Evolución",
     subtitle,
     chartTitle: "Comparativa PVD y sesiones",
     chartSubtitle: evolucion.uOfertante,
-    tableTitle: "Detalle de Evolucion"
+    tableTitle: "Detalle de Evolución"
   };
 }
 
@@ -211,7 +236,7 @@ function buildOmieProgramasResponseDataset(
 
   const subtitle = [
     response.uOfertante,
-    response.sesion ? `Sesion ${response.sesion}` : response.tipoPrograma,
+    response.sesion ? `Sesión ${response.sesion}` : response.tipoPrograma,
     `${formatOmieEnergy(response.totalEnergiaMWh)} MWh`
   ].join(" - ");
 
@@ -221,7 +246,7 @@ function buildOmieProgramasResponseDataset(
     title,
     subtitle,
     chartTitle,
-    chartSubtitle: response.ultimaDescarga ? `Ultima descarga: ${formatFullDateTime(response.ultimaDescarga)}` : "Sin descargas procesadas",
+    chartSubtitle: response.ultimaDescarga ? `Última descarga: ${formatFullDateTime(response.ultimaDescarga)}` : "Sin descargas procesadas",
     tableTitle
   };
 }
@@ -249,7 +274,7 @@ function buildOmieProgramasColumns(view: OmieProgramasViewKey, response?: OmiePr
     },
     {
       id: "descripcionPeriodo",
-      label: "Descripcion",
+      label: "Descripción",
       width: 180,
       filter: "text",
       value: (row) => row.descripcionPeriodo
@@ -263,7 +288,7 @@ function buildOmieProgramasColumns(view: OmieProgramasViewKey, response?: OmiePr
     },
     {
       id: "energiaMWh",
-      label: "Energia MWh",
+      label: "Energía MWh",
       width: 118,
       align: "right",
       type: "number",
@@ -302,7 +327,7 @@ function buildOmieProgramasColumns(view: OmieProgramasViewKey, response?: OmiePr
     },
     ...uniqueSessionKeys.map((sessionKey): TechnicalColumn<OmieProgramaEvolucionPeriodo> => ({
       id: `sesion:${sessionKey}`,
-      label: sessionKey.startsWith("P") ? sessionKey : `Sesion ${sessionKey}`,
+      label: sessionKey.startsWith("P") ? sessionKey : `Sesión ${sessionKey}`,
       width: 112,
       align: "right",
       type: "number",
@@ -343,11 +368,11 @@ function buildOmieProgramasKpis(view: OmieProgramasViewKey, response?: OmieProgr
 
   const base = response as OmieProgramaResponse;
   return [
-    { label: "Energia total", value: `${formatOmieEnergy(base.totalEnergiaMWh)} MWh`, meta: base.tipoPrograma },
+    { label: "Energía total", value: `${formatOmieEnergy(base.totalEnergiaMWh)} MWh`, meta: base.tipoPrograma },
     { label: "Periodos", value: formatNumber(base.periodos.length), meta: base.resolucion },
-    { label: "Sesion", value: base.sesion ?? "-", meta: view === "intradiarios" ? "Intradiario" : "Mercado Diario" },
+    { label: "Sesión", value: base.sesion ?? "-", meta: view === "intradiarios" ? "Intradiario" : "Mercado Diario" },
     { label: "Ofertante", value: base.uOfertante, meta: "OMIE" },
-    { label: "Ultima descarga", value: base.ultimaDescarga ? formatFullDateTime(base.ultimaDescarga) : "-", meta: "OMIE" }
+    { label: "Última descarga", value: base.ultimaDescarga ? formatFullDateTime(base.ultimaDescarga) : "-", meta: "OMIE" }
   ];
 }
 
@@ -361,7 +386,7 @@ function buildOmieProgramasTotalsRow(view: OmieProgramasViewKey, response?: Omie
     return {
       fecha: "Total",
       periodo: formatNumber(evolution.periodos.length),
-      descripcionPeriodo: evolution.pvd ? "PVD + sesiones" : "Evolucion",
+      descripcionPeriodo: evolution.pvd ? "PVD + sesiones" : "Evolución",
       clave: "",
       energiaMWh: formatOmieEnergy(sumNumeric(evolution.periodos.map((row) => row.energiaMWh))),
       pvd: formatOmieEnergy(evolution.pvd?.totalEnergiaMWh ?? sumNumeric(evolution.periodos.map((row) => row.pvd))),
@@ -381,13 +406,13 @@ function buildOmieProgramasTotalsRow(view: OmieProgramasViewKey, response?: Omie
 function buildOmieProgramasQuality(view: OmieProgramasViewKey, response?: OmieProgramaResponse | OmieProgramaEvolucionResponse) {
   return (row: OmieProgramaPeriodo | OmieProgramaEvolucionPeriodo): RowQuality => {
     const labels = [
-      row.energiaMWh === null || row.energiaMWh === undefined ? "Energia vacia" : "",
-      row.descripcionPeriodo ? "" : "Descripcion vacia"
+      row.energiaMWh === null || row.energiaMWh === undefined ? "Energía vacía" : "",
+      row.descripcionPeriodo ? "" : "Descripción vacía"
     ].filter(Boolean);
 
     if (view === "evolucion" && "pvd" in row) {
       if (row.pvd === null || row.pvd === undefined) {
-        labels.push("PVD vacio");
+        labels.push("PVD vacío");
       }
       if (Object.values(row.sesiones ?? {}).every((value) => value === null || value === undefined)) {
         labels.push("Sin sesiones");
@@ -461,7 +486,7 @@ function buildOmieProgramasChartOption(view: OmieProgramasViewKey, response?: Om
           data: rows.map((row) => row.pvd ?? null)
         },
         ...sessionKeys.map((sessionKey) => ({
-          name: sessionKey.startsWith("P") ? sessionKey : `Sesion ${sessionKey}`,
+          name: sessionKey.startsWith("P") ? sessionKey : `Sesión ${sessionKey}`,
           type: "line" as const,
           smooth: true,
           symbolSize: 5,

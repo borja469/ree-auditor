@@ -1,4 +1,4 @@
-FROM node:24-alpine
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
@@ -10,5 +10,10 @@ COPY tsconfig.base.json ./
 COPY apps/web apps/web
 
 WORKDIR /app/apps/web
+RUN npm run build
 
-EXPOSE 5173
+FROM nginx:1.27-alpine
+
+COPY --from=build /app/apps/web/dist /usr/share/nginx/html
+
+EXPOSE 80
