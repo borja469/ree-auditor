@@ -5757,7 +5757,7 @@ select:disabled {
 }
 
 .omie-annual-summary-table {
-  min-width: 1120px;
+  min-width: 1200px;
 }
 
 .omie-annual-summary-table th,
@@ -5784,6 +5784,25 @@ select:disabled {
 .omie-annual-summary-table td {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.omie-annual-summary-table th:last-child,
+.omie-annual-summary-total {
+  color: #17313f;
+  background: #eef5f8;
+  border-left: 1px solid #cbd8df;
+  font-weight: 950;
+}
+
+.omie-annual-summary-table .selected-month {
+  background: #fff7ed;
+  box-shadow: inset 1px 0 0 #fed7aa, inset -1px 0 0 #fed7aa;
+  font-weight: 950;
+}
+
+.omie-annual-summary-table th.selected-month {
+  color: #9a3412;
+  background: #ffedd5;
 }
 
 .omie-annual-summary-table .positive {

@@ -160,7 +160,7 @@ export function OmieDetalleCargaModule({
           </div>
       </div>
 
-      <OmieAnnualSummaryTable loading={annualLoading} summary={annualSummary} year={year} />
+      <OmieAnnualSummaryTable loading={annualLoading} month={month} summary={annualSummary} year={year} />
 
       {loading && !analisis && (
         <div className="panel wide">
@@ -186,13 +186,16 @@ export function OmieDetalleCargaModule({
 
 function OmieAnnualSummaryTable({
   year,
+  month,
   summary,
   loading
 }: {
   year: string;
+  month: string;
   summary: OmieAnnualSummaryCell[];
   loading: boolean;
 }) {
+  const total = useMemo(() => buildOmieAnnualSummaryTotal(summary), [summary]);
   const rows: Array<{ id: OmieAnnualSummaryMetric; label: string }> = [
     { id: "energy", label: "Energía total" },
     { id: "profit", label: "Suma profit" },
@@ -216,8 +219,9 @@ function OmieAnnualSummaryTable({
             <tr>
               <th>Métrica</th>
               {MONTH_OPTIONS.map((monthOption) => (
-                <th key={monthOption.value}>{monthOption.label.slice(0, 3)}</th>
+                <th className={monthOption.value === month ? "selected-month" : ""} key={monthOption.value}>{monthOption.label.slice(0, 3)}</th>
               ))}
+              <th>Total</th>
             </tr>
           </thead>
           <tbody>
@@ -225,10 +229,16 @@ function OmieAnnualSummaryTable({
               <tr key={row.id}>
                 <th scope="row">{row.label}</th>
                 {summary.map((cell, index) => (
-                  <td className={row.id === "profit" || row.id === "profitRate" ? annualSignedClass(cell[row.id]) : "right"} key={`${row.id}-${MONTH_OPTIONS[index].value}`}>
+                  <td
+                    className={`${row.id === "profit" || row.id === "profitRate" ? annualSignedClass(cell[row.id]) : "right"} ${MONTH_OPTIONS[index].value === month ? "selected-month" : ""}`}
+                    key={`${row.id}-${MONTH_OPTIONS[index].value}`}
+                  >
                     {formatAnnualSummaryValue(row.id, cell[row.id])}
                   </td>
                 ))}
+                <td className={`omie-annual-summary-total ${row.id === "profit" || row.id === "profitRate" ? annualSignedClass(total[row.id]) : "right"}`}>
+                  {formatAnnualSummaryValue(row.id, total[row.id])}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -676,6 +686,20 @@ function buildOmieAnnualSummary(analyses: Array<OmieAnalisisMensualResponse | nu
       omiePrice: divideOrNull(omieCost, energy)
     };
   });
+}
+
+function buildOmieAnnualSummaryTotal(summary: OmieAnnualSummaryCell[]): OmieAnnualSummaryCell {
+  const energy = nullableSum(summary.map((cell) => cell.energy));
+  const profit = nullableSum(summary.map((cell) => cell.profit));
+  const omieCost = nullableSum(summary.map((cell) => cell.omieCost));
+
+  return {
+    energy,
+    profit,
+    profitRate: divideOrNull(profit, energy),
+    omieCost,
+    omiePrice: divideOrNull(omieCost, energy)
+  };
 }
 
 function emptyAnnualSummaryCell(): OmieAnnualSummaryCell {
