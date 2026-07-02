@@ -93,8 +93,8 @@ describe("EsiosApiService", () => {
       expect.objectContaining({
         where: {
           OR: [
-            { indicatorId: 460, datetimeUtc: new Date("2026-10-25T00:00:00.000Z") },
-            { indicatorId: 460, datetimeUtc: new Date("2026-10-25T01:00:00.000Z") }
+            { indicatorId: 460, datetimeUtc: new Date("2026-10-25T00:00:00.000Z"), geoKey: 3 },
+            { indicatorId: 460, datetimeUtc: new Date("2026-10-25T01:00:00.000Z"), geoKey: 3 }
           ]
         }
       })
@@ -129,7 +129,54 @@ describe("EsiosApiService", () => {
     expect(prisma.esiosIndicatorValue.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          OR: [{ indicatorId: 460, datetimeUtc: repeatedInstant }]
+          OR: [{ indicatorId: 460, datetimeUtc: repeatedInstant, geoKey: 3 }]
+        }
+      })
+    );
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("conserva valores de distintas geografias para la misma hora", async () => {
+    const prisma = mockPrisma();
+    const service = new EsiosApiService(prisma as never);
+
+    const repeatedInstant = new Date("2026-07-01T05:00:00.000Z");
+    const result = await service.saveIndicatorValues([
+      {
+        indicatorId: 600,
+        datetime: new Date("2026-07-01T07:00:00.000Z"),
+        datetimeUtc: repeatedInstant,
+        value: new Prisma.Decimal("116.870000"),
+        geoId: 1,
+        geoName: "Portugal"
+      },
+      {
+        indicatorId: 600,
+        datetime: new Date("2026-07-01T07:00:00.000Z"),
+        datetimeUtc: repeatedInstant,
+        value: new Prisma.Decimal("123.282500"),
+        geoId: 2,
+        geoName: "Francia"
+      },
+      {
+        indicatorId: 600,
+        datetime: new Date("2026-07-01T07:00:00.000Z"),
+        datetimeUtc: repeatedInstant,
+        value: new Prisma.Decimal("116.870000"),
+        geoId: 3,
+        geoName: "EspaÃ±a"
+      }
+    ]);
+
+    expect(result).toEqual({ insertedRecords: 3, updatedRecords: 0 });
+    expect(prisma.esiosIndicatorValue.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { indicatorId: 600, datetimeUtc: repeatedInstant, geoKey: 1 },
+            { indicatorId: 600, datetimeUtc: repeatedInstant, geoKey: 2 },
+            { indicatorId: 600, datetimeUtc: repeatedInstant, geoKey: 3 }
+          ]
         }
       })
     );
@@ -160,7 +207,8 @@ function mockPrisma(options: { apiToken?: string; existingDatetime?: Date; exist
               {
                 indicatorId: 460,
                 datetime: options.existingDatetime,
-                datetimeUtc: options.existingDatetimeUtc ?? null
+                datetimeUtc: options.existingDatetimeUtc ?? null,
+                geoKey: 3
               }
             ]
           : []

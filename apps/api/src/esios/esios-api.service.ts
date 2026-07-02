@@ -212,7 +212,7 @@ export class EsiosApiService {
     for (const chunk of chunkArray(uniqueValues, UPSERT_CHUNK_SIZE)) {
       await this.upsertValuesChunk(chunk);
     }
-    const updatedRecords = uniqueValues.filter((value) => existingKeys.has(valueKey(value.indicatorId, value.datetimeUtc ?? value.datetime))).length;
+    const updatedRecords = uniqueValues.filter((value) => existingKeys.has(valueKey(value.indicatorId, value.datetimeUtc ?? value.datetime, geoKey(value)))).length;
     return {
       insertedRecords: uniqueValues.length - updatedRecords,
       updatedRecords
@@ -239,7 +239,7 @@ export class EsiosApiService {
       this.prisma.esiosIndicator.findUnique({ where: { indicatorId } }),
       this.prisma.esiosIndicatorValue.findMany({
         where,
-        orderBy: { datetime: "asc" },
+        orderBy: [{ datetime: "asc" }, { geoKey: "asc" }],
         skip,
         take
       }),
@@ -409,17 +409,19 @@ export class EsiosApiService {
         where: {
           OR: chunk.map((value) => ({
             indicatorId: value.indicatorId,
-            ...(value.datetimeUtc ? { datetimeUtc: value.datetimeUtc } : { datetime: value.datetime })
+            ...(value.datetimeUtc ? { datetimeUtc: value.datetimeUtc } : { datetime: value.datetime }),
+            geoKey: geoKey(value)
           }))
         },
         select: {
           indicatorId: true,
           datetime: true,
-          datetimeUtc: true
+          datetimeUtc: true,
+          geoKey: true
         }
       });
       for (const row of rows) {
-        keys.add(valueKey(row.indicatorId, row.datetimeUtc ?? row.datetime));
+        keys.add(valueKey(row.indicatorId, row.datetimeUtc ?? row.datetime, row.geoKey));
       }
     }
     return keys;
@@ -432,20 +434,22 @@ export class EsiosApiService {
       ${value.datetimeUtc},
       ${value.value},
       ${value.geoId},
+      ${geoKey(value)},
       ${value.geoName},
       now(),
       now()
     )`);
     await this.prisma.$executeRaw`
       INSERT INTO esios_indicator_values
-        (indicator_id, datetime, datetime_utc, value, geo_id, geo_name, created_at, updated_at)
+        (indicator_id, datetime, datetime_utc, value, geo_id, geo_key, geo_name, created_at, updated_at)
       VALUES ${Prisma.join(rows)}
-      ON CONFLICT (indicator_id, datetime_utc)
+      ON CONFLICT (indicator_id, datetime_utc, geo_key)
       DO UPDATE SET
         datetime = EXCLUDED.datetime,
         datetime_utc = EXCLUDED.datetime_utc,
         value = EXCLUDED.value,
         geo_id = EXCLUDED.geo_id,
+        geo_key = EXCLUDED.geo_key,
         geo_name = EXCLUDED.geo_name,
         updated_at = now()
     `;
@@ -604,7 +608,7 @@ function normalizeIndicatorValue(payload: unknown, indicatorId: number): EsiosIn
 function deduplicateIndicatorValues(values: EsiosIndicatorValueInput[]) {
   const byKey = new Map<string, EsiosIndicatorValueInput>();
   for (const value of values) {
-    byKey.set(valueKey(value.indicatorId, value.datetimeUtc ?? value.datetime), value);
+    byKey.set(valueKey(value.indicatorId, value.datetimeUtc ?? value.datetime, geoKey(value)), value);
   }
   return [...byKey.values()];
 }
@@ -751,8 +755,12 @@ function chunkArray<T>(values: T[], size: number) {
   return chunks;
 }
 
-function valueKey(indicatorId: number, datetime: Date) {
-  return `${indicatorId}|${datetime.toISOString()}`;
+function valueKey(indicatorId: number, datetime: Date, resolvedGeoKey: number) {
+  return `${indicatorId}|${datetime.toISOString()}|${resolvedGeoKey}`;
+}
+
+function geoKey(value: Pick<EsiosIndicatorValueInput, "geoId">) {
+  return value.geoId ?? -1;
 }
 
 function madridLocalDateTimeToUtc(year: number, month: number, day: number, hour = 0, minute = 0, second = 0, millisecond = 0) {

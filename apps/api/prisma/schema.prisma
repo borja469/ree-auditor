@@ -624,12 +624,15 @@ model EsiosIndicatorValue {
   datetimeUtc DateTime?      @map("datetime_utc")
   value       Decimal?       @db.Decimal(18, 6)
   geoId       Int?           @map("geo_id")
+  geoKey      Int            @default(-1) @map("geo_key")
   geoName     String?        @map("geo_name") @db.VarChar(255)
   createdAt   DateTime       @default(now()) @map("created_at")
   updatedAt   DateTime       @updatedAt @map("updated_at")
 
-  @@unique([indicatorId, datetimeUtc], map: "ux_esios_indicator_values_utc")
+  @@unique([indicatorId, datetimeUtc, geoKey], map: "ux_esios_indicator_values_utc_geo")
   @@index([indicatorId, datetimeUtc])
+  @@index([indicatorId, datetimeUtc, geoKey])
+  @@index([geoId])
   @@index([datetime])
   @@map("esios_indicator_values")
 }

@@ -5746,6 +5746,56 @@ select:disabled {
   margin-bottom: 8px;
 }
 
+.omie-annual-summary-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.omie-annual-summary-scroll {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.omie-annual-summary-table {
+  min-width: 1120px;
+}
+
+.omie-annual-summary-table th,
+.omie-annual-summary-table td {
+  height: 34px;
+  padding: 7px 9px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.omie-annual-summary-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  width: 170px;
+  background: #f3f7f9;
+}
+
+.omie-annual-summary-table tbody th:first-child {
+  color: #17313f;
+  background: #ffffff;
+}
+
+.omie-annual-summary-table td {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.omie-annual-summary-table .positive {
+  color: #16803c;
+  font-weight: 900;
+}
+
+.omie-annual-summary-table .negative {
+  color: #b42318;
+  font-weight: 900;
+}
+
 .omie-monthly-analysis-panel .technical-kpi,
 .omie-liquidation-panel .technical-kpi,
 .omie-compact-detail .technical-kpi {

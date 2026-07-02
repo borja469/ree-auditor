@@ -1931,23 +1931,26 @@ function buildSeriesKpis(indicator: EsiosIndicator | null, response?: EsiosValue
 }
 
 function buildSeriesChart(indicator: EsiosIndicator | null, rows: EsiosIndicatorValue[]): EChartsOption {
+  const groupedRows = groupRowsByGeo(rows);
+  const palette = ["#0f766e", "#2563eb", "#b45309", "#7c3aed", "#dc2626", "#15803d"];
   return {
-    color: ["#0f766e"],
+    color: palette,
     tooltip: {
       trigger: "axis",
       valueFormatter: (value) => (typeof value === "number" ? formatDecimalNumber(value, 3) : String(value ?? "-"))
     },
     legend: {
-      show: false
+      type: groupedRows.length > 1 ? "scroll" : undefined,
+      show: groupedRows.length > 1,
+      top: 0
     },
-    grid: { left: 56, right: 32, top: 28, bottom: 62, containLabel: true },
+    grid: { left: 56, right: 32, top: groupedRows.length > 1 ? 52 : 28, bottom: 62, containLabel: true },
     dataZoom: [
       { type: "inside", filterMode: "none" },
       { type: "slider", height: 22, bottom: 20, filterMode: "none" }
     ],
     xAxis: {
-      type: "category",
-      data: rows.map((row) => formatEsiosDateTime(row.datetimeUtc ?? row.datetime)),
+      type: "time",
       axisLabel: { color: "#5a7381", hideOverlap: true }
     },
     yAxis: {
@@ -1955,15 +1958,18 @@ function buildSeriesChart(indicator: EsiosIndicator | null, rows: EsiosIndicator
       axisLabel: { color: "#5a7381" },
       splitLine: { lineStyle: { color: "#edf2f5" } }
     },
-    series: [
-      {
-        name: indicator?.name ?? indicator?.shortName ?? "Serie ESIOS",
+    series: groupedRows.map((group, index) => ({
+        name: `${indicator?.shortName ?? indicator?.name ?? "Serie ESIOS"}${group.label === "-" ? "" : ` - ${group.label}`}`,
         type: "line",
         smooth: true,
-        symbolSize: 4,
-        data: rows.map((row) => row.value)
-      }
-    ]
+        showSymbol: false,
+        lineStyle: { width: 2 },
+        emphasis: { focus: "series" },
+        data: group.rows
+          .filter((row) => row.value !== null && row.value !== undefined)
+          .map((row) => [new Date(row.datetimeUtc ?? row.datetime).getTime(), row.value as number]),
+        color: palette[index % palette.length]
+      }))
   };
 }
 
@@ -1974,12 +1980,12 @@ function buildSeriesComparisonChart(
 ): EChartsOption {
   const palette = ["#0f766e", "#2563eb", "#b45309", "#7c3aed", "#dc2626", "#15803d"];
   const activeSeries = selectedIndicatorIds
-    .map((indicatorId) => {
+    .flatMap((indicatorId) => {
       const response = seriesByIndicatorId[indicatorId];
       const indicator = response?.indicator ?? availableIndicators.find((item) => item.indicatorId === indicatorId) ?? null;
-      return response ? { indicatorId, indicator, rows: response.rows } : null;
+      return response ? groupRowsByGeo(response.rows).map((group) => ({ indicatorId, indicator, rows: group.rows, geoKey: group.key, geoLabel: group.label })) : [];
     })
-    .filter((item): item is { indicatorId: number; indicator: EsiosIndicator | null; rows: EsiosIndicatorValue[] } => Boolean(item));
+    .filter((item): item is { indicatorId: number; indicator: EsiosIndicator | null; rows: EsiosIndicatorValue[]; geoKey: string; geoLabel: string } => Boolean(item));
 
   return {
     color: palette,
@@ -2006,7 +2012,8 @@ function buildSeriesComparisonChart(
       splitLine: { lineStyle: { color: "#edf2f5" } }
     },
     series: activeSeries.map((series, index) => ({
-      name: `${series.indicatorId} - ${series.indicator?.shortName ?? series.indicator?.name ?? "Serie"}`,
+      id: `esios-${series.indicatorId}-${series.geoKey}`,
+      name: `${series.indicatorId} - ${series.indicator?.shortName ?? series.indicator?.name ?? "Serie"}${series.geoLabel === "-" ? "" : ` - ${series.geoLabel}`}`,
       type: "line",
       smooth: true,
       showSymbol: false,
@@ -2023,6 +2030,9 @@ function buildSeriesComparisonChart(
 type EsiosComparisonRow = {
   datetime: string;
   datetimeUtc: string | null;
+  geoKey: string;
+  geoId: number | null;
+  geoName: string;
   indicatorValues: Record<number, number | null>;
 };
 
@@ -2033,20 +2043,28 @@ function buildSeriesComparisonRows(selectedIndicatorIds: number[], seriesByIndic
     const response = seriesByIndicatorId[indicatorId];
     for (const row of response?.rows ?? []) {
       const datetime = row.datetimeUtc ?? row.datetime;
-      const existing = rowsByTimestamp.get(datetime) ?? {
+      const geoKey = rowGeoKey(row);
+      const key = `${datetime}|${geoKey}`;
+      const existing = rowsByTimestamp.get(key) ?? {
         datetime,
         datetimeUtc: row.datetimeUtc,
+        geoKey,
+        geoId: row.geoId,
+        geoName: rowGeoLabel(row),
         indicatorValues: {}
       };
       existing.indicatorValues[indicatorId] = row.value ?? null;
       if (!existing.datetimeUtc && row.datetimeUtc) {
         existing.datetimeUtc = row.datetimeUtc;
       }
-      rowsByTimestamp.set(datetime, existing);
+      rowsByTimestamp.set(key, existing);
     }
   }
 
-  return Array.from(rowsByTimestamp.values()).sort((left, right) => left.datetime.localeCompare(right.datetime));
+  return Array.from(rowsByTimestamp.values()).sort((left, right) => {
+    const byDate = left.datetime.localeCompare(right.datetime);
+    return byDate !== 0 ? byDate : left.geoName.localeCompare(right.geoName);
+  });
 }
 
 function buildSeriesComparisonColumns(
@@ -2057,7 +2075,9 @@ function buildSeriesComparisonColumns(
   const columns: Array<TechnicalColumn<EsiosComparisonRow>> = [
     { id: "fecha", label: "Fecha", width: 118, sticky: true, type: "date", filter: "text", value: (row) => formatEsiosDate(row.datetimeUtc ?? row.datetime) },
     { id: "hora", label: "Hora", width: 90, sticky: true, type: "text", filter: "text", value: (row) => formatEsiosTime(row.datetimeUtc ?? row.datetime) },
-    { id: "fechaHora", label: "FechaHora", width: 156, type: "date", filter: "text", value: (row) => row.datetimeUtc ?? row.datetime, render: (row) => formatEsiosDateTime(row.datetimeUtc ?? row.datetime) }
+    { id: "fechaHora", label: "FechaHora", width: 156, type: "date", filter: "text", value: (row) => row.datetimeUtc ?? row.datetime, render: (row) => formatEsiosDateTime(row.datetimeUtc ?? row.datetime) },
+    { id: "geo", label: "Geo", width: 150, filter: "text", value: (row) => row.geoName },
+    { id: "geoId", label: "Geo ID", width: 90, align: "right", type: "number", filter: "number", value: (row) => row.geoId }
   ];
 
   for (const indicatorId of selectedIndicatorIds) {
@@ -2099,6 +2119,30 @@ function buildSeriesComparisonRowQuality(row: EsiosComparisonRow): RowQuality {
     tone: missing > 0 ? "warning" : "ok",
     labels: missing > 0 ? [`${formatNumber(missing)} sin dato`] : []
   };
+}
+
+function groupRowsByGeo(rows: EsiosIndicatorValue[]) {
+  const groups = new Map<string, { key: string; label: string; rows: EsiosIndicatorValue[] }>();
+  for (const row of rows) {
+    const key = rowGeoKey(row);
+    const label = rowGeoLabel(row);
+    const group = groups.get(key) ?? { key, label, rows: [] };
+    group.rows.push(row);
+    groups.set(key, group);
+  }
+  return [...groups.values()].map((group) => ({
+    ...group,
+    rows: group.rows.sort((left, right) => (left.datetimeUtc ?? left.datetime).localeCompare(right.datetimeUtc ?? right.datetime))
+  }));
+}
+
+function rowGeoKey(row: EsiosIndicatorValue) {
+  return row.geoId === null || row.geoId === undefined ? "geo:-1" : `geo:${row.geoId}`;
+}
+
+function rowGeoLabel(row: EsiosIndicatorValue) {
+  const geoId = row.geoId ?? -1;
+  return row.geoName ? `${row.geoName} (${geoId})` : `Geo ${geoId}`;
 }
 
 function buildProfileColumns(): Array<TechnicalColumn<EsiosInitialProfile>> {

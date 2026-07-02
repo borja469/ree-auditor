@@ -3,7 +3,7 @@ import { BarChart3, ChevronDown, ChevronRight, Clipboard, Download, FileDown, Fi
 import { InlineLoading } from "../../../GlobalLoadingOverlay";
 import { createTechnicalDataTableAdapter } from "../../../technical-module-v2/adapters/technicalDataTableAdapter";
 import { type TechnicalSortDirection } from "../../../technical-module-v2";
-import type { OmieAnalisisMensualPeriodo } from "../../../api";
+import { getOmieAnalisisMensual, type OmieAnalisisMensualPeriodo, type OmieAnalisisMensualResponse } from "../../../api";
 import {
   buildOmieMonthlyAnalysisDailyColumnRender,
   buildOmieMonthlyAnalysisDailyColumnValue,
@@ -49,6 +49,16 @@ const MONTH_OPTIONS = [
   { value: "12", label: "Diciembre" }
 ] as const;
 
+type OmieAnnualSummaryMetric = "energy" | "profit" | "profitRate" | "omieCost" | "omiePrice";
+
+type OmieAnnualSummaryCell = {
+  energy: number | null;
+  profit: number | null;
+  profitRate: number | null;
+  omieCost: number | null;
+  omiePrice: number | null;
+};
+
 export function OmieDetalleCargaModule({
   year,
   month,
@@ -60,6 +70,8 @@ export function OmieDetalleCargaModule({
   onGoToDownloads
 }: OmieDetalleCargaModuleProps) {
   const rows = analisis?.periodos ?? [];
+  const [annualAnalyses, setAnnualAnalyses] = useState<Array<OmieAnalisisMensualResponse | null>>([]);
+  const [annualLoading, setAnnualLoading] = useState(false);
   const columns = useMemo<Array<OmieDetalleCargaTechnicalColumn<OmieAnalisisMensualPeriodo>>>(
     () => [
       { id: "fecha", label: "Fecha", width: 96, type: "date", filter: "text", sticky: true, value: (row) => row.fecha },
@@ -93,6 +105,34 @@ export function OmieDetalleCargaModule({
     ],
     []
   );
+  const annualSummary = useMemo(() => buildOmieAnnualSummary(annualAnalyses), [annualAnalyses]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const numericYear = Number(year);
+    if (!Number.isFinite(numericYear) || numericYear < 2000 || numericYear > 2100) {
+      setAnnualAnalyses([]);
+      return undefined;
+    }
+
+    setAnnualLoading(true);
+    Promise.allSettled(MONTH_OPTIONS.map((option) => getOmieAnalisisMensual(numericYear, option.value)))
+      .then((results) => {
+        if (cancelled) {
+          return;
+        }
+        setAnnualAnalyses(results.map((result) => (result.status === "fulfilled" ? result.value : null)));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAnnualLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [year]);
 
   return (
     <div className="omie-layout omie-layout-a omie-detail-load-layout">
@@ -120,6 +160,8 @@ export function OmieDetalleCargaModule({
           </div>
       </div>
 
+      <OmieAnnualSummaryTable loading={annualLoading} summary={annualSummary} year={year} />
+
       {loading && !analisis && (
         <div className="panel wide">
           <InlineLoading label="Cargando detalle de carga OMIE" />
@@ -139,6 +181,61 @@ export function OmieDetalleCargaModule({
         />
       )}
     </div>
+  );
+}
+
+function OmieAnnualSummaryTable({
+  year,
+  summary,
+  loading
+}: {
+  year: string;
+  summary: OmieAnnualSummaryCell[];
+  loading: boolean;
+}) {
+  const rows: Array<{ id: OmieAnnualSummaryMetric; label: string }> = [
+    { id: "energy", label: "Energía total" },
+    { id: "profit", label: "Suma profit" },
+    { id: "profitRate", label: "Profit Medio €/MWh" },
+    { id: "omieCost", label: "Coste OMIE" },
+    { id: "omiePrice", label: "Precio OMIE" }
+  ];
+
+  return (
+    <section className="panel wide omie-annual-summary-panel">
+      <div className="technical-data-head">
+        <OmieDetalleCargaPanelTitle
+          icon={<BarChart3 size={18} />}
+          title={`Resumen anual ${year || "-"}`}
+          subtitle={loading ? "Cargando meses" : "Meses del año seleccionado"}
+        />
+      </div>
+      <div className="table-scroll omie-annual-summary-scroll">
+        <table className="omie-liquidation-table omie-annual-summary-table">
+          <thead>
+            <tr>
+              <th>Métrica</th>
+              {MONTH_OPTIONS.map((monthOption) => (
+                <th key={monthOption.value}>{monthOption.label.slice(0, 3)}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <th scope="row">{row.label}</th>
+                {summary.map((cell, index) => (
+                  <td className={row.id === "profit" || row.id === "profitRate" ? annualSignedClass(cell[row.id]) : "right"} key={`${row.id}-${MONTH_OPTIONS[index].value}`}>
+                    {formatAnnualSummaryValue(row.id, cell[row.id])}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {loading && <InlineLoading label="Cargando resumen anual OMIE" />}
+      </div>
+    </section>
   );
 }
 
@@ -558,6 +655,82 @@ function OmieNoDownloadedDataContent({ onGoToDownloads }: { onGoToDownloads: () 
       </button>
     </div>
   );
+}
+
+function buildOmieAnnualSummary(analyses: Array<OmieAnalisisMensualResponse | null>): OmieAnnualSummaryCell[] {
+  return MONTH_OPTIONS.map((_, index) => {
+    const analysis = analyses[index];
+    if (!analysis) {
+      return emptyAnnualSummaryCell();
+    }
+
+    const energy = nullableSum(analysis.periodos.map(omieMonthlyPeriodEnergyTotal));
+    const profit = nullableSum(analysis.periodos.map((row) => row.sumaProfit));
+    const omieCost = nullableSum(analysis.periodos.map(omieMonthlyPeriodOmieCost));
+
+    return {
+      energy,
+      profit,
+      profitRate: divideOrNull(profit, energy),
+      omieCost,
+      omiePrice: divideOrNull(omieCost, energy)
+    };
+  });
+}
+
+function emptyAnnualSummaryCell(): OmieAnnualSummaryCell {
+  return {
+    energy: null,
+    profit: null,
+    profitRate: null,
+    omieCost: null,
+    omiePrice: null
+  };
+}
+
+function omieMonthlyPeriodOmieCost(row: OmieAnalisisMensualPeriodo) {
+  return nullableSum([
+    multiplyOrNull(row.programaMd, row.precioMd),
+    multiplyOrNull(row.volIda1, row.precioIda1),
+    multiplyOrNull(row.volIda2, row.precioIda2),
+    multiplyOrNull(row.volIda3, row.precioIda3),
+    multiplyOrNull(row.volXbid, row.precioXbid)
+  ]);
+}
+
+function multiplyOrNull(left: number | string | null | undefined, right: number | string | null | undefined) {
+  const numericLeft = normalizeNumericValue(left);
+  const numericRight = normalizeNumericValue(right);
+  return numericLeft === undefined || numericRight === undefined ? null : numericLeft * numericRight;
+}
+
+function divideOrNull(numerator: number | null, denominator: number | null) {
+  return numerator === null || denominator === null || denominator === 0 ? null : numerator / denominator;
+}
+
+function nullableSum(values: Array<number | string | null | undefined>) {
+  const numericValues = values
+    .map((value) => normalizeNumericValue(value))
+    .filter((value): value is number => value !== undefined && Number.isFinite(value));
+  return numericValues.length > 0 ? numericValues.reduce((sum, value) => sum + value, 0) : null;
+}
+
+function formatAnnualSummaryValue(metric: OmieAnnualSummaryMetric, value: number | null) {
+  if (metric === "energy") {
+    return `${formatOmieEnergy(value)} MWh`;
+  }
+  if (metric === "profit" || metric === "omieCost") {
+    return formatOmieProfit(value);
+  }
+  return formatOmieProfitRate(value);
+}
+
+function annualSignedClass(value: number | null) {
+  const numeric = normalizeNumericValue(value);
+  if (numeric === undefined || numeric === 0) {
+    return "right";
+  }
+  return `right ${numeric > 0 ? "positive" : "negative"}`;
 }
 
 function formatNumber(value: number | string | null | undefined) {
