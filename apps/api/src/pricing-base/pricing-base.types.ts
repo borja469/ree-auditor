@@ -1,7 +1,8 @@
 export type PricingBaseStatus = "ok" | "partial" | "missing";
 export type PricingSettlementVersion = "C1" | "C2" | "C3" | "C4" | "C5";
+export type PricingProfileSource = "REE_PROFILE" | "UNIT_PROFILE";
 
-export type PricingProfileTariff = "2.0TD" | "3.0TD" | "3.0TDVE";
+export type PricingProfileTariff = "2.0TD" | "3.0TD" | "3.0TDVE" | "6.1TD";
 export type PricingPeriodTariff = "2.0TD" | "3.0TD" | "6.XTD";
 
 export type PricingBaseQuery = {
@@ -46,21 +47,30 @@ export type PricingBaseRow = PricingCalendarHour & {
   perfilIntermedio20TD: number | null;
   perfilIntermedio30TD: number | null;
   perfilIntermedio30TDVE: number | null;
+  perfilIntermedio61TD: number | null;
   productoPerfilOmie20TD: number | null;
   productoPerfilOmie30TD: number | null;
   productoPerfilOmie30TDVE: number | null;
+  productoPerfilOmie61TD: number | null;
   productoPerfilCad20TD: number | null;
   productoPerfilCad30TD: number | null;
   productoPerfilCad30TDVE: number | null;
+  productoPerfilCad61TD: number | null;
   productoPerfilRad20TD: number | null;
   productoPerfilRad30TD: number | null;
   productoPerfilRad30TDVE: number | null;
+  productoPerfilRad61TD: number | null;
   productoPerfilPerdidas20TD: number | null;
   productoPerfilPerdidas30TD: number | null;
   productoPerfilPerdidas30TDVE: number | null;
+  productoPerfilPerdidas61TD: number | null;
   periodo20TD: string;
   periodo30TD: string;
   periodo6XTD: string;
+  profileSource20TD: PricingProfileSource;
+  profileSource30TD: PricingProfileSource;
+  profileSource30TDVE: PricingProfileSource;
+  profileSource61TD: PricingProfileSource;
   precioOmie: number | null;
   precioOmieUnidad: "EUR/MWh";
   cad: number | null;
@@ -103,12 +113,18 @@ export type PricingBaseMeffProfileRow = PricingCalendarHour & {
   perfilIntermedio20TD: number | null;
   perfilIntermedio30TD: number | null;
   perfilIntermedio30TDVE: number | null;
+  perfilIntermedio61TD: number | null;
   productoPerfilMeff20TD: number | null;
   productoPerfilMeff30TD: number | null;
   productoPerfilMeff30TDVE: number | null;
+  productoPerfilMeff61TD: number | null;
   periodo20TD: string;
   periodo30TD: string;
   periodo6XTD: string;
+  profileSource20TD: PricingProfileSource;
+  profileSource30TD: PricingProfileSource;
+  profileSource30TDVE: PricingProfileSource;
+  profileSource61TD: PricingProfileSource;
   perfil20TDStatus: PricingBaseStatus;
   perfil30TDStatus: PricingBaseStatus;
   perfil30TDVEStatus: PricingBaseStatus;
@@ -139,6 +155,7 @@ export type PricingBaseResponse = {
     rows: PricingBaseMeffProfileRow[];
   };
   validations: PricingBaseValidation[];
+  profileSources: Array<{ tariff: PricingProfileTariff; profileSource: PricingProfileSource }>;
   sourceData: {
     profiles: "esios_profile_intermediate_results";
     omie: "omie_prices";

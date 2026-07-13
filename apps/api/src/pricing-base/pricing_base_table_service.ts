@@ -5,7 +5,7 @@ import { PricingOmieLoader } from "./omie_loader";
 import { PricingProfilesLoader } from "./profiles_loader";
 import { PricingRegulatedCostsLoader } from "./regulated_costs_loader";
 import { periodo20TD, periodo30TD, periodo6XTD, pricingPeriodForTariff } from "./tariff_periods";
-import type { PricingBaseMeffProfileRow, PricingBaseQuery, PricingBaseResponse, PricingBaseRow, PricingBaseValidation, PricingPeriodTariff } from "./pricing-base.types";
+import type { PricingBaseMeffProfileRow, PricingBaseQuery, PricingBaseResponse, PricingBaseRow, PricingBaseValidation } from "./pricing-base.types";
 
 @Injectable()
 export class PricingBaseTableService {
@@ -20,47 +20,52 @@ export class PricingBaseTableService {
     const calendar = buildPricingCalendar(query.fechaReferencia, query.incluirFechaReferencia);
     const fechaInicio = calendar[0]?.fecha ?? query.fechaReferencia;
     const fechaFin = calendar[calendar.length - 1]?.fecha ?? query.fechaReferencia;
-    const regulatedTariff = resolveRegulatedTariff(query.tarifa);
-    const [profiles, omie, regulatedCosts, meffForward] = await Promise.all([
+    const [profiles, omie, regulatedCosts20TD, regulatedCosts30TD, regulatedCosts61TD, meffForward] = await Promise.all([
       this.profilesLoader.loadProfiles(fechaInicio, fechaFin),
       this.omieLoader.loadMercadoDiario(fechaInicio, fechaFin),
-      this.regulatedCostsLoader.load(calendar, regulatedTariff),
+      this.regulatedCostsLoader.load(calendar, "2.0TD"),
+      this.regulatedCostsLoader.load(calendar, "3.0TD"),
+      this.regulatedCostsLoader.load(calendar, "6.XTD"),
       this.meffForwardCurveService.buildNextTwelveMonths(query.fechaReferencia)
     ]);
     const allRows = calendar.map<PricingBaseRow>((row) => {
-      const profile = profiles.get(`${row.fecha}|${row.ordenHora}`) ?? {
-        profile20td: null,
-        profile30td: null,
-        profile30tdve: null,
-        profile20tdStatus: "missing" as const,
-        profile30tdStatus: "missing" as const,
-        profile30tdveStatus: "missing" as const
-      };
+      const profile = { ...defaultProfileValues(), ...(profiles.get(`${row.fecha}|${row.ordenHora}`) ?? {}) };
       const omieValue = omie.get(`${row.fecha}|${row.ordenHora - 1}`) ?? { value: null, status: "missing" as const };
       const regulatedKey = `${row.fecha}|${row.ordenHora}`;
-      const cad = regulatedCosts.cad.get(regulatedKey) ?? { value: null, version: null, status: "missing" as const };
-      const rad = regulatedCosts.rad.get(regulatedKey) ?? { value: null, version: null, status: "missing" as const };
-      const perdidas = regulatedCosts.perdidas.get(regulatedKey) ?? { value: null, version: null, status: "missing" as const };
+      const cad = regulatedCosts20TD.cad.get(regulatedKey) ?? { value: null, version: null, status: "missing" as const };
+      const rad = regulatedCosts20TD.rad.get(regulatedKey) ?? { value: null, version: null, status: "missing" as const };
+      const perdidas20TD = regulatedCosts20TD.perdidas.get(regulatedKey) ?? { value: null, version: null, status: "missing" as const };
+      const perdidas30TD = regulatedCosts30TD.perdidas.get(regulatedKey) ?? { value: null, version: null, status: "missing" as const };
+      const perdidas61TD = regulatedCosts61TD.perdidas.get(regulatedKey) ?? { value: null, version: null, status: "missing" as const };
       return {
         ...row,
         perfilIntermedio20TD: profile.profile20td,
         perfilIntermedio30TD: profile.profile30td,
         perfilIntermedio30TDVE: profile.profile30tdve,
+        perfilIntermedio61TD: profile.profile61td,
         productoPerfilOmie20TD: multiplyNullable(profile.profile20td, omieValue.value),
         productoPerfilOmie30TD: multiplyNullable(profile.profile30td, omieValue.value),
         productoPerfilOmie30TDVE: multiplyNullable(profile.profile30tdve, omieValue.value),
+        productoPerfilOmie61TD: multiplyNullable(profile.profile61td, omieValue.value),
         productoPerfilCad20TD: multiplyNullable(profile.profile20td, cad.value),
         productoPerfilCad30TD: multiplyNullable(profile.profile30td, cad.value),
         productoPerfilCad30TDVE: multiplyNullable(profile.profile30tdve, cad.value),
+        productoPerfilCad61TD: multiplyNullable(profile.profile61td, cad.value),
         productoPerfilRad20TD: multiplyNullable(profile.profile20td, rad.value),
         productoPerfilRad30TD: multiplyNullable(profile.profile30td, rad.value),
         productoPerfilRad30TDVE: multiplyNullable(profile.profile30tdve, rad.value),
-        productoPerfilPerdidas20TD: multiplyNullable(profile.profile20td, perdidas.value),
-        productoPerfilPerdidas30TD: multiplyNullable(profile.profile30td, perdidas.value),
-        productoPerfilPerdidas30TDVE: multiplyNullable(profile.profile30tdve, perdidas.value),
+        productoPerfilRad61TD: multiplyNullable(profile.profile61td, rad.value),
+        productoPerfilPerdidas20TD: multiplyNullable(profile.profile20td, perdidas20TD.value),
+        productoPerfilPerdidas30TD: multiplyNullable(profile.profile30td, perdidas30TD.value),
+        productoPerfilPerdidas30TDVE: multiplyNullable(profile.profile30tdve, perdidas30TD.value),
+        productoPerfilPerdidas61TD: multiplyNullable(profile.profile61td, perdidas61TD.value),
         periodo20TD: periodo20TD(row),
         periodo30TD: periodo30TD(row),
         periodo6XTD: periodo6XTD(row),
+        profileSource20TD: profile.profile20tdSource,
+        profileSource30TD: profile.profile30tdSource,
+        profileSource30TDVE: profile.profile30tdveSource,
+        profileSource61TD: profile.profile61tdSource,
         precioOmie: omieValue.value,
         precioOmieUnidad: "EUR/MWh",
         cad: cad.value,
@@ -69,9 +74,9 @@ export class PricingBaseTableService {
         rad: rad.value,
         radVersion: rad.version,
         radStatus: rad.status,
-        perdidas: perdidas.value,
-        perdidasVersion: perdidas.version,
-        perdidasStatus: perdidas.status,
+        perdidas: perdidas20TD.value,
+        perdidasVersion: perdidas20TD.version,
+        perdidasStatus: worstStatus([perdidas20TD.status, perdidas30TD.status, perdidas61TD.status]),
         perfil20TDStatus: profile.profile20tdStatus,
         perfil30TDStatus: profile.profile30tdStatus,
         perfil30TDVEStatus: profile.profile30tdveStatus,
@@ -100,6 +105,12 @@ export class PricingBaseTableService {
         rows: meffRows
       },
       validations: validatePricingBaseTable(allRows),
+      profileSources: [
+        { tariff: "2.0TD", profileSource: "REE_PROFILE" },
+        { tariff: "3.0TD", profileSource: "REE_PROFILE" },
+        { tariff: "3.0TDVE", profileSource: "REE_PROFILE" },
+        { tariff: "6.1TD", profileSource: "UNIT_PROFILE" }
+      ],
       sourceData: {
         profiles: "esios_profile_intermediate_results",
         omie: "omie_prices",
@@ -121,19 +132,13 @@ export class PricingBaseTableService {
     const monthByKey = new Map(months.map((month) => [month.key, month]));
 
     return calendar.map((row) => {
-      const profile = profiles.get(`${row.fecha}|${row.ordenHora}`) ?? {
-        profile20td: null,
-        profile30td: null,
-        profile30tdve: null,
-        profile20tdStatus: "missing" as const,
-        profile30tdStatus: "missing" as const,
-        profile30tdveStatus: "missing" as const
-      };
+      const profile = { ...defaultProfileValues(), ...(profiles.get(`${row.fecha}|${row.ordenHora}`) ?? {}) };
       const curveMonth = monthByKey.get(`${row.ano}-${String(row.mes).padStart(2, "0")}`);
       const price = curveMonth?.price ?? null;
-      const profile20td = profile.profile20td ?? 1;
-      const profile30td = profile.profile30td ?? 1;
-      const profile30tdve = profile.profile30tdve ?? 1;
+      const profile20td = profile.profile20td;
+      const profile30td = profile.profile30td;
+      const profile30tdve = profile.profile30tdve;
+      const profile61td = profile.profile61td;
       return {
         ...row,
         curvaMes: curveMonth?.key ?? `${row.ano}-${String(row.mes).padStart(2, "0")}`,
@@ -145,12 +150,18 @@ export class PricingBaseTableService {
         perfilIntermedio20TD: profile20td,
         perfilIntermedio30TD: profile30td,
         perfilIntermedio30TDVE: profile30tdve,
+        perfilIntermedio61TD: profile61td,
         productoPerfilMeff20TD: multiplyNullable(profile20td, price),
         productoPerfilMeff30TD: multiplyNullable(profile30td, price),
         productoPerfilMeff30TDVE: multiplyNullable(profile30tdve, price),
+        productoPerfilMeff61TD: multiplyNullable(profile61td, price),
         periodo20TD: periodo20TD(row),
         periodo30TD: periodo30TD(row),
         periodo6XTD: periodo6XTD(row),
+        profileSource20TD: profile.profile20tdSource,
+        profileSource30TD: profile.profile30tdSource,
+        profileSource30TDVE: profile.profile30tdveSource,
+        profileSource61TD: profile.profile61tdSource,
         perfil20TDStatus: profile.profile20td === null ? "partial" : profile.profile20tdStatus,
         perfil30TDStatus: profile.profile30td === null ? "partial" : profile.profile30tdStatus,
         perfil30TDVEStatus: profile.profile30tdve === null ? "partial" : profile.profile30tdveStatus,
@@ -255,10 +266,33 @@ function isPricingPeriod(value: unknown): value is NonNullable<PricingBaseQuery[
   return value === "P1" || value === "P2" || value === "P3" || value === "P4" || value === "P5" || value === "P6";
 }
 
-function resolveRegulatedTariff(tariff: PricingBaseQuery["tarifa"]): PricingPeriodTariff {
-  return tariff === "2.0TD" || tariff === "3.0TD" || tariff === "6.XTD" ? tariff : "2.0TD";
-}
-
 function multiplyNullable(left: number | null, right: number | null) {
   return left === null || right === null ? null : left * right;
+}
+
+function defaultProfileValues() {
+  return {
+    profile20td: null,
+    profile30td: null,
+    profile30tdve: null,
+    profile61td: 1,
+    profile20tdStatus: "missing" as const,
+    profile30tdStatus: "missing" as const,
+    profile30tdveStatus: "missing" as const,
+    profile61tdStatus: "ok" as const,
+    profile20tdSource: "REE_PROFILE" as const,
+    profile30tdSource: "REE_PROFILE" as const,
+    profile30tdveSource: "REE_PROFILE" as const,
+    profile61tdSource: "UNIT_PROFILE" as const
+  };
+}
+
+function worstStatus(statuses: Array<"ok" | "partial" | "missing">) {
+  if (statuses.includes("missing")) {
+    return "missing";
+  }
+  if (statuses.includes("partial")) {
+    return "partial";
+  }
+  return "ok";
 }

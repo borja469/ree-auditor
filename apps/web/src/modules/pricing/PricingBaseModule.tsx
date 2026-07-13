@@ -101,9 +101,12 @@ export function PricingBaseModule() {
     try {
       const normalized = normalizeFilters(filters);
       const blob = await downloadPricingBaseExport(normalized, format);
+      if (format === "xls") {
+        downloadBlob(`pricing-base-${normalized.fechaReferencia ?? "tabla"}.xlsx`, blob, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        return;
+      }
       const content = await blob.text();
-      const type = format === "csv" ? "text/csv;charset=utf-8" : "application/vnd.ms-excel;charset=utf-8";
-      downloadBlob(`pricing-base-${normalized.fechaReferencia ?? "tabla"}.${format}`, content, type);
+      downloadBlob(`pricing-base-${normalized.fechaReferencia ?? "tabla"}.csv`, content, "text/csv;charset=utf-8");
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error exportando tabla base de pricing." });
     }
@@ -301,31 +304,31 @@ type ProfiledPeriodMatrixCell = {
 };
 
 type ProfiledPeriodMatrix = {
-  tariff: "2.0TD" | "3.0TD" | "3.0TDVE";
+  tariff: "2.0TD" | "3.0TD" | "3.0TDVE" | "6.1TD";
   months: Array<{ key: string; label: string }>;
   cells: Map<string, ProfiledPeriodMatrixCell>;
 };
 
 type OmieMatrixConfig = {
   tariff: ProfiledPeriodMatrix["tariff"];
-  profile: keyof Pick<PricingBaseRow, "perfilIntermedio20TD" | "perfilIntermedio30TD" | "perfilIntermedio30TDVE">;
-  product: keyof Pick<PricingBaseRow, "productoPerfilOmie20TD" | "productoPerfilOmie30TD" | "productoPerfilOmie30TDVE">;
+  profile: keyof Pick<PricingBaseRow, "perfilIntermedio20TD" | "perfilIntermedio30TD" | "perfilIntermedio30TDVE" | "perfilIntermedio61TD">;
+  product: keyof Pick<PricingBaseRow, "productoPerfilOmie20TD" | "productoPerfilOmie30TD" | "productoPerfilOmie30TDVE" | "productoPerfilOmie61TD">;
   price: keyof Pick<PricingBaseRow, "precioOmie">;
-  period: keyof Pick<PricingBaseRow, "periodo20TD" | "periodo30TD">;
+  period: keyof Pick<PricingBaseRow, "periodo20TD" | "periodo30TD" | "periodo6XTD">;
 };
 
 type MeffMatrixConfig = {
   tariff: ProfiledPeriodMatrix["tariff"];
-  profile: keyof Pick<PricingBaseMeffProfileRow, "perfilIntermedio20TD" | "perfilIntermedio30TD" | "perfilIntermedio30TDVE">;
-  product: keyof Pick<PricingBaseMeffProfileRow, "productoPerfilMeff20TD" | "productoPerfilMeff30TD" | "productoPerfilMeff30TDVE">;
+  profile: keyof Pick<PricingBaseMeffProfileRow, "perfilIntermedio20TD" | "perfilIntermedio30TD" | "perfilIntermedio30TDVE" | "perfilIntermedio61TD">;
+  product: keyof Pick<PricingBaseMeffProfileRow, "productoPerfilMeff20TD" | "productoPerfilMeff30TD" | "productoPerfilMeff30TDVE" | "productoPerfilMeff61TD">;
   price: keyof Pick<PricingBaseMeffProfileRow, "precioMeff">;
-  period: keyof Pick<PricingBaseMeffProfileRow, "periodo20TD" | "periodo30TD">;
+  period: keyof Pick<PricingBaseMeffProfileRow, "periodo20TD" | "periodo30TD" | "periodo6XTD">;
 };
 
 type BasePricingMatrixConfig = {
   tariff: ProfiledPeriodMatrix["tariff"];
-  profile: keyof Pick<PricingBaseRow, "perfilIntermedio20TD" | "perfilIntermedio30TD" | "perfilIntermedio30TDVE">;
-  period: keyof Pick<PricingBaseRow, "periodo20TD" | "periodo30TD">;
+  profile: keyof Pick<PricingBaseRow, "perfilIntermedio20TD" | "perfilIntermedio30TD" | "perfilIntermedio30TDVE" | "perfilIntermedio61TD">;
+  period: keyof Pick<PricingBaseRow, "periodo20TD" | "periodo30TD" | "periodo6XTD">;
 };
 
 type CadRadPeriodCell = {
@@ -342,8 +345,8 @@ type CadRadPeriodSummaryRow = {
 };
 
 type CadRadMatrixConfig = BasePricingMatrixConfig & {
-  cadProduct: keyof Pick<PricingBaseRow, "productoPerfilCad20TD" | "productoPerfilCad30TD" | "productoPerfilCad30TDVE">;
-  radProduct: keyof Pick<PricingBaseRow, "productoPerfilRad20TD" | "productoPerfilRad30TD" | "productoPerfilRad30TDVE">;
+  cadProduct: keyof Pick<PricingBaseRow, "productoPerfilCad20TD" | "productoPerfilCad30TD" | "productoPerfilCad30TDVE" | "productoPerfilCad61TD">;
+  radProduct: keyof Pick<PricingBaseRow, "productoPerfilRad20TD" | "productoPerfilRad30TD" | "productoPerfilRad30TDVE" | "productoPerfilRad61TD">;
 };
 
 type LossesPeriodCell = {
@@ -359,19 +362,21 @@ type LossesPeriodSummaryRow = {
 };
 
 type LossesMatrixConfig = BasePricingMatrixConfig & {
-  lossesProduct: keyof Pick<PricingBaseRow, "productoPerfilPerdidas20TD" | "productoPerfilPerdidas30TD" | "productoPerfilPerdidas30TDVE">;
+  lossesProduct: keyof Pick<PricingBaseRow, "productoPerfilPerdidas20TD" | "productoPerfilPerdidas30TD" | "productoPerfilPerdidas30TDVE" | "productoPerfilPerdidas61TD">;
 };
 
 const OMIE_MATRIX_CONFIGS: OmieMatrixConfig[] = [
   { tariff: "2.0TD", profile: "perfilIntermedio20TD", product: "productoPerfilOmie20TD", price: "precioOmie", period: "periodo20TD" },
   { tariff: "3.0TD", profile: "perfilIntermedio30TD", product: "productoPerfilOmie30TD", price: "precioOmie", period: "periodo30TD" },
-  { tariff: "3.0TDVE", profile: "perfilIntermedio30TDVE", product: "productoPerfilOmie30TDVE", price: "precioOmie", period: "periodo30TD" }
+  { tariff: "3.0TDVE", profile: "perfilIntermedio30TDVE", product: "productoPerfilOmie30TDVE", price: "precioOmie", period: "periodo30TD" },
+  { tariff: "6.1TD", profile: "perfilIntermedio61TD", product: "productoPerfilOmie61TD", price: "precioOmie", period: "periodo6XTD" }
 ];
 
 const MEFF_MATRIX_CONFIGS: MeffMatrixConfig[] = [
   { tariff: "2.0TD", profile: "perfilIntermedio20TD", product: "productoPerfilMeff20TD", price: "precioMeff", period: "periodo20TD" },
   { tariff: "3.0TD", profile: "perfilIntermedio30TD", product: "productoPerfilMeff30TD", price: "precioMeff", period: "periodo30TD" },
-  { tariff: "3.0TDVE", profile: "perfilIntermedio30TDVE", product: "productoPerfilMeff30TDVE", price: "precioMeff", period: "periodo30TD" }
+  { tariff: "3.0TDVE", profile: "perfilIntermedio30TDVE", product: "productoPerfilMeff30TDVE", price: "precioMeff", period: "periodo30TD" },
+  { tariff: "6.1TD", profile: "perfilIntermedio61TD", product: "productoPerfilMeff61TD", price: "precioMeff", period: "periodo6XTD" }
 ];
 
 const CAD_RAD_MATRIX_CONFIGS: CadRadMatrixConfig[] = [
@@ -395,6 +400,13 @@ const CAD_RAD_MATRIX_CONFIGS: CadRadMatrixConfig[] = [
     cadProduct: "productoPerfilCad30TDVE",
     radProduct: "productoPerfilRad30TDVE",
     period: "periodo30TD"
+  },
+  {
+    tariff: "6.1TD",
+    profile: "perfilIntermedio61TD",
+    cadProduct: "productoPerfilCad61TD",
+    radProduct: "productoPerfilRad61TD",
+    period: "periodo6XTD"
   }
 ];
 
@@ -416,6 +428,12 @@ const LOSSES_MATRIX_CONFIGS: LossesMatrixConfig[] = [
     profile: "perfilIntermedio30TDVE",
     lossesProduct: "productoPerfilPerdidas30TDVE",
     period: "periodo30TD"
+  },
+  {
+    tariff: "6.1TD",
+    profile: "perfilIntermedio61TD",
+    lossesProduct: "productoPerfilPerdidas61TD",
+    period: "periodo6XTD"
   }
 ];
 
@@ -616,15 +634,15 @@ function PricingCalculatorPanel({
           <thead>
             <tr>
               <th className="pricing-calculator-sticky" rowSpan={2}>CONCEPTOS</th>
-              {tariffGroups.map((group) => (
-                <th className="pricing-calculator-tariff-head" colSpan={group.colSpan} key={group.tariff}>
+              {tariffGroups.map((group, index) => (
+                <th className={`pricing-calculator-tariff-head ${index > 0 ? "pricing-calculator-tariff-start" : ""} ${index < tariffGroups.length - 1 ? "pricing-calculator-tariff-end" : ""}`} colSpan={group.colSpan} key={group.tariff}>
                   {group.tariff}
                 </th>
               ))}
             </tr>
             <tr>
               {columns.map((column) => (
-                <th className="pricing-calculator-period-head" key={pricingCalculatorColumnKey(column)}>{column.period}</th>
+                <th className={`pricing-calculator-period-head ${pricingCalculatorTariffBoundaryClass(columns, column)}`} key={pricingCalculatorColumnKey(column)}>{column.period}</th>
               ))}
             </tr>
           </thead>
@@ -659,7 +677,7 @@ function PricingCalculatorPanel({
                     const hasManualValue = manualValues.has(key);
                     const inputValue = draft ?? formatCalculatorInputValue(hasManualValue ? (manualValues.get(key) ?? null) : value);
                     return (
-                      <td className={concept.kind === "manualOverride" && !hasManualValue && draft === undefined ? "pricing-calculator-override-cell" : "pricing-calculator-manual-cell"} key={pricingCalculatorColumnKey(column)}>
+                      <td className={`${concept.kind === "manualOverride" && !hasManualValue && draft === undefined ? "pricing-calculator-override-cell" : "pricing-calculator-manual-cell"} ${pricingCalculatorTariffBoundaryClass(columns, column)}`} key={pricingCalculatorColumnKey(column)}>
                         <input
                           title={concept.kind === "manualOverride" && !hasManualValue ? "Valor automatico. Edita para guardar un valor manual; deja vacio para volver al automatico." : undefined}
                           value={inputValue}
@@ -675,7 +693,7 @@ function PricingCalculatorPanel({
                     );
                   }
                   return (
-                    <td className={concept.kind === "final" ? "pricing-calculator-final-cell" : "pricing-calculator-auto-cell"} key={pricingCalculatorColumnKey(column)}>
+                    <td className={`${concept.kind === "final" ? "pricing-calculator-final-cell" : "pricing-calculator-auto-cell"} ${pricingCalculatorTariffBoundaryClass(columns, column)}`} key={pricingCalculatorColumnKey(column)}>
                       {formatMatrixValue(value, 2)}
                     </td>
                   );
@@ -1026,6 +1044,13 @@ function calculatorManualKey(concept: PricingCalculatorManualConcept, tariff: st
 
 function pricingCalculatorColumnKey(column: PricingCalculatorColumn) {
   return `${column.tariff}|${column.period}`;
+}
+
+function pricingCalculatorTariffBoundaryClass(columns: PricingCalculatorColumn[], column: PricingCalculatorColumn) {
+  const index = columns.findIndex((item) => item.tariff === column.tariff && item.period === column.period);
+  const previous = columns[index - 1];
+  const next = columns[index + 1];
+  return [previous && previous.tariff !== column.tariff ? "pricing-calculator-tariff-start" : "", next && next.tariff !== column.tariff ? "pricing-calculator-tariff-end" : ""].filter(Boolean).join(" ");
 }
 
 function parseCalculatorInput(value: string) {

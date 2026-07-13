@@ -102,22 +102,28 @@ void describe("Pricing base table", () => {
       take: 1
     });
     assert.equal(result.rows[0].perfilIntermedio20TD, 1);
+    assert.equal(result.rows[0].perfilIntermedio61TD, 1);
+    assert.equal(result.rows[0].profileSource61TD, "UNIT_PROFILE");
     assert.equal(result.rows[0].precioOmie, 50);
     assert.equal(result.rows[0].productoPerfilOmie20TD, 50);
     assert.equal(result.rows[0].productoPerfilOmie30TD, 100);
     assert.equal(result.rows[0].productoPerfilOmie30TDVE, 150);
+    assert.equal(result.rows[0].productoPerfilOmie61TD, 50);
     assert.equal(result.rows[0].cad, 1.1);
     assert.equal(result.rows[0].productoPerfilCad20TD, 1.1);
     assert.equal(result.rows[0].productoPerfilCad30TD, 2.2);
     assert.equal(round(result.rows[0].productoPerfilCad30TDVE), 3.3);
+    assert.equal(result.rows[0].productoPerfilCad61TD, 1.1);
     assert.equal(result.rows[0].cadVersion, "C5");
     assert.equal(result.rows[0].productoPerfilRad20TD, 2.2);
     assert.equal(result.rows[0].productoPerfilRad30TD, 4.4);
     assert.equal(round(result.rows[0].productoPerfilRad30TDVE), 6.6);
+    assert.equal(result.rows[0].productoPerfilRad61TD, 2.2);
     assert.equal(result.rows[0].radStatus, "partial");
     assert.equal(result.rows[0].productoPerfilPerdidas20TD, 3.3);
     assert.equal(result.rows[0].productoPerfilPerdidas30TD, 6.6);
     assert.equal(round(result.rows[0].productoPerfilPerdidas30TDVE), 9.9);
+    assert.equal(result.rows[0].productoPerfilPerdidas61TD, 3.3);
     assert.equal(result.rows[0].perdidasVersion, "C3");
   });
 
@@ -162,11 +168,14 @@ void describe("Pricing base table", () => {
       skip: 0,
       take: 1
     });
-    const row = result.meffForward.rows.find((item) => item.curvaMes === "2027-01" && item.periodo20TD === "P1");
+    const row = result.meffForward.rows.find((item) => item.curvaMes === "2027-01" && item.periodo6XTD === "P1");
     assert.equal(row.precioMeff, 82.95);
-    assert.equal(row.perfilIntermedio20TD, 1);
-    assert.equal(row.productoPerfilMeff20TD, 82.95);
+    assert.equal(row.perfilIntermedio20TD, null);
+    assert.equal(row.productoPerfilMeff20TD, null);
     assert.equal(row.perfil20TDStatus, "partial");
+    assert.equal(row.perfilIntermedio61TD, 1);
+    assert.equal(row.productoPerfilMeff61TD, 82.95);
+    assert.equal(row.profileSource61TD, "UNIT_PROFILE");
   });
 
   void it("normaliza perfiles intermedios como peso mensual", () => {
@@ -233,21 +242,30 @@ void describe("Pricing base table", () => {
       perfilIntermedio20TD: 1,
       perfilIntermedio30TD: 1,
       perfilIntermedio30TDVE: 1,
+      perfilIntermedio61TD: 1,
       productoPerfilOmie20TD: 50,
       productoPerfilOmie30TD: 50,
       productoPerfilOmie30TDVE: 50,
+      productoPerfilOmie61TD: 50,
       productoPerfilCad20TD: 1,
       productoPerfilCad30TD: 1,
       productoPerfilCad30TDVE: 1,
+      productoPerfilCad61TD: 1,
       productoPerfilRad20TD: 1,
       productoPerfilRad30TD: 1,
       productoPerfilRad30TDVE: 1,
+      productoPerfilRad61TD: 1,
       productoPerfilPerdidas20TD: 1,
       productoPerfilPerdidas30TD: 1,
       productoPerfilPerdidas30TDVE: 1,
+      productoPerfilPerdidas61TD: 1,
       periodo20TD: "P1",
       periodo30TD: "P2",
       periodo6XTD: "P3",
+      profileSource20TD: "REE_PROFILE",
+      profileSource30TD: "REE_PROFILE",
+      profileSource30TDVE: "REE_PROFILE",
+      profileSource61TD: "UNIT_PROFILE",
       precioOmie: 50,
       precioOmieUnidad: "EUR/MWh",
       cad: 1,

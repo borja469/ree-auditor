@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Header, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Header, Post, Query, Res } from "@nestjs/common";
+import type { Response } from "express";
 import { defaultPricingBaseQuery, PricingBaseTableService } from "./pricing_base_table_service";
 import { PricingCalculatorManualValuesService } from "./pricing_calculator_manual_values_service";
 import { PricingBaseExportService } from "./table_view_export_service";
@@ -34,10 +35,14 @@ export class PricingBaseController {
   }
 
   @Get("export.xls")
-  @Header("Content-Type", "application/vnd.ms-excel; charset=utf-8")
-  async exportXls(@Query() query: Record<string, unknown>) {
-    const response = await this.tableService.buildTable(defaultPricingBaseQuery({ ...query, skip: 0, take: 10000 }));
-    return this.exportService.toExcelHtml(response.rows);
+  @Header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+  async exportXls(@Query() query: Record<string, unknown>, @Res() response: Response) {
+    const tableResponse = await this.tableService.buildTable(defaultPricingBaseQuery({ ...query, skip: 0, take: 10000 }));
+    const manualValues = await this.calculatorManualValuesService.list();
+    const workbook = this.exportService.toExcelWorkbook(tableResponse, manualValues);
+    response.setHeader("Content-Disposition", 'attachment; filename="pricing-base.xlsx"');
+    response.setHeader("Content-Length", String(workbook.length));
+    return response.status(200).send(workbook);
   }
 }
 
