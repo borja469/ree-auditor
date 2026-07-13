@@ -45,6 +45,7 @@ import {
   getTodayInputValue,
   isEsiosSection,
   isOmieSection,
+  isPricingSection,
   hasAnyReeLossesDateFilter,
   hasCompleteLiquidationAnalysisFilters,
   resolveLiquidationAnalysisFilters,
@@ -58,6 +59,8 @@ import { OmiePreciosModule } from "./modules/omie/precios/OmiePreciosModule";
 import { OmieProgramasModule } from "./modules/omie/programas/OmieProgramasModule";
 import { OmieTransaccionesModule } from "./modules/omie/transacciones/OmieTransaccionesModule";
 import { EsiosModule, type EsiosViewKey } from "./modules/esios/EsiosModule";
+import { PricingBaseModule } from "./modules/pricing/PricingBaseModule";
+import { PricingMeffModule } from "./modules/pricing/PricingMeffModule";
 import { MedperFilterBand, MedperViewPanel } from "./modules/medper/MedperModule";
 import { HistoryView } from "./modules/import-history/ImportHistoryModule";
 import { isLikelyMedperFileName, loadAllMedperRows, loadMedperRecordPage, sanitizeMedperFiltersForView } from "./modules/medper/MedperHelpers";
@@ -336,7 +339,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   const [openSidebarGroups, setOpenSidebarGroups] = useState<Record<SidebarGroupKey, boolean>>({
     ree: true,
     omie: false,
-    esios: false
+    esios: false,
+    pricing: true
   });
   const [openSidebarItems, setOpenSidebarItems] = useState<Record<string, boolean>>({
     "ree-reganecu-menu": true,
@@ -1497,7 +1501,11 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                   : section === "omieTransacciones"
                     ? "OMIE Transacciones"
                   : section === "omieDescargas"
-                    ? "OMIE Control de descargas"
+                      ? "OMIE Control de descargas"
+                    : section === "pricingBase"
+                      ? "Pricing base"
+                    : section === "pricingMeff"
+                      ? "Pricing MEFF"
                     : section === "esiosIndicadores"
                       ? "ESIOS Indicadores"
                     : section === "esiosPerfiles"
@@ -1872,6 +1880,27 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           ]
         }
       ]
+    },
+    {
+      key: "pricing",
+      title: "Pricing",
+      active: isPricingSection(section),
+      items: [
+        {
+          key: "pricing-base",
+          label: "Pricing base",
+          description: "tabla horaria de apuntamientos",
+          active: section === "pricingBase",
+          onSelect: () => changeSection("pricingBase")
+        },
+        {
+          key: "pricing-meff",
+          label: "MEFF",
+          description: "cierres de derivados",
+          active: section === "pricingMeff",
+          onSelect: () => changeSection("pricingMeff")
+        }
+      ]
     }
   ];
   const showGlobalUploadBand = false;
@@ -2122,6 +2151,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           )}
 
           {isEsiosSection(section) && <EsiosModule key={`${section}-${esiosRefreshKey}`} view={esiosViewFromSection(section)} />}
+
+          {section === "pricingBase" && <PricingBaseModule />}
+          {section === "pricingMeff" && <PricingMeffModule />}
 
           {section === "reeDownloads" && (
             <ReeDownloadCenterModule

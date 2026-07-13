@@ -54,6 +54,9 @@ export function activeSidebarGroupKeys(section: Section): SidebarGroupKey[] {
   if (isEsiosSection(section)) {
     return ["esios"];
   }
+  if (isPricingSection(section)) {
+    return ["pricing"];
+  }
   return ["ree"];
 }
 
@@ -82,6 +85,9 @@ export function activeSidebarItemKeys(section: Section): string[] {
   if (isEsiosSection(section)) {
     return ["esios-menu"];
   }
+  if (isPricingSection(section)) {
+    return [];
+  }
   return [];
 }
 
@@ -104,6 +110,10 @@ export function isEsiosSection(section: Section) {
     section === "esiosDescargas" ||
     section === "esiosConfiguracion"
   );
+}
+
+export function isPricingSection(section: Section) {
+  return section === "pricingBase" || section === "pricingMeff";
 }
 
 export function selectOmieTransactionDownloadId(

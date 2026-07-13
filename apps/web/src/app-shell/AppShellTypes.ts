@@ -14,14 +14,16 @@ export type Section =
   | "esiosPerfiles"
   | "esiosSeries"
   | "esiosDescargas"
-  | "esiosConfiguracion";
+  | "esiosConfiguracion"
+  | "pricingBase"
+  | "pricingMeff";
 
 export type ReganecuView = "history" | "summary" | "hourly" | "qh";
 export type MedidasView = "history" | "summary" | "qh" | "graphs";
 export type ReeLossesViewKey = "history" | "system" | "detail";
 export type OmieProgramasViewKey = "mercadoDiario" | "intradiarios" | "evolucion";
 export type ImportMode = "reganecu" | "medper" | "reeLosses";
-export type SidebarGroupKey = "ree" | "omie" | "esios";
+export type SidebarGroupKey = "ree" | "omie" | "esios" | "pricing";
 
 export type SidebarMenuItem = {
   key: string;

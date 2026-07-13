@@ -571,6 +571,44 @@ model OmieLiquidationInvoice {
   @@map("omie_liquidation_invoices")
 }
 
+model PricingMeffPrice {
+  id               String   @id @default(uuid()) @db.Uuid
+  fechaPublicacion DateTime @map("fecha_publicacion") @db.Date
+  cod              String   @db.VarChar(120)
+  tipo             String?  @db.VarChar(120)
+  clase            String?  @db.VarChar(120)
+  periodo          String?  @db.VarChar(120)
+  entrega          String?  @db.VarChar(120)
+  multiplicador    String?  @db.VarChar(120)
+  precio           Decimal? @db.Decimal(20, 8)
+  rawPayloadJson   Json     @map("raw_payload_json")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([fechaPublicacion, cod], map: "ux_pricing_meff_fecha_publicacion_cod")
+  @@index([fechaPublicacion])
+  @@index([cod])
+  @@index([tipo])
+  @@index([periodo])
+  @@index([entrega])
+  @@index([multiplicador])
+  @@map("pricing_meff_prices")
+}
+
+model PricingCalculatorManualValue {
+  id        String   @id @default(uuid()) @db.Uuid
+  concepto  String   @db.VarChar(80)
+  tarifa    String   @db.VarChar(40)
+  periodo   String   @db.VarChar(10)
+  valor     Decimal? @db.Decimal(20, 8)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([concepto, tarifa, periodo], map: "ux_pricing_calculator_manual_values_concept_tariff_period")
+  @@index([tarifa])
+  @@index([periodo])
+  @@map("pricing_calculator_manual_values")
+}
 model OmieAutomationConfig {
   id         Int      @id @default(1)
   active     Boolean  @default(false)

@@ -743,6 +743,217 @@ export type EsiosSeriesAutomationRunResponse = {
   }>;
 };
 
+export type PricingBaseStatus = "ok" | "partial" | "missing";
+export type PricingSettlementVersion = "C1" | "C2" | "C3" | "C4" | "C5";
+
+export type PricingBaseRow = {
+  fecha: string;
+  ano: number;
+  mes: number;
+  dia: number;
+  diaSemana: number;
+  diaSemanaNombre: string;
+  hora: number;
+  timestampInicio: string;
+  timestampFin: string;
+  cambioHorarioDst: "none" | "spring_forward_23h" | "fall_back_25h";
+  ordenDia365: number;
+  ordenHora: number;
+  perfilIntermedio20TD: number | null;
+  perfilIntermedio30TD: number | null;
+  perfilIntermedio30TDVE: number | null;
+  productoPerfilOmie20TD: number | null;
+  productoPerfilOmie30TD: number | null;
+  productoPerfilOmie30TDVE: number | null;
+  productoPerfilCad20TD: number | null;
+  productoPerfilCad30TD: number | null;
+  productoPerfilCad30TDVE: number | null;
+  productoPerfilRad20TD: number | null;
+  productoPerfilRad30TD: number | null;
+  productoPerfilRad30TDVE: number | null;
+  productoPerfilPerdidas20TD: number | null;
+  productoPerfilPerdidas30TD: number | null;
+  productoPerfilPerdidas30TDVE: number | null;
+  periodo20TD: string;
+  periodo30TD: string;
+  periodo6XTD: string;
+  precioOmie: number | null;
+  precioOmieUnidad: "EUR/MWh";
+  cad: number | null;
+  cadVersion: PricingSettlementVersion | null;
+  cadStatus: "ok" | "missing";
+  rad: number | null;
+  radVersion: PricingSettlementVersion | null;
+  radStatus: PricingBaseStatus;
+  perdidas: number | null;
+  perdidasVersion: PricingSettlementVersion | null;
+  perdidasStatus: PricingBaseStatus;
+  perfil20TDStatus: PricingBaseStatus;
+  perfil30TDStatus: PricingBaseStatus;
+  perfil30TDVEStatus: PricingBaseStatus;
+  omieStatus: PricingBaseStatus;
+};
+
+export type PricingBaseMeffCurveMonth = {
+  year: number;
+  month: number;
+  key: string;
+  label: string;
+  price: number | null;
+  origin: "Mensual" | "Trimestral" | "Anual" | "Calculado" | null;
+  productCode: string | null;
+  sourceProductCode: string | null;
+  previous7DaysPrice: number | null;
+  previous14DaysPrice: number | null;
+  change7DaysPct: number | null;
+  change14DaysPct: number | null;
+};
+
+export type PricingBaseMeffProfileRow = {
+  fecha: string;
+  ano: number;
+  mes: number;
+  dia: number;
+  diaSemana: number;
+  diaSemanaNombre: string;
+  hora: number;
+  timestampInicio: string;
+  timestampFin: string;
+  cambioHorarioDst: "none" | "spring_forward_23h" | "fall_back_25h";
+  ordenDia365: number;
+  ordenHora: number;
+  curvaMes: string;
+  curvaMesLabel: string;
+  precioMeff: number | null;
+  precioMeffOrigen: PricingBaseMeffCurveMonth["origin"];
+  precioMeffProducto: string | null;
+  precioMeffProductoOrigen: string | null;
+  perfilIntermedio20TD: number | null;
+  perfilIntermedio30TD: number | null;
+  perfilIntermedio30TDVE: number | null;
+  productoPerfilMeff20TD: number | null;
+  productoPerfilMeff30TD: number | null;
+  productoPerfilMeff30TDVE: number | null;
+  periodo20TD: string;
+  periodo30TD: string;
+  periodo6XTD: string;
+  perfil20TDStatus: PricingBaseStatus;
+  perfil30TDStatus: PricingBaseStatus;
+  perfil30TDVEStatus: PricingBaseStatus;
+  meffStatus: PricingBaseStatus;
+};
+
+export type PricingBaseFilters = {
+  fechaReferencia?: string;
+  incluirFechaReferencia?: boolean;
+  skip?: number;
+  take?: number;
+};
+
+export type PricingBaseValidation = {
+  name: string;
+  status: "ok" | "warning" | "error";
+  message: string;
+};
+
+export type PricingBaseResponse = {
+  filters: PricingBaseFilters & {
+    fechaReferencia: string;
+    incluirFechaReferencia: boolean;
+    zonaHoraria: "Europe/Madrid";
+    skip: number;
+    take: number;
+  };
+  range: {
+    fechaInicio: string;
+    fechaFin: string;
+    diasNaturales: number;
+    expectedHours: number;
+    totalRows: number;
+  };
+  total: number;
+  hasNext: boolean;
+  rows: PricingBaseRow[];
+  meffForward: {
+    publicationDate: string | null;
+    months: PricingBaseMeffCurveMonth[];
+    rows: PricingBaseMeffProfileRow[];
+  };
+  validations: PricingBaseValidation[];
+  sourceData: {
+    profiles: string;
+    omie: string;
+    timezone: "Europe/Madrid";
+  };
+};
+
+export type PricingCalculatorManualConcept =
+  | "renta4"
+  | "si3"
+  | "ppc"
+  | "retribucionOm"
+  | "retribucionOs"
+  | "aportacionFnee"
+  | "desvio"
+  | "modificador"
+  | "perdidasInc"
+  | "atr";
+
+export type PricingCalculatorManualValue = {
+  concepto: PricingCalculatorManualConcept;
+  tarifa: string;
+  periodo: string;
+  valor: number | null;
+  updatedAt: string;
+};
+
+export type PricingMeffComparison = {
+  precio: number | null;
+  porcentaje: number | null;
+};
+
+export type PricingMeffRow = {
+  id: string;
+  fechaPublicacion: string;
+  cod: string;
+  tipo: string | null;
+  clase: string | null;
+  periodo: string | null;
+  entrega: string | null;
+  multiplicador: string | null;
+  precio: number | null;
+  precio7Dias: PricingMeffComparison;
+  precio14Dias: PricingMeffComparison;
+};
+
+export type PricingMeffFilters = {
+  fechaPublicacionDesde?: string;
+  fechaPublicacionHasta?: string;
+  tipo?: string[];
+  periodo?: string[];
+  entrega?: string[];
+  multiplicador?: string[];
+  skip?: number;
+  take?: number;
+};
+
+export type PricingMeffImportResponse = {
+  inserted: number;
+  updated: number;
+  errors: Array<{ row: number; message: string }>;
+};
+
+export type PricingMeffResponse = {
+  total: number;
+  rows: PricingMeffRow[];
+  filterOptions: {
+    tipos: string[];
+    periodos: string[];
+    entregas: string[];
+    multiplicadores: string[];
+  };
+};
+
 export type EsiosDownloadLog = {
   id: string;
   indicatorId: number | null;
@@ -1871,6 +2082,45 @@ export async function uploadEsiosReeFinalProfiles(
   return sendMultipart<EsiosReeFinalProfileUploadResponse>(`${API_URL}/esios/profiles/final-profiles/upload${toQuery({ year, month, replace: replace ? "true" : undefined })}`, formData, onProgress);
 }
 
+export async function getPricingBaseTable(filters: PricingBaseFilters = {}): Promise<PricingBaseResponse> {
+  return getJson(`/pricing-base/table${toQuery({
+    ...filters,
+    incluirFechaReferencia: filters.incluirFechaReferencia === undefined ? undefined : String(filters.incluirFechaReferencia)
+  })}`);
+}
+
+export async function getPricingCalculatorManualValues(): Promise<PricingCalculatorManualValue[]> {
+  return getJson(`/pricing-base/calculator/manual-values`);
+}
+
+export async function savePricingCalculatorManualValue(input: Omit<PricingCalculatorManualValue, "updatedAt">): Promise<PricingCalculatorManualValue> {
+  return sendJson(`/pricing-base/calculator/manual-values`, "POST", "Guardando valor del calculador", REQUEST_TIMEOUT_MS, input);
+}
+
+export async function downloadPricingBaseExport(filters: PricingBaseFilters = {}, format: "csv" | "xls"): Promise<Blob> {
+  return withGlobalLoading(async () => {
+    const response = await fetch(`${API_URL}/pricing-base/export.${format}${toQuery({
+      ...filters,
+      incluirFechaReferencia: filters.incluirFechaReferencia === undefined ? undefined : String(filters.incluirFechaReferencia)
+    })}`, { headers: authHeaders() });
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(await readError(response, "Error exportando tabla base de pricing."));
+    }
+    return response.blob();
+  }, { label: "Exportando pricing" });
+}
+
+export async function getPricingMeff(filters: PricingMeffFilters = {}): Promise<PricingMeffResponse> {
+  return getJson(`/pricing/meff${toQuery(filters)}`);
+}
+
+export async function uploadPricingMeffFile(file: File, onProgress?: (progress: number) => void): Promise<PricingMeffImportResponse> {
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  return sendMultipart<PricingMeffImportResponse>(`${API_URL}/pricing/meff/import`, formData, onProgress);
+}
+
 async function getJson<T>(path: string): Promise<T> {
   return withGlobalLoading(async () => {
     const controller = new AbortController();
@@ -2006,10 +2256,16 @@ function handleUnauthorized(response: Response) {
   }
 }
 
-function toQuery(filters: Record<string, string | number | undefined>) {
+function toQuery(filters: Record<string, string | number | boolean | Array<string | number> | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
-    if (value !== undefined && value !== "") {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== "") {
+          params.append(key, String(item));
+        }
+      }
+    } else if (value !== undefined && value !== "") {
       params.set(key, String(value));
     }
   }

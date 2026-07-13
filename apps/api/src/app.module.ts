@@ -11,6 +11,8 @@ import { OmieProgramasModule } from "./omie-programas/omie-programas.module";
 import { OmieSiom2Module } from "./omie-siom2/omie-siom2.module";
 import { OmieTransaccionesModule } from "./omie-transacciones/omie-transacciones.module";
 import { PrismaModule } from "./prisma/prisma.module";
+import { PricingBaseModule } from "./pricing-base/pricing-base.module";
+import { PricingMeffModule } from "./pricing-meff/pricing-meff.module";
 import { ReeLossesModule } from "./ree-losses/ree-losses.module";
 
 @Module({
@@ -26,6 +28,8 @@ import { ReeLossesModule } from "./ree-losses/ree-losses.module";
     OmieTransaccionesModule,
     OmieAnalisisModule,
     OmieDescargasModule,
+    PricingBaseModule,
+    PricingMeffModule,
     EsiosModule
   ]
 })
