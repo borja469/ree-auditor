@@ -6,6 +6,7 @@ import { PanelTitle, formatDecimalNumber, formatNumber } from "../shared/Restore
 const PAGE_SIZE = 500;
 const EMPTY_FILTER_OPTIONS = {
   tipos: [] as string[],
+  clases: [] as string[],
   periodos: [] as string[],
   entregas: [] as string[],
   multiplicadores: [] as string[]
@@ -70,12 +71,8 @@ export function PricingMeffModule() {
         <PanelTitle icon={<Calculator size={18} />} title="Pricing MEFF" subtitle="Precios de cierre de derivados de energia" />
         <div className="omie-toolbar compact">
           <label className="filter-field">
-            <span>Fecha publicacion desde</span>
-            <input disabled={loading || uploading} type="date" value={filters.fechaPublicacionDesde ?? ""} onChange={(event) => setFilters((current) => ({ ...current, fechaPublicacionDesde: event.target.value || undefined }))} />
-          </label>
-          <label className="filter-field">
-            <span>Fecha publicacion hasta</span>
-            <input disabled={loading || uploading} type="date" value={filters.fechaPublicacionHasta ?? ""} onChange={(event) => setFilters((current) => ({ ...current, fechaPublicacionHasta: event.target.value || undefined }))} />
+            <span>Fecha publicacion</span>
+            <input disabled={loading || uploading} type="date" value={filters.fechaPublicacion ?? ""} onChange={(event) => setFilters((current) => ({ ...current, fechaPublicacion: event.target.value || undefined }))} />
           </label>
           <MultiSelectFilter
             disabled={loading || uploading}
@@ -83,6 +80,13 @@ export function PricingMeffModule() {
             options={filterOptions.tipos}
             value={filters.tipo ?? []}
             onChange={(value) => setFilters((current) => ({ ...current, tipo: value }))}
+          />
+          <MultiSelectFilter
+            disabled={loading || uploading}
+            label="Clase"
+            options={filterOptions.clases}
+            value={filters.clase ?? []}
+            onChange={(value) => setFilters((current) => ({ ...current, clase: value }))}
           />
           <MultiSelectFilter
             disabled={loading || uploading}
@@ -190,9 +194,9 @@ function defaultFilters(): PricingMeffFilters {
 
 function normalizeFilters(filters: PricingMeffFilters): PricingMeffFilters {
   return {
-    fechaPublicacionDesde: filters.fechaPublicacionDesde || undefined,
-    fechaPublicacionHasta: filters.fechaPublicacionHasta || undefined,
+    fechaPublicacion: filters.fechaPublicacion || undefined,
     tipo: normalizeSelection(filters.tipo),
+    clase: normalizeSelection(filters.clase),
     periodo: normalizeSelection(filters.periodo),
     entrega: normalizeSelection(filters.entrega),
     multiplicador: normalizeSelection(filters.multiplicador)
@@ -327,5 +331,10 @@ function formatComparison(value: { precio: number | null; porcentaje: number | n
     return "-";
   }
   const sign = value.porcentaje >= 0 ? "+" : "";
-  return `${formatPrice(value.precio)} (${sign}${formatDecimalNumber(value.porcentaje, 2)}%)`;
+  const toneClass = value.porcentaje >= 0 ? "pricing-meff-increase-positive" : "pricing-meff-increase-negative";
+  return (
+    <>
+      {formatPrice(value.precio)} <span className={toneClass}>({sign}{formatDecimalNumber(value.porcentaje, 2)}%)</span>
+    </>
+  );
 }

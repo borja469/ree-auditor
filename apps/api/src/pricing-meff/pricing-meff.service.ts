@@ -60,26 +60,28 @@ export class PricingMeffService {
 
   async list(query: PricingMeffQuery): Promise<PricingMeffResponse> {
     const where = buildWhere(query);
-    const optionsWhere = buildOptionsWhere(query);
-    const [total, rows, tipos, periodos, entregas, multiplicadores] = await Promise.all([
+    const [total, rows, tipos, clases, periodos, entregas, multiplicadores] = await Promise.all([
       this.prisma.pricingMeffPrice.count({ where }),
       this.prisma.pricingMeffPrice.findMany({
         where,
-        orderBy: [{ fechaPublicacion: "desc" }, { cod: "asc" }],
+        orderBy: [{ periodo: "asc" }, { entrega: "asc" }, { fechaPublicacion: "desc" }, { cod: "asc" }],
         skip: query.skip,
         take: query.take
       }),
-      this.prisma.pricingMeffPrice.findMany({ where: optionsWhere, distinct: ["tipo"], select: { tipo: true }, orderBy: { tipo: "asc" } }),
-      this.prisma.pricingMeffPrice.findMany({ where: optionsWhere, distinct: ["periodo"], select: { periodo: true }, orderBy: { periodo: "asc" } }),
-      this.prisma.pricingMeffPrice.findMany({ where: optionsWhere, distinct: ["entrega"], select: { entrega: true }, orderBy: { entrega: "asc" } }),
-      this.prisma.pricingMeffPrice.findMany({ where: optionsWhere, distinct: ["multiplicador"], select: { multiplicador: true }, orderBy: { multiplicador: "asc" } })
+      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(query, "tipo"), distinct: ["tipo"], select: { tipo: true }, orderBy: { tipo: "asc" } }),
+      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(query, "clase"), distinct: ["clase"], select: { clase: true }, orderBy: { clase: "asc" } }),
+      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(query, "periodo"), distinct: ["periodo"], select: { periodo: true }, orderBy: { periodo: "asc" } }),
+      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(query, "entrega"), distinct: ["entrega"], select: { entrega: true }, orderBy: { entrega: "asc" } }),
+      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(query, "multiplicador"), distinct: ["multiplicador"], select: { multiplicador: true }, orderBy: { multiplicador: "asc" } })
     ]);
-    const comparisonRows = await this.loadComparisonRows(rows.map((row) => ({ cod: row.cod, fechaPublicacion: row.fechaPublicacion })));
+    const sortedRows = [...rows].sort(comparePricingMeffRows);
+    const comparisonRows = await this.loadComparisonRows(sortedRows.map((row) => ({ cod: row.cod, fechaPublicacion: row.fechaPublicacion })));
     return {
       total,
-      rows: rows.map((row) => toResponseRow(row, comparisonRows)),
+      rows: sortedRows.map((row) => toResponseRow(row, comparisonRows)),
       filterOptions: {
         tipos: distinctTextValues(tipos.map((row) => row.tipo)),
+        clases: distinctTextValues(clases.map((row) => row.clase)),
         periodos: distinctTextValues(periodos.map((row) => row.periodo)),
         entregas: distinctTextValues(entregas.map((row) => row.entrega)),
         multiplicadores: distinctTextValues(multiplicadores.map((row) => row.multiplicador))
@@ -112,11 +114,115 @@ export class PricingMeffService {
   }
 }
 
+type PricingMeffSortableRow = {
+  fechaPublicacion: Date;
+  cod: string;
+  periodo: string | null;
+  entrega: string | null;
+};
+
+function comparePricingMeffRows(left: PricingMeffSortableRow, right: PricingMeffSortableRow) {
+  return (
+    comparePeriodLabel(left.periodo, right.periodo) ||
+    compareDeliveryLabel(left.entrega, right.entrega) ||
+    right.fechaPublicacion.getTime() - left.fechaPublicacion.getTime() ||
+    left.cod.localeCompare(right.cod, "es", { numeric: true, sensitivity: "base" })
+  );
+}
+
+function comparePeriodLabel(left: string | null, right: string | null) {
+  const leftOrder = periodSortOrder(left);
+  const rightOrder = periodSortOrder(right);
+  if (leftOrder !== rightOrder) {
+    return leftOrder - rightOrder;
+  }
+  return textCompare(left, right);
+}
+
+function periodSortOrder(value: string | null) {
+  const normalized = normalizeSortText(value);
+  if (normalized.includes("mensual")) {
+    return 1;
+  }
+  if (normalized.includes("trimestral")) {
+    return 2;
+  }
+  if (normalized.includes("anual")) {
+    return 3;
+  }
+  return 99;
+}
+
+function compareDeliveryLabel(left: string | null, right: string | null) {
+  const leftKey = deliverySortKey(left);
+  const rightKey = deliverySortKey(right);
+  if (leftKey !== rightKey) {
+    return leftKey - rightKey;
+  }
+  return textCompare(left, right);
+}
+
+function deliverySortKey(value: string | null) {
+  const normalized = normalizeSortText(value);
+  const monthMatch = normalized.match(/(?:^|[^a-z])([a-z]{3})[-\s/]?(\d{2,4})(?:$|[^0-9])/);
+  if (monthMatch) {
+    return sortYear(monthMatch[2]) * 100 + monthSortOrder(monthMatch[1]);
+  }
+  const quarterMatch = normalized.match(/q([1-4])[-\s/]?(\d{2,4})/);
+  if (quarterMatch) {
+    return sortYear(quarterMatch[2]) * 100 + (Number(quarterMatch[1]) - 1) * 3 + 1;
+  }
+  const yearMatch = normalized.match(/(?:cal|yr|year)?[-\s/]?(\d{2,4})$/);
+  if (yearMatch) {
+    return sortYear(yearMatch[1]) * 100;
+  }
+  return Number.MAX_SAFE_INTEGER;
+}
+
+function monthSortOrder(value: string) {
+  const months: Record<string, number> = {
+    ene: 1,
+    jan: 1,
+    feb: 2,
+    mar: 3,
+    abr: 4,
+    apr: 4,
+    may: 5,
+    jun: 6,
+    jul: 7,
+    ago: 8,
+    aug: 8,
+    sep: 9,
+    oct: 10,
+    nov: 11,
+    dic: 12,
+    dec: 12
+  };
+  return months[value] ?? 99;
+}
+
+function sortYear(value: string) {
+  const year = Number(value);
+  return value.length === 2 ? 2000 + year : year;
+}
+
+function normalizeSortText(value: string | null) {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function textCompare(left: string | null, right: string | null) {
+  return (left ?? "").localeCompare(right ?? "", "es", { numeric: true, sensitivity: "base" });
+}
+
 export function defaultPricingMeffQuery(input: Partial<Record<string, unknown>>): PricingMeffQuery {
   return {
-    fechaPublicacionDesde: stringValue(input.fechaPublicacionDesde),
-    fechaPublicacionHasta: stringValue(input.fechaPublicacionHasta),
+    fechaPublicacion: stringValue(input.fechaPublicacion) ?? stringValue(input.fechaPublicacionDesde),
     tipo: stringArrayValue(input.tipo),
+    clase: stringArrayValue(input.clase),
     periodo: stringArrayValue(input.periodo),
     entrega: stringArrayValue(input.entrega),
     multiplicador: stringArrayValue(input.multiplicador),
@@ -129,21 +235,27 @@ function buildWhere(query: PricingMeffQuery): Prisma.PricingMeffPriceWhereInput 
   return {
     ...buildOptionsWhere(query),
     tipo: inValues(query.tipo),
+    clase: inValues(query.clase),
     periodo: inValues(query.periodo),
     entrega: inValues(query.entrega),
     multiplicador: inValues(query.multiplicador)
   };
 }
 
+function buildFilterOptionsWhere(query: PricingMeffQuery, excludedFilter: "tipo" | "clase" | "periodo" | "entrega" | "multiplicador"): Prisma.PricingMeffPriceWhereInput {
+  return {
+    ...buildOptionsWhere(query),
+    tipo: excludedFilter === "tipo" ? undefined : inValues(query.tipo),
+    clase: excludedFilter === "clase" ? undefined : inValues(query.clase),
+    periodo: excludedFilter === "periodo" ? undefined : inValues(query.periodo),
+    entrega: excludedFilter === "entrega" ? undefined : inValues(query.entrega),
+    multiplicador: excludedFilter === "multiplicador" ? undefined : inValues(query.multiplicador)
+  };
+}
+
 function buildOptionsWhere(query: PricingMeffQuery): Prisma.PricingMeffPriceWhereInput {
   return {
-    fechaPublicacion:
-      query.fechaPublicacionDesde || query.fechaPublicacionHasta
-        ? {
-            gte: query.fechaPublicacionDesde ? parseDate(query.fechaPublicacionDesde) : undefined,
-            lte: query.fechaPublicacionHasta ? parseDate(query.fechaPublicacionHasta) : undefined
-          }
-        : undefined
+    fechaPublicacion: query.fechaPublicacion ? parseDate(query.fechaPublicacion) : undefined
   };
 }
 

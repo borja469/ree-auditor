@@ -22,9 +22,9 @@ export type ParsedPricingMeffRow = {
 };
 
 export type PricingMeffQuery = {
-  fechaPublicacionDesde?: string;
-  fechaPublicacionHasta?: string;
+  fechaPublicacion?: string;
   tipo?: string[];
+  clase?: string[];
   periodo?: string[];
   entrega?: string[];
   multiplicador?: string[];
@@ -56,6 +56,7 @@ export type PricingMeffResponse = {
   rows: PricingMeffRow[];
   filterOptions: {
     tipos: string[];
+    clases: string[];
     periodos: string[];
     entregas: string[];
     multiplicadores: string[];

@@ -889,6 +889,7 @@ export type PricingBaseResponse = {
 
 export type PricingCalculatorManualConcept =
   | "renta4"
+  | "cos"
   | "si3"
   | "ppc"
   | "retribucionOm"
@@ -927,9 +928,9 @@ export type PricingMeffRow = {
 };
 
 export type PricingMeffFilters = {
-  fechaPublicacionDesde?: string;
-  fechaPublicacionHasta?: string;
+  fechaPublicacion?: string;
   tipo?: string[];
+  clase?: string[];
   periodo?: string[];
   entrega?: string[];
   multiplicador?: string[];
@@ -948,11 +949,13 @@ export type PricingMeffResponse = {
   rows: PricingMeffRow[];
   filterOptions: {
     tipos: string[];
+    clases: string[];
     periodos: string[];
     entregas: string[];
     multiplicadores: string[];
   };
 };
+
 
 export type EsiosDownloadLog = {
   id: string;

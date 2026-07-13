@@ -3454,6 +3454,30 @@ select:disabled {
   font-variant-numeric: tabular-nums;
 }
 
+.pricing-calculator-override-cell {
+  background: #eef2f5;
+  padding: 0 !important;
+}
+
+.pricing-calculator-override-cell input {
+  width: 100%;
+  height: 29px;
+  padding: 3px 7px;
+  color: #12343f;
+  background: #eef2f5;
+  border: 0;
+  outline: 0;
+  text-align: right;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+}
+
+.pricing-calculator-override-cell input:focus {
+  background: #ffec99;
+  box-shadow: inset 0 0 0 2px #b7791f;
+}
+
+
 .pricing-calculator-manual-cell input:focus {
   background: #ffec99;
   box-shadow: inset 0 0 0 2px #b7791f;
@@ -3546,6 +3570,17 @@ select:disabled {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
+
+.pricing-meff-increase-positive {
+  color: #b42318;
+  font-weight: 950;
+}
+
+.pricing-meff-increase-negative {
+  color: #067647;
+  font-weight: 950;
+}
+
 
 .pricing-meff-table .empty-cell {
   padding: 28px 12px;

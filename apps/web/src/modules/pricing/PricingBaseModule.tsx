@@ -554,7 +554,7 @@ type PricingCalculatorConcept = {
     | "atr"
     | "precioFinal";
   label: string;
-  kind: "automatic" | "manual" | "final";
+  kind: "automatic" | "manual" | "manualOverride" | "final";
   manualConcept?: PricingCalculatorManualConcept;
 };
 
@@ -563,7 +563,7 @@ const PRICING_CALCULATOR_CONCEPTS: PricingCalculatorConcept[] = [
   { key: "coefForward", label: "Coef Forward", kind: "automatic" },
   { key: "apuntamiento", label: "Apuntamiento", kind: "automatic" },
   { key: "pool", label: "Pool", kind: "automatic" },
-  { key: "cos", label: "C. Operador del Sistema", kind: "automatic" },
+  { key: "cos", label: "C. Operador del Sistema", kind: "manualOverride", manualConcept: "cos" },
   { key: "si3", label: "SI3", kind: "manual", manualConcept: "si3" },
   { key: "ppc", label: "PPC", kind: "manual", manualConcept: "ppc" },
   { key: "retribucionOm", label: "Retribucion OM", kind: "manual", manualConcept: "retribucionOm" },
@@ -653,13 +653,16 @@ function PricingCalculatorPanel({
                     cadRadRow: cadRadByTariff.get(column.tariff),
                     lossesRow: lossesByTariff.get(column.tariff)
                   });
-                  if (concept.kind === "manual" && concept.manualConcept) {
+                  if ((concept.kind === "manual" || concept.kind === "manualOverride") && concept.manualConcept) {
                     const key = calculatorManualKey(concept.manualConcept, column.tariff, column.period);
                     const draft = drafts.get(key);
+                    const hasManualValue = manualValues.has(key);
+                    const inputValue = draft ?? formatCalculatorInputValue(hasManualValue ? (manualValues.get(key) ?? null) : value);
                     return (
-                      <td className="pricing-calculator-manual-cell" key={pricingCalculatorColumnKey(column)}>
+                      <td className={concept.kind === "manualOverride" && !hasManualValue && draft === undefined ? "pricing-calculator-override-cell" : "pricing-calculator-manual-cell"} key={pricingCalculatorColumnKey(column)}>
                         <input
-                          value={draft ?? formatCalculatorInputValue(manualValues.get(key) ?? null)}
+                          title={concept.kind === "manualOverride" && !hasManualValue ? "Valor automatico. Edita para guardar un valor manual; deja vacio para volver al automatico." : undefined}
+                          value={inputValue}
                           onBlur={(event) => onSave(concept.manualConcept as PricingCalculatorManualConcept, column.tariff, column.period, event.target.value)}
                           onChange={(event) => onDraftChange(key, event.target.value)}
                           onKeyDown={(event) => {
@@ -912,7 +915,8 @@ function calculatePricingCalculatorValue({
     calculatorContribution(coefForward, "coefForward", enabledConcepts),
     calculatorContribution(renta4, "renta4", enabledConcepts)
   ]);
-  const cos = cadRadRow?.cells.get(column.period)?.value ?? null;
+  const calculatedCos = cadRadRow?.cells.get(column.period)?.value ?? null;
+  const cos = manualOverrideNumber(manualValues, "cos", column, calculatedCos);
   const perdidas = lossesRow?.cells.get(column.period)?.value ?? null;
   const si3 = manualNumber(manualValues, "si3", column);
   const ppc = manualNumber(manualValues, "ppc", column);
@@ -986,6 +990,11 @@ function calculatePricingCalculatorValue({
 
 function manualNumber(values: Map<string, number | null>, concept: PricingCalculatorManualConcept, column: PricingCalculatorColumn) {
   return values.get(calculatorManualKey(concept, column.tariff, column.period)) ?? 0;
+}
+
+function manualOverrideNumber(values: Map<string, number | null>, concept: PricingCalculatorManualConcept, column: PricingCalculatorColumn, automaticValue: number | null) {
+  const key = calculatorManualKey(concept, column.tariff, column.period);
+  return values.has(key) ? (values.get(key) ?? null) : automaticValue;
 }
 
 function calculatorContribution(value: number | null, concept: CalculatorConceptKey, enabledConcepts: Set<CalculatorConceptKey>) {
