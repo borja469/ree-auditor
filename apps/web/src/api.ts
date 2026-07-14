@@ -781,6 +781,9 @@ export type PricingBaseRow = {
   productoPerfilPerdidas30TD: number | null;
   productoPerfilPerdidas30TDVE: number | null;
   productoPerfilPerdidas61TD: number | null;
+  perdidas20TD: number | null;
+  perdidas30TD: number | null;
+  perdidas61TD: number | null;
   periodo20TD: string;
   periodo30TD: string;
   periodo6XTD: string;

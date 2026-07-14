@@ -128,13 +128,13 @@ export class PricingRegulatedCostsLoader {
   private async loadPerdidas(calendar: PricingCalendarHour[], tariff: PricingPeriodTariff) {
     const fechaInicio = calendar[0]?.fecha ?? "";
     const fechaFin = calendar[calendar.length - 1]?.fecha ?? "";
-    const normalizedTariff = normalizeLossTariff(tariff);
+    const tariffCandidates = lossTariffCandidates(tariff);
     const [rows, boeLosses] = await Promise.all([
       this.prisma.reeKFactor.findMany({
         where: {
           fecha: dateRange(fechaInicio, fechaFin),
           version: { in: PRISMA_PRICING_VERSIONS },
-          tarifa: normalizedTariff
+          tarifa: { in: tariffCandidates }
         },
         select: {
           fecha: true,
@@ -148,7 +148,7 @@ export class PricingRegulatedCostsLoader {
       }),
       this.prisma.perdidaBoe.findMany({
         where: {
-          tarifa: normalizedTariff,
+          tarifa: { in: tariffCandidates },
           fechaInicio: { lte: new Date(`${fechaFin}T00:00:00.000Z`) },
           fechaFin: { gte: new Date(`${fechaInicio}T00:00:00.000Z`) }
         },
@@ -170,7 +170,7 @@ export class PricingRegulatedCostsLoader {
       const hora = row.hora;
       const version = toPricingVersion(row.version);
       const valorK = decimalToNumber(row.valorK);
-      const porcentajeBoe = findBoeLossPercentage(boeLosses, normalizedTariff, row.periodo, row.fecha);
+      const porcentajeBoe = findBoeLossPercentage(boeLosses, tariffCandidates, row.periodo, row.fecha);
       const value = valorK !== null && porcentajeBoe !== null ? valorK * porcentajeBoe : null;
       if (!fecha || !hora || !version || value === null || allowedPeriodByKey.get(`${fecha}|${hora}`) !== row.periodo) {
         continue;
@@ -248,20 +248,23 @@ function decimalToNumber(value: Prisma.Decimal | null | undefined) {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-function normalizeLossTariff(tariff: PricingPeriodTariff) {
-  return tariff === "6.XTD" ? "6.1TD" : tariff;
+function lossTariffCandidates(tariff: PricingPeriodTariff) {
+  if (tariff === "6.XTD") {
+    return ["6.XTD", "6.1TD"];
+  }
+  return [tariff];
 }
 
 function findBoeLossPercentage(
   losses: Array<{ tarifa: string; periodo: string; porcentajePerdida: Prisma.Decimal; fechaInicio: Date; fechaFin: Date }>,
-  tarifa: string,
+  tarifas: string[],
   periodo: string,
   fecha: Date
 ) {
   const dateOnly = new Date(Date.UTC(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate()));
   const loss = losses.find(
     (item) =>
-      item.tarifa === tarifa &&
+      tarifas.includes(item.tarifa) &&
       item.periodo === periodo &&
       normalizeDateOnly(item.fechaInicio).getTime() <= dateOnly.getTime() &&
       normalizeDateOnly(item.fechaFin).getTime() >= dateOnly.getTime()
