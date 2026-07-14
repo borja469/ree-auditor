@@ -3350,6 +3350,14 @@ select:disabled {
   overflow: hidden;
 }
 
+.pricing-calculator-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
 .pricing-calculator-scroll {
   overflow-x: auto;
   border: 1px solid #b9c9d4;

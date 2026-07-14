@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Calculator, FileDown, FileSpreadsheet, RotateCcw, Search } from "lucide-react";
+import { Calculator, Clipboard, FileDown, FileSpreadsheet, RotateCcw, Search } from "lucide-react";
 import {
   downloadPricingBaseExport,
   getPricingBaseTable,
@@ -187,6 +187,7 @@ export function PricingBaseModule() {
             })
           }
           onSave={saveCalculatorManualCell}
+          onCopySuccess={(text) => setMessage({ tone: "info", text })}
         />
       )}
 
@@ -606,7 +607,8 @@ function PricingCalculatorPanel({
   meffMatrices,
   onDraftChange,
   onToggleConcept,
-  onSave
+  onSave,
+  onCopySuccess
 }: {
   cadRadRows: CadRadPeriodSummaryRow[];
   drafts: Map<string, string>;
@@ -618,6 +620,7 @@ function PricingCalculatorPanel({
   onDraftChange: (key: string, value: string) => void;
   onToggleConcept: (conceptKey: CalculatorConceptKey, enabled: boolean) => void;
   onSave: (concept: PricingCalculatorManualConcept, tariff: string, period: string, raw: string) => void;
+  onCopySuccess: (text: string) => void;
 }) {
   const columns = buildPricingCalculatorColumns(meffMatrices);
   const tariffGroups = buildPricingCalculatorTariffGroups(columns);
@@ -626,9 +629,35 @@ function PricingCalculatorPanel({
   const cadRadByTariff = new Map(cadRadRows.map((row) => [row.tariff, row]));
   const lossesByTariff = new Map(lossesRows.map((row) => [row.tariff, row]));
 
+  async function copyCalculatorSnapshot() {
+    try {
+      const text = buildPricingCalculatorClipboardText({
+        columns,
+        tariffGroups,
+        enabledConcepts,
+        drafts,
+        manualValues,
+        meffMatrices,
+        cadRadRows,
+        lossesRows,
+        coefForward
+      });
+      await navigator.clipboard.writeText(text);
+      onCopySuccess("Calculador de precios copiado al portapapeles.");
+    } catch {
+      onCopySuccess("No se ha podido copiar el calculador de precios.");
+    }
+  }
+
   return (
     <div className="panel wide pricing-calculator-panel">
-      <PanelTitle icon={<Calculator size={18} />} title="Calculador de precios" subtitle="Matriz por tarifa y periodo con datos automaticos y parametros manuales persistentes" />
+      <div className="pricing-calculator-header">
+        <PanelTitle icon={<Calculator size={18} />} title="Calculador de precios" subtitle="Matriz por tarifa y periodo con datos automaticos y parametros manuales persistentes" />
+        <button className="secondary-button" disabled={columns.length === 0} onClick={() => void copyCalculatorSnapshot()} type="button">
+          <Clipboard size={16} />
+          Copiar
+        </button>
+      </div>
       <div className="pricing-calculator-scroll">
         <table className="pricing-calculator-table">
           <thead>
@@ -888,6 +917,64 @@ function buildLossesPeriodSummary(rows: PricingBaseRow[]): LossesPeriodSummaryRo
 
 function buildPricingCalculatorColumns(matrices: ProfiledPeriodMatrix[]): PricingCalculatorColumn[] {
   return matrices.flatMap((matrix) => periodsForTariff(matrix.tariff).map((period) => ({ tariff: matrix.tariff, period })));
+}
+
+function buildPricingCalculatorClipboardText({
+  columns,
+  tariffGroups,
+  enabledConcepts,
+  drafts,
+  manualValues,
+  meffMatrices,
+  cadRadRows,
+  lossesRows,
+  coefForward
+}: {
+  columns: PricingCalculatorColumn[];
+  tariffGroups: Array<{ tariff: BaseTariff; colSpan: number }>;
+  enabledConcepts: Set<CalculatorConceptKey>;
+  drafts: Map<string, string>;
+  manualValues: Map<string, number | null>;
+  meffMatrices: ProfiledPeriodMatrix[];
+  cadRadRows: CadRadPeriodSummaryRow[];
+  lossesRows: LossesPeriodSummaryRow[];
+  coefForward: number | null;
+}) {
+  const meffByTariff = new Map(meffMatrices.map((row) => [row.tariff, row]));
+  const cadRadByTariff = new Map(cadRadRows.map((row) => [row.tariff, row]));
+  const lossesByTariff = new Map(lossesRows.map((row) => [row.tariff, row]));
+  const lines = [
+    "Calculador de precios",
+    "Estado: [x] habilitado / [ ] deshabilitado",
+    "",
+    ["CONCEPTOS", ...tariffGroups.map((group) => group.tariff)].join("\t"),
+    ["", ...columns.map((column) => column.period)].join("\t")
+  ];
+
+  for (const concept of PRICING_CALCULATOR_CONCEPTS) {
+    const label = `${enabledConcepts.has(concept.key) ? "[x]" : "[ ]"} ${concept.label}`;
+    const values = columns.map((column) => {
+      const value = calculatePricingCalculatorValue({
+        conceptKey: concept.key,
+        column,
+        enabledConcepts,
+        manualValues,
+        coefForward,
+        meffMatrix: meffByTariff.get(column.tariff),
+        cadRadRow: cadRadByTariff.get(column.tariff),
+        lossesRow: lossesByTariff.get(column.tariff)
+      });
+      if ((concept.kind === "manual" || concept.kind === "manualOverride") && concept.manualConcept) {
+        const key = calculatorManualKey(concept.manualConcept, column.tariff, column.period);
+        const draft = drafts.get(key);
+        return draft ?? formatCalculatorInputValue(manualValues.has(key) ? (manualValues.get(key) ?? null) : value);
+      }
+      return formatMatrixValue(value, 2);
+    });
+    lines.push([label, ...values].join("\t"));
+  }
+
+  return lines.join("\n");
 }
 
 function buildPricingCalculatorTariffGroups(columns: PricingCalculatorColumn[]) {
