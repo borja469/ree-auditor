@@ -6,7 +6,7 @@ import { PricingProfilesLoader } from "./profiles_loader";
 import { PricingRegulatedCostsLoader } from "./regulated_costs_loader";
 import { normalizeTarifa } from "../ree-losses/period-engine";
 import { ReeLossesRegulatoryEngine } from "../ree-losses/regulatory-engine.service";
-import { resolveTariffPeriod } from "../ree-losses/period-engine";
+import { resolvePricingPeriod } from "./pricing_period_adapter";
 import type { PricingBaseMeffProfileRow, PricingBaseQuery, PricingBaseResponse, PricingBaseRow, PricingBaseValidation } from "./pricing-base.types";
 
 @Injectable()
@@ -181,23 +181,6 @@ export class PricingBaseTableService {
   }
 }
 
-function resolvePricingPeriod(
-  tariff: "2.0TD" | "3.0TD" | "6.1TD",
-  row: Pick<PricingBaseRow, "fecha" | "hora">,
-  periodContext: Awaited<ReturnType<ReeLossesRegulatoryEngine["buildPeriodContext"]>>
-) {
-  return (
-    resolveTariffPeriod({
-      tarifa: tariff,
-      fecha: new Date(`${row.fecha}T00:00:00.000Z`),
-      hora: row.hora,
-      cuartohora: 1,
-      rules: periodContext.rules,
-      holidays: periodContext.holidays
-    })?.periodo ?? ""
-  );
-}
-
 export function validatePricingBaseTable(rows: PricingBaseRow[]): PricingBaseValidation[] {
   const dates = new Set(rows.map((row) => row.fecha));
   const timestampCounts = new Map<string, number>();
@@ -272,14 +255,7 @@ function filterRows(rows: PricingBaseRow[], query: PricingBaseQuery, periodConte
     }
     if (query.tarifa && query.periodo) {
       const tariff = normalizeTarifa(query.tarifa) ?? query.tarifa;
-      const expectedPeriod = resolveTariffPeriod({
-        tarifa: tariff,
-        fecha: new Date(`${row.fecha}T00:00:00.000Z`),
-        hora: row.hora,
-        cuartohora: 1,
-        rules: periodContext.rules,
-        holidays: periodContext.holidays
-      })?.periodo;
+      const expectedPeriod = resolvePricingPeriod(tariff as "2.0TD" | "3.0TD" | "6.1TD", row, periodContext);
       if (expectedPeriod !== query.periodo) {
         return false;
       }
