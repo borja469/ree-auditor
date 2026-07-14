@@ -642,7 +642,7 @@ function PricingCalculatorPanel({
         lossesRows,
         coefForward
       });
-      await navigator.clipboard.writeText(text);
+      await copyTextToClipboard(text);
       onCopySuccess("Calculador de precios copiado al portapapeles.");
     } catch {
       onCopySuccess("No se ha podido copiar el calculador de precios.");
@@ -975,6 +975,42 @@ function buildPricingCalculatorClipboardText({
   }
 
   return lines.join("\n");
+}
+
+async function copyTextToClipboard(text: string) {
+  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fallback below.
+    }
+  }
+
+  if (typeof document === "undefined") {
+    throw new Error("Clipboard API unavailable.");
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "0";
+  textarea.style.width = "1px";
+  textarea.style.height = "1px";
+  textarea.style.opacity = "0";
+  textarea.style.pointerEvents = "none";
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+
+  if (!copied) {
+    throw new Error("Copy command failed.");
+  }
 }
 
 function buildPricingCalculatorTariffGroups(columns: PricingCalculatorColumn[]) {
