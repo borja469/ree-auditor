@@ -240,7 +240,7 @@ function parseProduct(values: string[]): ParsedProduct | null {
 
 function nextTwelveMonths(referenceDate: string) {
   const [year, month] = referenceDate.split("-").map(Number);
-  const cursor = new Date(Date.UTC(year, month, 1));
+  const cursor = new Date(Date.UTC(year, month + 1, 1));
   return Array.from({ length: 12 }, () => {
     const value = { year: cursor.getUTCFullYear(), month: cursor.getUTCMonth() + 1 };
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);

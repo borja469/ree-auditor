@@ -149,13 +149,13 @@ void describe("Pricing base table", () => {
           months: [
             {
               year: 2027,
-              month: 1,
-              key: "2027-01",
-              label: "Ene-27",
+              month: 2,
+              key: "2027-02",
+              label: "Feb-27",
               price: 82.95,
               origin: "Mensual",
-              productCode: "FMBCMJAN27",
-              sourceProductCode: "FMBCMJAN27",
+              productCode: "FMBCMFEB27",
+              sourceProductCode: "FMBCMFEB27",
               previous7DaysPrice: null,
               previous14DaysPrice: null,
               change7DaysPct: null,
@@ -174,7 +174,7 @@ void describe("Pricing base table", () => {
       skip: 0,
       take: 1
     });
-    const row = result.meffForward.rows.find((item) => item.curvaMes === "2027-01" && item.periodo6XTD === "P1");
+    const row = result.meffForward.rows.find((item) => item.curvaMes === "2027-02");
     assert.equal(row.precioMeff, 82.95);
     assert.equal(row.perfilIntermedio20TD, null);
     assert.equal(row.productoPerfilMeff20TD, null);
@@ -222,6 +222,53 @@ void describe("Pricing base table", () => {
     assert.equal(result.find((month) => month.key === "2026-09").origin, "Calculado");
     assert.equal(result.find((month) => month.key === "2027-01").price, 70);
     assert.equal(result.find((month) => month.key === "2027-01").origin, "Anual");
+  });
+
+  void it("arranca la curva MEFF en M+2 respecto a la fecha de referencia", async () => {
+    const service = new PricingBaseTableService(
+      { loadProfiles: async () => new Map() },
+      { loadMercadoDiario: async () => new Map() },
+      {
+        load: async () => ({
+          cad: new Map(),
+          rad: new Map(),
+          perdidas: new Map()
+        })
+      },
+      {
+        buildNextTwelveMonths: async () => ({
+          publicationDate: "2026-05-28",
+          months: [
+            {
+              year: 2026,
+              month: 8,
+              key: "2026-08",
+              label: "Ago-26",
+              price: 100,
+              origin: "Mensual",
+              productCode: "MAGO26",
+              sourceProductCode: "MAGO26",
+              previous7DaysPrice: null,
+              previous14DaysPrice: null,
+              change7DaysPct: null,
+              change14DaysPct: null
+            }
+          ]
+        })
+      },
+      regulatoryEngine
+    );
+
+    const result = await service.buildTable({
+      fechaReferencia: "2026-06-01",
+      incluirFechaReferencia: true,
+      zonaHoraria: "Europe/Madrid",
+      skip: 0,
+      take: 1
+    });
+
+    assert.equal(result.meffForward.months[0].label, "Ago-26");
+    assert.equal(result.meffForward.months[0].key, "2026-08");
   });
 
   void it("filtra la curva MEFF a productos BASE de Futuro", () => {
