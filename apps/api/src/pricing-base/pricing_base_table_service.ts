@@ -4,7 +4,9 @@ import { MeffForwardCurveService } from "./meff_forward_curve_service";
 import { PricingOmieLoader } from "./omie_loader";
 import { PricingProfilesLoader } from "./profiles_loader";
 import { PricingRegulatedCostsLoader } from "./regulated_costs_loader";
-import { periodo20TD, periodo30TD, periodo6XTD, pricingPeriodForTariff } from "./tariff_periods";
+import { normalizeTarifa } from "../ree-losses/period-engine";
+import { ReeLossesRegulatoryEngine } from "../ree-losses/regulatory-engine.service";
+import { resolveTariffPeriod } from "../ree-losses/period-engine";
 import type { PricingBaseMeffProfileRow, PricingBaseQuery, PricingBaseResponse, PricingBaseRow, PricingBaseValidation } from "./pricing-base.types";
 
 @Injectable()
@@ -13,7 +15,8 @@ export class PricingBaseTableService {
     private readonly profilesLoader: PricingProfilesLoader,
     private readonly omieLoader: PricingOmieLoader,
     private readonly regulatedCostsLoader: PricingRegulatedCostsLoader,
-    private readonly meffForwardCurveService: MeffForwardCurveService
+    private readonly meffForwardCurveService: MeffForwardCurveService,
+    private readonly regulatoryEngine: ReeLossesRegulatoryEngine
   ) {}
 
   async buildTable(query: PricingBaseQuery): Promise<PricingBaseResponse> {
@@ -28,6 +31,7 @@ export class PricingBaseTableService {
       this.regulatedCostsLoader.load(calendar, "6.XTD"),
       this.meffForwardCurveService.buildNextTwelveMonths(query.fechaReferencia)
     ]);
+    const periodContext = await this.regulatoryEngine.buildPeriodContext();
     const allRows = calendar.map<PricingBaseRow>((row) => {
       const profile = { ...defaultProfileValues(), ...(profiles.get(`${row.fecha}|${row.ordenHora}`) ?? {}) };
       const omieValue = omie.get(`${row.fecha}|${row.ordenHora - 1}`) ?? { value: null, status: "missing" as const };
@@ -62,9 +66,9 @@ export class PricingBaseTableService {
         perdidas20TD: perdidas20TD.value,
         perdidas30TD: perdidas30TD.value,
         perdidas61TD: perdidas61TD.value,
-        periodo20TD: periodo20TD(row),
-        periodo30TD: periodo30TD(row),
-        periodo6XTD: periodo6XTD(row),
+        periodo20TD: resolvePricingPeriod("2.0TD", row, periodContext),
+        periodo30TD: resolvePricingPeriod("3.0TD", row, periodContext),
+        periodo6XTD: resolvePricingPeriod("6.1TD", row, periodContext),
         profileSource20TD: profile.profile20tdSource,
         profileSource30TD: profile.profile30tdSource,
         profileSource30TDVE: profile.profile30tdveSource,
@@ -87,9 +91,9 @@ export class PricingBaseTableService {
       };
     });
 
-    const filteredRows = filterRows(allRows, query);
+    const filteredRows = filterRows(allRows, query, periodContext);
     const pageRows = filteredRows.slice(query.skip, query.skip + query.take);
-    const meffRows = await this.buildMeffProfileRows(meffForward.months);
+    const meffRows = await this.buildMeffProfileRows(meffForward.months, periodContext);
     return {
       filters: query,
       range: {
@@ -122,7 +126,10 @@ export class PricingBaseTableService {
     };
   }
 
-  private async buildMeffProfileRows(months: PricingBaseResponse["meffForward"]["months"]): Promise<PricingBaseMeffProfileRow[]> {
+  private async buildMeffProfileRows(
+    months: PricingBaseResponse["meffForward"]["months"],
+    periodContext: Awaited<ReturnType<ReeLossesRegulatoryEngine["buildPeriodContext"]>>
+  ): Promise<PricingBaseMeffProfileRow[]> {
     if (months.length === 0) {
       return [];
     }
@@ -158,9 +165,9 @@ export class PricingBaseTableService {
         productoPerfilMeff30TD: multiplyNullable(profile30td, price),
         productoPerfilMeff30TDVE: multiplyNullable(profile30tdve, price),
         productoPerfilMeff61TD: multiplyNullable(profile61td, price),
-        periodo20TD: periodo20TD(row),
-        periodo30TD: periodo30TD(row),
-        periodo6XTD: periodo6XTD(row),
+        periodo20TD: resolvePricingPeriod("2.0TD", row, periodContext),
+        periodo30TD: resolvePricingPeriod("3.0TD", row, periodContext),
+        periodo6XTD: resolvePricingPeriod("6.1TD", row, periodContext),
         profileSource20TD: profile.profile20tdSource,
         profileSource30TD: profile.profile30tdSource,
         profileSource30TDVE: profile.profile30tdveSource,
@@ -172,6 +179,23 @@ export class PricingBaseTableService {
       };
     });
   }
+}
+
+function resolvePricingPeriod(
+  tariff: "2.0TD" | "3.0TD" | "6.1TD",
+  row: Pick<PricingBaseRow, "fecha" | "hora">,
+  periodContext: Awaited<ReturnType<ReeLossesRegulatoryEngine["buildPeriodContext"]>>
+) {
+  return (
+    resolveTariffPeriod({
+      tarifa: tariff,
+      fecha: new Date(`${row.fecha}T00:00:00.000Z`),
+      hora: row.hora,
+      cuartohora: 1,
+      rules: periodContext.rules,
+      holidays: periodContext.holidays
+    })?.periodo ?? ""
+  );
 }
 
 export function validatePricingBaseTable(rows: PricingBaseRow[]): PricingBaseValidation[] {
@@ -238,7 +262,7 @@ export function defaultPricingBaseQuery(input: Partial<Record<string, unknown>>)
   };
 }
 
-function filterRows(rows: PricingBaseRow[], query: PricingBaseQuery) {
+function filterRows(rows: PricingBaseRow[], query: PricingBaseQuery, periodContext: Awaited<ReturnType<ReeLossesRegulatoryEngine["buildPeriodContext"]>>) {
   return rows.filter((row) => {
     if (query.fechaDesde && row.fecha < query.fechaDesde) {
       return false;
@@ -246,8 +270,19 @@ function filterRows(rows: PricingBaseRow[], query: PricingBaseQuery) {
     if (query.fechaHasta && row.fecha > query.fechaHasta) {
       return false;
     }
-    if (query.tarifa && query.periodo && pricingPeriodForTariff(query.tarifa, row) !== query.periodo) {
-      return false;
+    if (query.tarifa && query.periodo) {
+      const tariff = normalizeTarifa(query.tarifa) ?? query.tarifa;
+      const expectedPeriod = resolveTariffPeriod({
+        tarifa: tariff,
+        fecha: new Date(`${row.fecha}T00:00:00.000Z`),
+        hora: row.hora,
+        cuartohora: 1,
+        rules: periodContext.rules,
+        holidays: periodContext.holidays
+      })?.periodo;
+      if (expectedPeriod !== query.periodo) {
+        return false;
+      }
     }
     return true;
   });

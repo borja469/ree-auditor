@@ -9,6 +9,10 @@ const { get_latest_available_version } = require("./version_selector");
 const { normalizeProfilesByMonthlyWeight } = require("./profiles_loader");
 
 void describe("Pricing base table", () => {
+  const regulatoryEngine = {
+    buildPeriodContext: async () => ({ rules: new Map(), holidays: new Set() })
+  };
+
   void it("genera 365 dias naturales con horas reales de Europe/Madrid", () => {
     const rows = buildPricingCalendar("2026-12-31", true);
     assert.equal(new Set(rows.map((row) => row.fecha)).size, 365);
@@ -90,7 +94,8 @@ void describe("Pricing base table", () => {
           publicationDate: null,
           months: []
         })
-      }
+      },
+      regulatoryEngine
     );
     const result = await service.buildTable({
       fechaReferencia: "2026-01-01",
@@ -158,7 +163,8 @@ void describe("Pricing base table", () => {
             }
           ]
         })
-      }
+      },
+      regulatoryEngine
     );
 
     const result = await service.buildTable({

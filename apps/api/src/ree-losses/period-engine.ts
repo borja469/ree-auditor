@@ -183,6 +183,9 @@ export function normalizeTarifa(value?: string | null) {
   }
 
   const normalized = value.trim().toUpperCase().replace(/\s+/g, "").replace(/^T/, "");
+  if (normalized === "6.XTD") {
+    return "6.1TD";
+  }
   return SUPPORTED_TARIFFS.includes(normalized as SupportedTariff) ? normalized : undefined;
 }
 
