@@ -24,14 +24,15 @@ import {
   type MedperMonthlyConsumptionRow,
   type ReeFile,
   type ReeDownloadCenterSummaryRow,
-  type ReeLossesImportFile
+  type ReeLossesImportFile,
+  type ReeSeieFile
 } from "../../api";
 import type { ImportMode } from "../../app-shell/AppShellTypes";
 import { downloadBlob } from "../../components/technical-data-table/TechnicalDataTableHelpers";
 
 type UnifiedStatus = "correct" | "error" | "pending" | "incomplete" | "duplicated" | "warning";
-type ReeDownloadModule = "REGANECU" | "MEDPER" | "K REE";
-type SourceKind = "import" | "reeLosses" | "medperCoverage";
+type ReeDownloadModule = "REGANECU" | "MEDPER" | "K REE" | "SEIE";
+type SourceKind = "import" | "reeSeie" | "reeLosses" | "medperCoverage";
 
 type UnifiedRow = {
   id: string;
@@ -50,7 +51,7 @@ type UnifiedRow = {
   importedAt: string | null;
   user: string;
   observations: string;
-  original?: ReeFile | MedperFile | ReeLossesImportFile;
+  original?: ReeFile | MedperFile | ReeSeieFile | ReeLossesImportFile;
 };
 
 type MonthlyCoverageRow = {
@@ -61,6 +62,8 @@ type MonthlyCoverageRow = {
   reganecuLabel?: string;
   reeLosses: UnifiedStatus;
   reeLossesLabel?: string;
+  seie: UnifiedStatus;
+  seieLabel?: string;
 };
 
 type ActionModal = {
@@ -70,6 +73,7 @@ type ActionModal = {
 
 type ReeDownloadCenterProps = {
   reganecuFiles: ReeFile[];
+  seieFiles: ReeSeieFile[];
   coverageSummary: ReeDownloadCenterSummaryRow[];
   medperFiles: MedperFile[];
   medperMonthlyConsumption: MedperMonthlyConsumptionRow[];
@@ -87,7 +91,7 @@ type ReeDownloadCenterProps = {
   onRefresh: () => Promise<void> | void;
 };
 
-const MODULE_OPTIONS: ReeDownloadModule[] = ["REGANECU", "MEDPER", "K REE"];
+const MODULE_OPTIONS: ReeDownloadModule[] = ["REGANECU", "SEIE", "MEDPER", "K REE"];
 const STATUS_OPTIONS: UnifiedStatus[] = ["correct", "error", "pending", "incomplete", "duplicated", "warning"];
 const REQUIRED_MEDPER_VERSIONS = ["C3", "C4", "C5"];
 
@@ -102,6 +106,7 @@ const STATUS_LABELS: Record<UnifiedStatus, string> = {
 
 export function ReeDownloadCenterModule({
   reganecuFiles,
+  seieFiles,
   coverageSummary,
   medperFiles,
   medperMonthlyConsumption,
@@ -134,8 +139,8 @@ export function ReeDownloadCenterModule({
   const [actionModal, setActionModal] = useState<ActionModal>();
 
   const rows = useMemo(
-    () => buildUnifiedRows(reganecuFiles, medperFiles, medperMonthlyConsumption, reeLossesImports),
-    [medperFiles, medperMonthlyConsumption, reeLossesImports, reganecuFiles]
+    () => buildUnifiedRows(reganecuFiles, seieFiles, medperFiles, medperMonthlyConsumption, reeLossesImports),
+    [medperFiles, medperMonthlyConsumption, reeLossesImports, reganecuFiles, seieFiles]
   );
   const latestMonth = useMemo(() => rows.map((row) => row.periodKey).filter(Boolean).sort().at(-1) ?? "", [rows]);
   const typeOptions = useMemo(() => [...new Set(rows.map((row) => row.type).filter(Boolean))].sort(), [rows]);
@@ -309,7 +314,7 @@ export function ReeDownloadCenterModule({
         <div>
           <p className="ops-eyebrow">Liquidaciones REE</p>
           <h2>Centro de cargas</h2>
-          <span>Consola operativa unica para cargas REGANECU, MEDPER y K REE.</span>
+          <span>Consola operativa unica para cargas REGANECU, SEIE, MEDPER y K REE.</span>
         </div>
         <div className="ops-hero-actions">
           <button className="ops-secondary-button" disabled={filteredRows.length === 0} onClick={exportUnifiedRows} type="button">
@@ -348,6 +353,10 @@ export function ReeDownloadCenterModule({
           <button className={importMode === "reganecu" ? "active" : ""} disabled={disabled} onClick={() => onImportModeChange("reganecu")} type="button">
             <Database size={15} />
             REGANECU
+          </button>
+          <button className={importMode === "reeSeie" ? "active" : ""} disabled={disabled} onClick={() => onImportModeChange("reeSeie")} type="button">
+            <Database size={15} />
+            SEIE
           </button>
           <button className={importMode === "medper" ? "active" : ""} disabled={disabled} onClick={() => onImportModeChange("medper")} type="button">
             <Clipboard size={15} />
@@ -407,6 +416,7 @@ export function ReeDownloadCenterModule({
           <span>MEDPER</span>
           <span>REGANECU</span>
           <span>K REE</span>
+          <span>SEIE</span>
         </div>
         {coverageRows.length === 0 ? (
           <div className="ree-coverage-empty">Sin meses cargados.</div>
@@ -417,6 +427,7 @@ export function ReeDownloadCenterModule({
               <CoverageBadge status={row.medper} label={row.medperLabel} />
               <CoverageBadge status={row.reganecu} label={row.reganecuLabel} />
               <CoverageBadge status={row.reeLosses} label={row.reeLossesLabel} />
+              <CoverageBadge status={row.seie} label={row.seieLabel} />
             </div>
           ))
         )}
@@ -528,23 +539,25 @@ export function ReeDownloadCenterModule({
 
 function buildUnifiedRows(
   reganecuFiles: ReeFile[],
+  seieFiles: ReeSeieFile[],
   medperFiles: MedperFile[],
   medperMonthlyConsumption: MedperMonthlyConsumptionRow[],
   reeLossesImports: ReeLossesImportFile[]
 ): UnifiedRow[] {
   return [
     ...reganecuFiles.map((file) => importFileRow(file, "REGANECU")),
+    ...seieFiles.map((file) => importFileRow(file, "SEIE")),
     ...medperFiles.map((file) => importFileRow(file, "MEDPER")),
     ...reeLossesImports.map(reeLossesRow),
     ...medperCoverageRows(medperMonthlyConsumption)
   ].sort(compareRows);
 }
 
-function importFileRow(file: ReeFile | MedperFile, module: "REGANECU" | "MEDPER"): UnifiedRow {
+function importFileRow(file: ReeFile | MedperFile | ReeSeieFile, module: "REGANECU" | "MEDPER" | "SEIE"): UnifiedRow {
   const periodStart = "fechaLiquidacion" in file ? file.fechaLiquidacion : file.fechaInicio;
   return {
     id: `${module}-${file.id}`,
-    source: "import",
+    source: module === "SEIE" ? "reeSeie" : "import",
     module,
     status: importStatus(file),
     type: file.tipoArchivo,
@@ -616,7 +629,7 @@ function medperCoverageRows(rows: MedperMonthlyConsumptionRow[]): UnifiedRow[] {
   });
 }
 
-function importStatus(file: ReeFile | MedperFile | ReeLossesImportFile): UnifiedStatus {
+function importStatus(file: ReeFile | MedperFile | ReeSeieFile | ReeLossesImportFile): UnifiedStatus {
   if (file.status === "FAILED") {
     return "error";
   }
@@ -632,7 +645,7 @@ function importStatus(file: ReeFile | MedperFile | ReeLossesImportFile): Unified
   return "correct";
 }
 
-function fileObservation(file: ReeFile | MedperFile | ReeLossesImportFile) {
+function fileObservation(file: ReeFile | MedperFile | ReeSeieFile | ReeLossesImportFile) {
   if (file.status === "DUPLICATED") {
     return "Carga duplicada";
   }
@@ -673,6 +686,7 @@ function buildMonthlyCoverageRows(rows: ReeDownloadCenterSummaryRow[]): MonthlyC
     const medperRow = rows.find((row) => row.month === month && row.module === "MEDPER");
     const reganecuRow = rows.find((row) => row.month === month && row.module === "REGANECU");
     const reeLossesRow = rows.find((row) => row.month === month && row.module === "K REE");
+    const seieRow = rows.find((row) => row.month === month && row.module === "SEIE");
     return {
       month,
       medper: medperRow?.status ?? "pending",
@@ -680,7 +694,9 @@ function buildMonthlyCoverageRows(rows: ReeDownloadCenterSummaryRow[]): MonthlyC
       reganecu: reganecuRow?.status ?? "pending",
       reganecuLabel: reganecuRow?.label ?? undefined,
       reeLosses: reeLossesRow?.status ?? "pending",
-      reeLossesLabel: reeLossesRow?.label ?? undefined
+      reeLossesLabel: reeLossesRow?.label ?? undefined,
+      seie: seieRow?.status ?? "pending",
+      seieLabel: seieRow?.label ?? undefined
     };
   });
 }

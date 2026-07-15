@@ -1,6 +1,6 @@
 import { beginLoading, withGlobalLoading } from "./loading";
 
-export type ReeFileType = "REGANECU" | "REGANECUQH";
+export type ReeFileType = "REGANECU" | "REGANECUQH" | "SEIE";
 export type ReeVersion = "A1" | "C1" | "C2" | "C3" | "C4" | "C5";
 export type MedperFileType = "MEDPERQH";
 export type ReeKFactorFileType = "KESTIMQH" | "KREALQH";
@@ -141,7 +141,7 @@ export type ReeLossesImportFile = {
 
 export type ReeDownloadCenterSummaryRow = {
   month: string;
-  module: "REGANECU" | "MEDPER" | "K REE";
+  module: "REGANECU" | "MEDPER" | "K REE" | "SEIE";
   status: "correct" | "error" | "pending" | "incomplete" | "duplicated" | "warning";
   label: string | null;
   loads: number;
@@ -494,6 +494,41 @@ export type OmieComprobacionLiquidacionesResponse = {
   cuadroEnergetico: OmieComprobacionCuadre;
 };
 
+export type GuaranteeCalculatorRow = {
+  date: string;
+  displayDate: string;
+  weekday: string;
+  volume: number | null;
+  volumeSource: "REAL" | "PREVIOUS_WEEK" | "MISSING";
+  volumeSourceDate: string | null;
+  price: number | null;
+  priceSource: "OMIE" | "MEFF" | "MISSING";
+  pricePublicationDate: string | null;
+  meffCode: string | null;
+  invoicingAmount: number | null;
+  invoicingSource: "REAL" | "ESTIMATED" | "MISSING";
+  accumulatedInvoicing: number;
+  depositedGuarantee: number | null;
+  availableGuarantee: number | null;
+  warnings: string[];
+};
+
+export type GuaranteeCalculatorResponse = {
+  referenceDate: string;
+  startDate: string;
+  endDate: string;
+  rows: GuaranteeCalculatorRow[];
+  summary: {
+    totalVolume: number;
+    totalInvoicing: number;
+    daysWithRealVolume: number;
+    daysWithSubstitutedVolume: number;
+    daysWithOmiePrice: number;
+    daysWithMeffPrice: number;
+    daysWithMissingData: number;
+  };
+};
+
 export type OmieLiquidationInvoiceResponse = {
   fecha: string;
   fechaIso: string;
@@ -743,7 +778,6 @@ export type EsiosSeriesAutomationRunResponse = {
   }>;
 };
 
-export type MercadoIndicatorMappingStatus = "external" | "confirmed" | "auto" | "ambiguous" | "not_found";
 
 export type PricingBaseStatus = "ok" | "partial" | "missing";
 export type PricingSettlementVersion = "C1" | "C2" | "C3" | "C4" | "C5";
@@ -969,413 +1003,6 @@ export type PricingMeffResponse = {
   };
 };
 
-export type MercadoIndicatorScoreBreakdown = {
-  base: number;
-  category: number;
-  preferred: number;
-  strongPreferred: number;
-  unit: number;
-  frequency: number;
-  data: number;
-  geography: number;
-  penalties: number;
-  total: number;
-};
-
-export type MercadoIndicatorMappingAlternative = {
-  indicatorId: number;
-  nombre: string | null;
-  description: string | null;
-  unit: string | null;
-  frequency: string | null;
-  functionalCategory: string | null;
-  geoId: number | null;
-  geoKey: number | null;
-  geoName: string | null;
-  records: number;
-  confidence: number;
-  scoreBreakdown: MercadoIndicatorScoreBreakdown;
-  ambiguityReason: string | null;
-  warnings: string[];
-};
-
-export type MercadoIndicatorMappingRow = {
-  variable: string;
-  indicatorId: number | null;
-  nombre: string | null;
-  geoId: number | null;
-  geoKey: number | null;
-  confidence: number;
-  functionalCategory: string | null;
-  scoreBreakdown: MercadoIndicatorScoreBreakdown | null;
-  ambiguityReason: string | null;
-  status: MercadoIndicatorMappingStatus;
-  warnings: string[];
-  alternatives: MercadoIndicatorMappingAlternative[];
-};
-
-export type MercadoDatasetRow = {
-  timestampUtc: string;
-  datetimeLocal: string;
-  date: string;
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  weekday: number;
-  precioOmie: number | null;
-  demandaPrevista: number | null;
-  eolica: number | null;
-  fotovoltaica: number | null;
-  termosolar: number | null;
-  nuclear: number | null;
-  hidraulicaUGH: number | null;
-  hidraulicaNoUGH: number | null;
-  bombeo: number | null;
-  intercambios: number | null;
-  missingVariables: string[];
-  dataQualityStatus: "complete" | "partial" | "empty";
-};
-
-export type MercadoDatasetResponse = {
-  filters: {
-    fechaDesde: string;
-    fechaHasta: string;
-    geoId: number | null;
-  };
-  mapping: Record<string, MercadoIndicatorMappingRow | null>;
-  totalRows: number;
-  returnedRows: number;
-  rows: MercadoDatasetRow[];
-};
-
-export type MercadoDatasetValidationResponse = {
-  datasetSummary: {
-    fechaDesde: string;
-    fechaHasta: string;
-    geoId: number | null;
-    rows: number;
-    variables: number;
-    completeRows: number;
-    partialRows: number;
-    emptyRows: number;
-  };
-  coverage: {
-    expectedHours: number;
-    existingHours: number;
-    missingHours: number;
-    duplicatedHours: number;
-    temporalCoveragePct: number;
-  };
-  missingHours: string[];
-  duplicatedHours: string[];
-  missingVariables: Record<string, number>;
-  coverageByVariable: Array<{
-    variable: string;
-    total: number;
-    nulls: number;
-    nullPct: number;
-    coveragePct: number;
-    min: number | null;
-    max: number | null;
-    mean: number | null;
-    stdDev: number | null;
-    repeatedValues: number;
-  }>;
-  mappingQuality: {
-    indicators: Array<{
-      variable: string;
-      status: string;
-      mappingStatus: string;
-      indicatorId: number | null;
-      indicatorName?: string | null;
-      confidence?: number | null;
-      alternatives?: unknown[];
-      records: number;
-      issues: string[];
-    }>;
-    warnings: string[];
-    errors: string[];
-  };
-  warnings: string[];
-  errors: string[];
-  qualityScore: number;
-  qualityScoreFormula: string;
-};
-
-export type MercadoAnalyticsVariableStatus = "calculable" | "partial" | "absent" | "not_calculable" | "complete";
-
-export type MercadoAnalyticsStatistic = {
-  variable: string;
-  observations: number;
-  coveragePct: number;
-  mean: number | null;
-  median: number | null;
-  stdDev: number | null;
-  min: number | null;
-  max: number | null;
-  percentiles: Record<string, number | null>;
-  coefficientOfVariation: number | null;
-};
-
-export type MercadoAnalyticsCorrelation = {
-  variable: string;
-  observations: number;
-  pearson: number | null;
-  spearman: number | null;
-};
-
-export type MercadoAnalyticsTimeSeriesRow = {
-  timestampUtc: string;
-  datetimeLocal: string;
-  calendar?: {
-    esFinDeSemana: boolean;
-    tipoDia: string;
-    estacion: string;
-    mes: number;
-    hora: number;
-    festivoNacional: boolean | null;
-  };
-  values: Record<string, number | null>;
-};
-
-export type MercadoAnalyticsDerivedVariable = {
-  variable: string;
-  status: "calculable" | "partial" | "absent" | "not_calculable";
-  observations: number;
-  coveragePct: number;
-  inputs: string[];
-  missingInputs: string[];
-  mainMissingReason: string | null;
-};
-
-export type MercadoCoverageDiagnosticVariable = {
-  variable: string;
-  source: string;
-  status: "complete" | "partial" | "absent" | "not_exposed" | "not_mapped";
-  indicatorId: number | null;
-  indicatorName: string | null;
-  mappingStatus?: string;
-  mappingConfidence?: number;
-  expectedHours: number;
-  sourceRecords: number;
-  matchedRecords: number;
-  distinctHours: number;
-  firstAvailable: string | null;
-  lastAvailable: string | null;
-  coveragePct: number;
-  missingHours: string[];
-  missingHoursCount: number;
-  probableReason: string;
-  recommendedAction: string | null;
-};
-
-export type MercadoCoverageDiagnosticsResponse = {
-  filters: {
-    fechaDesde: string;
-    fechaHasta: string;
-    geoId: number | null;
-  };
-  expectedHours: number;
-  variables: MercadoCoverageDiagnosticVariable[];
-};
-
-export type MercadoAnalyticsQuality = {
-  coveragePct: number;
-  baseCoveragePct: number;
-  derivedCoveragePct: number;
-  incompleteRows: number;
-  missingCells: number;
-  baseMissingCells: number;
-  derivedMissingCells: number;
-  ambiguousMappings: string[];
-  derivedVariables: MercadoAnalyticsDerivedVariable[];
-  warnings: string[];
-};
-
-export type MercadoAnalyticsResponse = {
-  datasetSummary: {
-    fechaDesde: string;
-    fechaHasta: string;
-    geoId: number | null;
-    rows: number;
-    variables: number;
-    baseVariables: number;
-    derivedVariables: number;
-    completeRows: number;
-    partialRows: number;
-    emptyRows: number;
-  };
-  derivedVariables: MercadoAnalyticsDerivedVariable[];
-  statistics: Record<string, MercadoAnalyticsStatistic>;
-  correlations: {
-    target: string;
-    withPrecioOmie: MercadoAnalyticsCorrelation[];
-    matrix: Array<{
-      variable: string;
-      correlations: Record<string, { pearson: number | null; spearman: number | null; observations: number }>;
-    }>;
-  };
-  timeAnalysis: {
-    byHour: Array<{ key: string | number; label: string; rows: number; means: Record<string, number | null> }>;
-    byWeekday: Array<{ key: string | number; label: string; rows: number; means: Record<string, number | null> }>;
-    byMonth: Array<{ key: string | number; label: string; rows: number; means: Record<string, number | null> }>;
-    bySeason: Array<{ key: string | number; label: string; rows: number; means: Record<string, number | null> }>;
-    byDayType: Array<{ key: string | number; label: string; rows: number; means: Record<string, number | null> }>;
-  };
-  chartData: {
-    timeSeries: MercadoAnalyticsTimeSeriesRow[];
-    scatterPlots: Record<string, Array<{ x: number | null; y: number | null; timestampUtc: string; hour: number; month: number; season: string; tipoDia?: string }>>;
-    heatmaps: Record<string, Array<{ x: number; y: number; value: number | null; observations: number }>>;
-    boxplots: Record<string, { min: number | null; q1: number | null; median: number | null; q3: number | null; max: number | null }>;
-    histograms: Record<string, Array<{ from: number; to: number; count: number }>>;
-  };
-  outliers: {
-    byVariable: Record<string, { lowerThreshold: number | null; upperThreshold: number | null; count: number; examples: Array<Record<string, unknown>> }>;
-    incompleteHours: Array<{ timestampUtc: string; datetimeLocal: string; status: string; missingVariables: string[] }>;
-    anomalousDays: Array<Record<string, unknown>>;
-  };
-  quality: MercadoAnalyticsQuality;
-  qualityReport: MercadoAnalyticsQuality;
-};
-
-export type ForecastMetrics = {
-  r: number | null;
-  mae: number | null;
-  rmse: number | null;
-};
-
-export type ForecastExcludedVariable = {
-  variable: string;
-  reason: string;
-  coveragePct: number;
-};
-
-export type ForecastFeatureImportanceItem = {
-  variable: string;
-  importance: number;
-};
-
-export type ForecastModelListItem = {
-  id: string;
-  nombre: string;
-  version: number;
-  activo: boolean;
-  fecha: string;
-  tipo: string;
-  metricas: ForecastMetrics;
-};
-
-export type ForecastRegisteredModel = {
-  id: string;
-  name: string;
-  strategy: string;
-  status: "available" | "planned";
-  description: string;
-};
-
-export type ForecastModelsResponse = {
-  models: ForecastModelListItem[];
-  registeredModels: ForecastRegisteredModel[];
-};
-
-export type ForecastModelDetail = ForecastModelListItem & {
-  fechaDesde: string;
-  fechaHasta: string;
-  variablesUtilizadas: string[];
-  variablesDescartadas: ForecastExcludedVariable[];
-  coeficientes: Record<string, number>;
-  intercepto: number;
-  metricasCompletas: ForecastMetrics;
-  walkForwardMetricas: ForecastMetrics & { folds: number };
-  featureImportance: ForecastFeatureImportanceItem[];
-  numeroRegistros: number;
-  duracionMs: number;
-  usuario: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ForecastTrainResponse = {
-  id: string;
-  version: number;
-  activo: boolean;
-  modelo: string;
-  variablesUtilizadas: string[];
-  variablesExcluidas: ForecastExcludedVariable[];
-  numeroObservaciones: number;
-  totalHorasDataset: number;
-  observacionesConPrecio: number;
-  r: number | null;
-  mae: number | null;
-  rmse: number | null;
-  walkForwardMetricas: ForecastMetrics & { folds: number };
-  featureImportance: ForecastFeatureImportanceItem[];
-  intercepto: number;
-  coeficientes: Record<string, number>;
-  tiempoEntrenamientoMs: number;
-  fechaEntrenamiento: string;
-};
-
-export type ForecastCompareResponse = {
-  models: Array<{
-    id: string;
-    nombre: string;
-    version: number;
-    activo: boolean;
-    tipo: string;
-    fechaEntrenamiento: string;
-    metricas: ForecastMetrics;
-    walkForwardMetricas: ForecastMetrics & { folds: number };
-    variablesUtilizadas: string[];
-    variablesDescartadas: ForecastExcludedVariable[];
-    featureImportance: ForecastFeatureImportanceItem[];
-  }>;
-  recomendacion: {
-    modeloId: string | null;
-    version: number | null;
-    criterio: string;
-    motivo: string;
-  };
-};
-
-export type ForecastHourlyPrediction = {
-  timestampUtc: string;
-  precioPrevisto: number;
-};
-
-export type ForecastRangePredictionDay = {
-  fecha: string;
-  precioMedioPrevisto: number;
-  prediccionesHorarias: ForecastHourlyPrediction[];
-};
-
-export type ForecastPredictionRangeResponse = {
-  modeloId: string;
-  modelo: string;
-  version: number;
-  fechaDesde: string;
-  fechaHasta: string;
-  intervalosConfianza: null | {
-    lower: number;
-    upper: number;
-    confidenceLevel: number;
-  };
-  predicciones: ForecastRangePredictionDay[];
-};
-
-export type ForecastPredictionRun = {
-  id: string;
-  modeloId: string;
-  fechaEjecucion: string;
-  fechaDesde: string;
-  fechaHasta: string;
-  tipoPrediccion: string;
-  input: unknown;
-  output: unknown;
-  usuario: string | null;
-  createdAt: string;
-};
 
 export type EsiosDownloadLog = {
   id: string;
@@ -1534,7 +1161,6 @@ export type EsiosProfileIntermediateSummary = {
   latestCalculation: EsiosProfileIntermediateLog | null;
   sumIntermediateProfiles: Record<EsiosProfileTariff, number | null>;
   totalDemandUsedMw: number | null;
-  totalForecastDemandMw: number | null;
   totalFinalDemandMw: number | null;
   totalReferenceDemandMw: number | null;
   finalDemandValidation?: {
@@ -1706,12 +1332,122 @@ export type A1Record = {
   file?: ReeFile;
 };
 
+export type ReeSeieFile = {
+  id: string;
+  fileName: string;
+  containerFileName?: string | null;
+  fileHash: string;
+  tipoArchivo: "SEIE";
+  version: string;
+  fechaLiquidacion: string;
+  sujetoEic?: string | null;
+  encoding: string;
+  delimiter: string;
+  status: "IMPORTED" | "FAILED" | "DUPLICATED";
+  errorMessage?: string | null;
+  importedAt: string;
+  totalRecords: number;
+  validRecords: number;
+  invalidRecords: number;
+  duplicatedRecords: number;
+};
+
+export type ReeSeieRecord = {
+  id: string;
+  fileId: string;
+  uploadId: string;
+  filename: string;
+  hash: string;
+  fechaCarga: string;
+  version: string;
+  fechaLiquidacion: string;
+  sujetoEic?: string | null;
+  fecha?: string | null;
+  hora?: number | null;
+  codigo?: string | null;
+  unidad?: string | null;
+  tipo?: string | null;
+  sentido?: string | null;
+  segmento?: string | null;
+  magnitud?: string | null;
+  precio?: string | null;
+  energia?: string | null;
+  validationErrors?: string[] | null;
+  rawPayloadJson?: Record<string, string | null>;
+  sourceLineNumber: number;
+  file?: ReeSeieFile;
+};
+
+export type ReeSeieFilters = {
+  fecha?: string;
+  fechaInicio?: string;
+  fechaFin?: string;
+  codigo?: string;
+  unidad?: string;
+  tipo?: string;
+  sentido?: string;
+  segmento?: string;
+  hora?: number;
+  archivo?: string;
+  version?: string;
+  skip?: number;
+  take?: number;
+};
+
+export type ReeSeieFilterOptions = {
+  versions: string[];
+  months: string[];
+  codigos: string[];
+  unidades: string[];
+  tipos: string[];
+  sentidos: string[];
+  segmentos: string[];
+  archivos: string[];
+  latestMonth: string | null;
+};
+
+export type ReeSeieSummary = {
+  files: ReeSeieFile[];
+  groups: Array<{
+    fechaLiquidacion: string;
+    version: string;
+    segmento?: string | null;
+    tipo?: string | null;
+    sentido?: string | null;
+    records: number;
+    magnitud?: string | null;
+    energia?: string | null;
+  }>;
+  validation: {
+    invalidRecords: number;
+  };
+};
+
+export type ReeSeieImportResponse = Omit<ImportResponse, "results" | "files"> & {
+  results: Array<{
+    fileName: string;
+    status: "IMPORTED" | "FAILED" | "DUPLICATE";
+    file?: ReeSeieFile;
+    recordsImported: number;
+    validRecords: number;
+    invalidRecords: number;
+    duplicatedRecords: number;
+    errors: Array<{
+      sourceFileName: string;
+      lineNumber: number;
+      message: string;
+    }>;
+  }>;
+  files: ReeSeieFile[];
+};
+
 export type Filters = {
   fecha?: string;
   fechaInicio?: string;
   fechaFin?: string;
   version?: ReeVersion;
   brp?: string;
+  brps?: string[];
   sujeto?: string;
   segmento?: string;
   codigoApunte?: string;
@@ -2084,7 +1820,11 @@ export async function listImports(query: Pick<Filters, "skip" | "take"> = {}): P
 }
 
 export async function getReeDownloadCenterSummary(): Promise<ReeDownloadCenterSummaryRow[]> {
-  return getJson(`/imports/download-center-summary`);
+  const [base, seie] = await Promise.all([
+    getJson<ReeDownloadCenterSummaryRow[]>(`/imports/download-center-summary`),
+    getJson<ReeDownloadCenterSummaryRow[]>(`/ree-seie/download-center-summary`)
+  ]);
+  return [...base, ...seie];
 }
 
 export async function login(username: string, password: string): Promise<AuthSession> {
@@ -2200,12 +1940,52 @@ export async function uploadReeLossesFiles(files: File[], onProgress?: (progress
   return sendMultipart<ReeLossesImportResponse>(`${API_URL}/ree-losses/import`, formData, onProgress);
 }
 
+export async function uploadReeSeieFiles(
+  files: File[],
+  onProgress?: (progress: number) => void,
+  options: UploadOptions = {}
+): Promise<ReeSeieImportResponse> {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("files", file, file.name);
+  }
+
+  return sendMultipart<ReeSeieImportResponse>(`${API_URL}/ree-seie/import${toQuery({ overwrite: options.overwrite ? "true" : undefined })}`, formData, onProgress);
+}
+
 export async function listReganecu(filters: Filters): Promise<A1Record[]> {
   return getJson(`/reganecu${toQuery(filters)}`);
 }
 
 export async function listReganecuQh(filters: Filters): Promise<A1Record[]> {
   return getJson(`/reganecu-qh${toQuery(filters)}`);
+}
+
+export async function listReeSeieFiles(query: Pick<ReeSeieFilters, "skip" | "take"> = {}): Promise<ReeSeieFile[]> {
+  return getJson(`/ree-seie/files${toQuery(query)}`);
+}
+
+export async function getReeSeieFilterOptions(): Promise<ReeSeieFilterOptions> {
+  return getJson(`/ree-seie/filters`);
+}
+
+export async function getReeSeieSummary(filters: ReeSeieFilters): Promise<ReeSeieSummary> {
+  return getJson(`/ree-seie/summary${toQuery(filters)}`);
+}
+
+export async function listReeSeieRecords(filters: ReeSeieFilters): Promise<ReeSeieRecord[]> {
+  return getJson(`/ree-seie/records${toQuery(filters)}`);
+}
+
+export async function downloadReeSeieExport(filters: ReeSeieFilters = {}, format: "csv" | "xlsx"): Promise<Blob> {
+  return withGlobalLoading(async () => {
+    const response = await fetch(`${API_URL}/ree-seie/export${toQuery({ ...filters, format })}`, { headers: authHeaders() });
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(await readError(response, "Error exportando SEIE."));
+    }
+    return response.blob();
+  }, { label: "Exportando SEIE" });
 }
 
 export async function getSettlementSummary(filters: Filters): Promise<SettlementSummary> {
@@ -2349,6 +2129,28 @@ export async function getOmieAnalisisMensual(year: number | string, month: numbe
 
 export async function getOmieComprobacionLiquidaciones(year: number | string, month: number | string): Promise<OmieComprobacionLiquidacionesResponse> {
   return getJson(`/omie/analisis/comprobacion-liquidaciones${toQuery({ year, month })}`);
+}
+
+export async function getOmieGuaranteeCalculator(referenceDate: string): Promise<GuaranteeCalculatorResponse> {
+  return getJson(`/omie/guarantees/calculator${toQuery({ referenceDate })}`);
+}
+
+export async function downloadOmieGuaranteeCalculator(referenceDate: string): Promise<Blob> {
+  return withGlobalLoading(async () => {
+    const response = await fetch(`${API_URL}/omie/guarantees/calculator/export${toQuery({ referenceDate })}`, { headers: authHeaders() });
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(await readError(response, "Error exportando calculadora de garantias."));
+    }
+    return response.blob();
+  }, { label: "Exportando garantias OMIE" });
+}
+
+export async function saveOmieDepositedGuarantee(date: string, amount: number | null): Promise<{ date: string; amount: number | null; updatedAt: string }> {
+  return sendJson(`/omie/guarantees/deposited`, "PUT", "Guardando garantias depositadas", REQUEST_TIMEOUT_MS, {
+    date,
+    amount
+  });
 }
 
 export async function saveOmieLiquidationInvoice(fecha: string, facturaCompra: number | null, facturaVenta: number | null): Promise<OmieLiquidationInvoiceResponse> {
@@ -2505,28 +2307,6 @@ export async function uploadEsiosReeFinalProfiles(
   return sendMultipart<EsiosReeFinalProfileUploadResponse>(`${API_URL}/esios/profiles/final-profiles/upload${toQuery({ year, month, replace: replace ? "true" : undefined })}`, formData, onProgress);
 }
 
-export async function getMercadoIndicatorMapping(): Promise<MercadoIndicatorMappingRow[]> {
-  return getJson(`/mercado/indicator-mapping`);
-}
-
-export async function refreshMercadoIndicatorMapping(): Promise<MercadoIndicatorMappingRow[]> {
-  return sendJson(`/mercado/indicator-mapping/refresh`, "POST", "Actualizando mapping Mercado", REQUEST_TIMEOUT_MS);
-}
-
-export async function confirmMercadoIndicatorMapping(request: { variable: string; indicatorId: number; geoId?: number | null; geoKey?: number | null }): Promise<{
-  confirmed: unknown;
-  mapping: MercadoIndicatorMappingRow | null;
-}> {
-  return sendJson(`/mercado/indicator-mapping/confirm`, "POST", "Confirmando mapping Mercado", REQUEST_TIMEOUT_MS, request);
-}
-
-export async function getMercadoDataset(filters: { fechaDesde: string; fechaHasta: string; geoId?: number | string; take?: number | string }): Promise<MercadoDatasetResponse> {
-  return getJson(`/mercado/dataset${toQuery(filters)}`);
-}
-
-export async function getMercadoDatasetValidation(filters: { fechaDesde: string; fechaHasta: string; geoId?: number | string }): Promise<MercadoDatasetValidationResponse> {
-  return getJson(`/mercado/dataset/validation${toQuery(filters)}`);
-}
 
 export async function getPricingBaseTable(filters: PricingBaseFilters = {}): Promise<PricingBaseResponse> {
   return getJson(`/pricing-base/table${toQuery({
@@ -2567,41 +2347,6 @@ export async function uploadPricingMeffFile(file: File, onProgress?: (progress: 
   return sendMultipart<PricingMeffImportResponse>(`${API_URL}/pricing/meff/import`, formData, onProgress);
 }
 
-export async function getMercadoAnalytics(filters: { fechaDesde: string; fechaHasta: string; geoId?: number | string }): Promise<MercadoAnalyticsResponse> {
-  return getJson(`/mercado/analytics${toQuery(filters)}`);
-}
-
-export async function getMercadoCoverageDiagnostics(filters: { fechaDesde: string; fechaHasta: string; geoId?: number | string }): Promise<MercadoCoverageDiagnosticsResponse> {
-  return getJson(`/mercado/coverage-diagnostics${toQuery(filters)}`);
-}
-
-export async function getForecastModels(): Promise<ForecastModelsResponse> {
-  return getJson(`/mercado/forecast/models`);
-}
-
-export async function getForecastModelDetail(id: string): Promise<ForecastModelDetail> {
-  return getJson(`/mercado/forecast/models/${encodeURIComponent(id)}`);
-}
-
-export async function activateForecastModel(id: string): Promise<ForecastModelDetail> {
-  return sendJson(`/mercado/forecast/models/${encodeURIComponent(id)}/activate`, "POST", "Activando modelo Forecast", REQUEST_TIMEOUT_MS);
-}
-
-export async function trainForecastModel(request: { fechaDesde: string; fechaHasta: string; modelo: string; geoId?: number | string }): Promise<ForecastTrainResponse> {
-  return sendJson(`/mercado/forecast/train`, "POST", "Entrenando modelo Forecast", REQUEST_TIMEOUT_MS * 12, request);
-}
-
-export async function compareForecastModels(ids: string[]): Promise<ForecastCompareResponse> {
-  return getJson(`/mercado/forecast/models/compare${toQuery({ ids: ids.join(",") })}`);
-}
-
-export async function predictForecastRange(request: { modeloId: string; fechaDesde: string; fechaHasta: string; geoId?: number | string }): Promise<ForecastPredictionRangeResponse> {
-  return sendJson(`/mercado/forecast/predict/range`, "POST", "Calculando prevision Forecast", REQUEST_TIMEOUT_MS * 4, request);
-}
-
-export async function getForecastPredictionHistory(filters: { modeloId?: string; fechaDesde?: string; fechaHasta?: string } = {}): Promise<ForecastPredictionRun[]> {
-  return getJson(`/mercado/forecast/predictions${toQuery(filters)}`);
-}
 
 async function getJson<T>(path: string): Promise<T> {
   return withGlobalLoading(async () => {

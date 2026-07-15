@@ -10,6 +10,7 @@ datasource db {
 enum ReeFileType {
   REGANECU
   REGANECUQH
+  SEIE
 }
 
 enum ReeSettlementVersion {
@@ -571,6 +572,114 @@ model OmieLiquidationInvoice {
   @@map("omie_liquidation_invoices")
 }
 
+model OmieGuaranteeDeposited {
+  id        String   @id @default(uuid()) @db.Uuid
+  date      DateTime @unique @db.Date
+  amount    Decimal  @db.Decimal(20, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("omie_guarantees_deposited")
+}
+
+model ReeSeieFile {
+  id                 String           @id @default(uuid()) @db.Uuid
+  fileName           String           @map("file_name")
+  containerFileName  String?          @map("container_file_name")
+  fileHash           String           @map("file_hash")
+  tipoArchivo        ReeFileType      @map("tipo_archivo")
+  version            String
+  fechaLiquidacion   DateTime         @map("fecha_liquidacion") @db.Date
+  sujetoEic          String?          @map("sujeto_eic")
+  encoding           String
+  delimiter          String
+  status             ReeImportStatus  @default(IMPORTED)
+  errorMessage       String?          @map("error_message") @db.Text
+  originalContent    Bytes?           @map("original_content")
+  importedAt         DateTime         @default(now()) @map("imported_at")
+  totalRecords       Int              @default(0) @map("total_records")
+  validRecords       Int              @default(0) @map("valid_records")
+  invalidRecords     Int              @default(0) @map("invalid_records")
+  duplicatedRecords  Int              @default(0) @map("duplicated_records")
+  records            ReeSeieRecord[]
+
+  @@unique([fileHash])
+  @@index([tipoArchivo])
+  @@index([version])
+  @@index([fechaLiquidacion])
+  @@index([sujetoEic])
+  @@index([importedAt])
+  @@map("ree_seie_files")
+}
+
+model ReeSeieRecord {
+  id                   String          @id @default(uuid()) @db.Uuid
+  fileId               String          @map("file_id") @db.Uuid
+  file                 ReeSeieFile     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  uploadId             String          @map("upload_id") @db.Uuid
+  filename             String
+  hash                 String
+  fechaCarga           DateTime        @default(now()) @map("fecha_carga")
+  version              String
+  fechaLiquidacion     DateTime        @map("fecha_liquidacion") @db.Date
+  sujetoEic            String?         @map("sujeto_eic")
+  fecha                DateTime?       @db.Date
+  hora                 Int?
+  codigo               String?
+  magnitud             Decimal?        @db.Decimal(20, 6)
+  precio               Decimal?        @db.Decimal(20, 8)
+  energia              Decimal?        @db.Decimal(20, 6)
+  unidad               String?
+  tipo                 String?
+  sentido              String?
+  segmento             String?
+  campo01Fecha         String?         @map("campo_01_fecha")
+  campo02Hora          String?         @map("campo_02_hora")
+  campo03Codigo        String?         @map("campo_03_codigo")
+  campo04Magnitud      String?         @map("campo_04_magnitud")
+  campo05Reservado1    String?         @map("campo_05_reservado_1")
+  campo06Precio        String?         @map("campo_06_precio")
+  campo07Reservado2    String?         @map("campo_07_reservado_2")
+  campo08Energia       String?         @map("campo_08_energia")
+  campo09Reservado3    String?         @map("campo_09_reservado_3")
+  campo10Reservado4    String?         @map("campo_10_reservado_4")
+  campo11Tipo          String?         @map("campo_11_tipo")
+  campo12Sentido       String?         @map("campo_12_sentido")
+  campo13Unidad        String?         @map("campo_13_unidad")
+  campo14Segmento      String?         @map("campo_14_segmento")
+  campo15SignoImporte  String?         @map("campo_15_signo_importe")
+  campo16SignoMagnitud String?         @map("campo_16_signo_magnitud")
+  campo17SujetoEic     String?         @map("campo_17_sujeto_eic")
+  campo18CodigoPrecio  String?         @map("campo_18_codigo_precio")
+  campo19CodigoUnidad2 String?         @map("campo_19_codigo_unidad_2")
+  campo20CodigoUnidad3 String?         @map("campo_20_codigo_unidad_3")
+  campo21Clase         String?         @map("campo_21_clase")
+  campo22Valor1        String?         @map("campo_22_valor_1")
+  campo23Valor2        String?         @map("campo_23_valor_2")
+  campo24Valor3        String?         @map("campo_24_valor_3")
+  validationErrors     Json?           @map("validation_errors")
+  rawPayloadJson       Json            @map("raw_payload_json")
+  rawLine              String          @map("raw_line") @db.Text
+  sourceLineNumber     Int             @map("source_line_number")
+  recordHash           String          @map("record_hash")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  @@unique([recordHash])
+  @@index([uploadId])
+  @@index([hash])
+  @@index([fechaCarga])
+  @@index([fecha])
+  @@index([fechaLiquidacion])
+  @@index([codigo])
+  @@index([unidad])
+  @@index([tipo])
+  @@index([sentido])
+  @@index([segmento])
+  @@index([filename])
+  @@map("ree_seie_records")
+}
+
 model PricingMeffPrice {
   id               String   @id @default(uuid()) @db.Uuid
   fechaPublicacion DateTime @map("fecha_publicacion") @db.Date
@@ -609,6 +718,7 @@ model PricingCalculatorManualValue {
   @@index([periodo])
   @@map("pricing_calculator_manual_values")
 }
+
 model OmieAutomationConfig {
   id         Int      @id @default(1)
   active     Boolean  @default(false)
@@ -710,6 +820,9 @@ model EsiosSeriesAutomationConfig {
   @@map("esios_series_automation_config")
 }
 
+
+
+
 model EsiosProfileUpload {
   id           String                    @id @default(uuid()) @db.Uuid
   year         Int
@@ -742,6 +855,7 @@ model EsiosInitialProfile {
   profile30td       Decimal             @map("profile_30td") @db.Decimal(20, 15)
   profile30tdve     Decimal             @map("profile_30tdve") @db.Decimal(20, 15)
   referenceDemandMw Decimal             @map("reference_demand_mw") @db.Decimal(20, 6)
+  forecastDemandMw   Decimal? @map("forecast_demand_mw") @db.Decimal(20, 6)
   uploadId          String              @map("upload_id") @db.Uuid
   upload            EsiosProfileUpload  @relation(fields: [uploadId], references: [id], onDelete: Cascade)
   createdAt         DateTime            @default(now()) @map("created_at")
