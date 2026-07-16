@@ -6,6 +6,7 @@ import { HealthModule } from "./health/health.module";
 import { ImportsModule } from "./imports/imports.module";
 import { OmieAnalisisModule } from "./omie-analisis/omie-analisis.module";
 import { OmieDescargasModule } from "./omie-descargas/omie-descargas.module";
+import { OmieGuaranteesModule } from "./omie-guarantees/omie-guarantees.module";
 import { OmiePreciosModule } from "./omie-precios/omie-precios.module";
 import { OmieProgramasModule } from "./omie-programas/omie-programas.module";
 import { OmieSiom2Module } from "./omie-siom2/omie-siom2.module";
@@ -27,6 +28,7 @@ import { ReeLossesModule } from "./ree-losses/ree-losses.module";
     OmiePreciosModule,
     OmieTransaccionesModule,
     OmieAnalisisModule,
+    OmieGuaranteesModule,
     OmieDescargasModule,
     PricingBaseModule,
     PricingMeffModule,

@@ -79,6 +79,9 @@ export function activeSidebarItemKeys(section: Section): string[] {
   if (section === "omieAnalisisMensual" || section === "omieComprobacionLiquidaciones") {
     return ["omie-hoja-control-menu"];
   }
+  if (section === "omieGarantias") {
+    return ["omie-garantias-menu"];
+  }
   if (section === "liquidationAnalysis") {
     return ["ree-reganecu-menu"];
   }
@@ -97,6 +100,7 @@ export function isOmieSection(section: Section) {
     section === "omiePrecios" ||
     section === "omieAnalisisMensual" ||
     section === "omieComprobacionLiquidaciones" ||
+    section === "omieGarantias" ||
     section === "omieTransacciones" ||
     section === "omieDescargas"
   );

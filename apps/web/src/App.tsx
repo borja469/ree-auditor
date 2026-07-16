@@ -55,6 +55,7 @@ import {
 } from "./app-shell/AppState";
 import { LiquidationAnalysisView } from "./modules/liquidation-analysis/LiquidationAnalysisView";
 import { OmieDescargasControlModule, formatDurationMs, getOmieDailyBulkDate, normalizeOmieDownloadRequest } from "./modules/omie/descargas/OmieDescargasControlModule";
+import { OmieGarantiasModule } from "./modules/omie/garantias/OmieGarantiasModule";
 import { OmiePreciosModule } from "./modules/omie/precios/OmiePreciosModule";
 import { OmieProgramasModule } from "./modules/omie/programas/OmieProgramasModule";
 import { OmieTransaccionesModule } from "./modules/omie/transacciones/OmieTransaccionesModule";
@@ -1215,6 +1216,10 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       return;
     }
 
+    if (section === "omieGarantias") {
+      return;
+    }
+
     if (section === "omieTransacciones") {
       void refreshOmieTransacciones();
       return;
@@ -1498,6 +1503,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                 ? "OMIE Detalle de Carga"
                 : section === "omieComprobacionLiquidaciones"
                   ? "OMIE Comprobación Liquidaciones"
+                  : section === "omieGarantias"
+                    ? "OMIE Garantias"
                   : section === "omieTransacciones"
                     ? "OMIE Transacciones"
                   : section === "omieDescargas"
@@ -1561,6 +1568,10 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 
     if (section === "omieComprobacionLiquidaciones") {
       void refreshOmieComprobacionLiquidaciones();
+      return;
+    }
+
+    if (section === "omieGarantias") {
       return;
     }
 
@@ -1806,6 +1817,13 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           description: "estado y reproceso",
           active: section === "omieDescargas",
           onSelect: () => changeSection("omieDescargas")
+        },
+        {
+          key: "omie-garantias-menu",
+          label: "Garantias",
+          description: "calculadora diaria",
+          active: section === "omieGarantias",
+          onSelect: () => changeSection("omieGarantias")
         },
         {
           key: "omie-hoja-control-menu",
@@ -2111,6 +2129,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
               onGoToDownloads={() => changeSection("omieDescargas")}
             />
           )}
+          {section === "omieGarantias" && <OmieGarantiasModule />}
           {section === "omieTransacciones" && (
             <OmieTransaccionesModule
               filters={omieTransactionFilters}

@@ -494,6 +494,42 @@ export type OmieComprobacionLiquidacionesResponse = {
   cuadroEnergetico: OmieComprobacionCuadre;
 };
 
+export type GuaranteeCalculatorRow = {
+  date: string;
+  displayDate: string;
+  weekday: string;
+  volume: number | null;
+  volumeSource: "REAL" | "PREVIOUS_WEEK" | "MISSING";
+  volumeSourceDate: string | null;
+  price: number | null;
+  priceSource: "OMIE" | "MEFF" | "MISSING";
+  pricePublicationDate: string | null;
+  meffCode: string | null;
+  invoicingAmount: number | null;
+  invoicingSource: "REAL" | "ESTIMATED" | "MISSING";
+  accumulatedInvoicing: number;
+  depositedGuarantee: number | null;
+  prepaidPayment: number | null;
+  availableGuarantee: number | null;
+  warnings: string[];
+};
+
+export type GuaranteeCalculatorResponse = {
+  referenceDate: string;
+  startDate: string;
+  endDate: string;
+  rows: GuaranteeCalculatorRow[];
+  summary: {
+    totalVolume: number;
+    totalInvoicing: number;
+    daysWithRealVolume: number;
+    daysWithSubstitutedVolume: number;
+    daysWithOmiePrice: number;
+    daysWithMeffPrice: number;
+    daysWithMissingData: number;
+  };
+};
+
 export type OmieLiquidationInvoiceResponse = {
   fecha: string;
   fechaIso: string;
@@ -2349,6 +2385,35 @@ export async function getOmieAnalisisMensual(year: number | string, month: numbe
 
 export async function getOmieComprobacionLiquidaciones(year: number | string, month: number | string): Promise<OmieComprobacionLiquidacionesResponse> {
   return getJson(`/omie/analisis/comprobacion-liquidaciones${toQuery({ year, month })}`);
+}
+
+export async function getOmieGuaranteeCalculator(referenceDate: string): Promise<GuaranteeCalculatorResponse> {
+  return getJson(`/omie/guarantees/calculator${toQuery({ referenceDate })}`);
+}
+
+export async function downloadOmieGuaranteeCalculator(referenceDate: string): Promise<Blob> {
+  return withGlobalLoading(async () => {
+    const response = await fetch(`${API_URL}/omie/guarantees/calculator/export${toQuery({ referenceDate })}`, { headers: authHeaders() });
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(await readError(response, "Error exportando calculadora de garantias."));
+    }
+    return response.blob();
+  }, { label: "Exportando garantias OMIE" });
+}
+
+export async function saveOmieDepositedGuarantee(date: string, amount: number | null): Promise<{ date: string; amount: number | null; updatedAt: string }> {
+  return sendJson(`/omie/guarantees/deposited`, "PUT", "Guardando garantias depositadas", REQUEST_TIMEOUT_MS, {
+    date,
+    amount
+  });
+}
+
+export async function saveOmiePrepaidPayment(date: string, amount: number | null): Promise<{ date: string; amount: number | null; prepaidPayment: number | null; updatedAt: string }> {
+  return sendJson(`/omie/guarantees/prepaid`, "PUT", "Guardando pago anticipado", REQUEST_TIMEOUT_MS, {
+    date,
+    amount
+  });
 }
 
 export async function saveOmieLiquidationInvoice(fecha: string, facturaCompra: number | null, facturaVenta: number | null): Promise<OmieLiquidationInvoiceResponse> {

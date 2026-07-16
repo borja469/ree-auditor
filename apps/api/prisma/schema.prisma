@@ -571,6 +571,17 @@ model OmieLiquidationInvoice {
   @@map("omie_liquidation_invoices")
 }
 
+model OmieGuaranteeDeposited {
+  id             String   @id @default(uuid()) @db.Uuid
+  date           DateTime @unique @db.Date
+  amount         Decimal? @db.Decimal(20, 2)
+  prepaidPayment Decimal? @map("prepaid_payment") @db.Decimal(20, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("omie_guarantees_deposited")
+}
+
 model PricingMeffPrice {
   id               String   @id @default(uuid()) @db.Uuid
   fechaPublicacion DateTime @map("fecha_publicacion") @db.Date

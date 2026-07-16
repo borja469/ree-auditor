@@ -8,6 +8,7 @@ export type Section =
   | "omiePrecios"
   | "omieAnalisisMensual"
   | "omieComprobacionLiquidaciones"
+  | "omieGarantias"
   | "omieTransacciones"
   | "omieDescargas"
   | "esiosIndicadores"

@@ -6,6 +6,7 @@ import { OmieAnalisisService } from "./omie-analisis.service";
 @Module({
   imports: [PrismaModule],
   controllers: [OmieAnalisisController],
-  providers: [OmieAnalisisService]
+  providers: [OmieAnalisisService],
+  exports: [OmieAnalisisService]
 })
 export class OmieAnalisisModule {}
