@@ -573,11 +573,12 @@ model OmieLiquidationInvoice {
 }
 
 model OmieGuaranteeDeposited {
-  id        String   @id @default(uuid()) @db.Uuid
-  date      DateTime @unique @db.Date
-  amount    Decimal  @db.Decimal(20, 2)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid()) @db.Uuid
+  date           DateTime @unique @db.Date
+  amount         Decimal? @db.Decimal(20, 2)
+  prepaidPayment Decimal? @map("prepaid_payment") @db.Decimal(20, 2)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("omie_guarantees_deposited")
 }

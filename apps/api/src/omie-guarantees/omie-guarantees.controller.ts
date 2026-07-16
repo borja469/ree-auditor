@@ -24,6 +24,11 @@ export class OmieGuaranteesController {
   saveDeposited(@Body() body: unknown) {
     return this.service.saveDepositedGuarantee(parseDepositedBody(body));
   }
+
+  @Put("prepaid")
+  savePrepaid(@Body() body: unknown) {
+    return this.service.savePrepaidPayment(parseDepositedBody(body));
+  }
 }
 
 function parseDepositedBody(body: unknown) {

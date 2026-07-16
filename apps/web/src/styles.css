@@ -4374,80 +4374,250 @@ select:disabled {
   gap: 8px;
 }
 
-.omie-guarantees-kpis {
-  margin-right: 30px;
-  margin-left: 30px;
-  grid-template-columns: repeat(6, minmax(120px, 1fr));
-}
-
 .omie-guarantees-table-panel .table-scroll {
   max-height: calc(100vh - 350px);
+  overflow-x: auto;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
 }
 
-.omie-guarantees-table {
+.ree-download-table.omie-guarantees-table {
+  width: 100%;
   min-width: 0;
-  table-layout: fixed;
+  max-width: 100%;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: auto;
+  font-size: 0.69rem;
 }
 
-.omie-guarantees-table th,
-.omie-guarantees-table td {
+.ree-download-table.omie-guarantees-table th,
+.ree-download-table.omie-guarantees-table td {
+  min-width: 0;
+  overflow: hidden;
+  padding: 4px 4px;
+  text-overflow: ellipsis;
   vertical-align: top;
+  white-space: nowrap;
 }
 
-.omie-guarantees-table th.number,
-.omie-guarantees-table td.number {
+.omie-guarantees-table .guarantee-col-date {
+  width: 5.2%;
+}
+
+.omie-guarantees-table .guarantee-col-day {
+  width: 3.8%;
+}
+
+.omie-guarantees-table .guarantee-col-volume {
+  width: 14.5%;
+}
+
+.omie-guarantees-table .guarantee-col-price {
+  width: 14.5%;
+}
+
+.omie-guarantees-table .guarantee-col-amount {
+  width: 10.8%;
+}
+
+.omie-guarantees-table .guarantee-col-accumulated {
+  width: 11.4%;
+}
+
+.omie-guarantees-table .guarantee-col-deposited {
+  width: 96px;
+}
+
+.omie-guarantees-table .guarantee-col-prepaid {
+  width: 96px;
+}
+
+.omie-guarantees-table .guarantee-col-available {
+  width: 12%;
+}
+
+.ree-download-table.omie-guarantees-table th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  font-size: 0.62rem;
+  line-height: 1.08;
+  white-space: nowrap;
+}
+
+.ree-download-table.omie-guarantees-table th.number,
+.ree-download-table.omie-guarantees-table td.number {
   text-align: right;
+}
+
+.ree-download-table.omie-guarantees-table td:nth-child(3),
+.ree-download-table.omie-guarantees-table td:nth-child(4),
+.ree-download-table.omie-guarantees-table td:nth-child(5) {
+  overflow: visible;
+}
+
+.ree-download-table.omie-guarantees-table tbody td:focus-within,
+.ree-download-table.omie-guarantees-table tbody td:hover {
+  position: relative;
+  z-index: 6;
 }
 
 .guarantee-date-cell,
 .guarantee-metric {
   display: grid;
-  gap: 3px;
+  gap: 2px;
 }
 
 .guarantee-date-cell {
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: max-content auto;
   align-items: center;
   color: var(--color-text);
   font-weight: 850;
+  white-space: nowrap;
+}
+
+.guarantee-date-cell svg:first-child {
+  display: none;
 }
 
 .guarantee-date-cell svg:last-child {
   color: var(--color-warning);
 }
 
+.guarantee-metric {
+  position: relative;
+  grid-template-columns: minmax(0, max-content) 13px;
+  align-items: center;
+  justify-content: end;
+  gap: 2px;
+}
+
 .guarantee-metric strong {
+  min-width: 0;
   color: var(--color-text);
-  font-size: 0.82rem;
+  overflow: hidden;
+  font-size: 0.69rem;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.guarantee-metric small {
-  color: var(--color-muted);
-  font-size: 0.68rem;
-  font-weight: 850;
+.guarantee-stepper-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 3px;
+  justify-content: end;
 }
 
-.guarantee-metric small.ok {
+.guarantee-source-info {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 13px;
+  height: 13px;
+}
+
+.guarantee-source-info button {
+  display: inline-grid;
+  width: 13px;
+  height: 13px;
+  place-items: center;
+  padding: 0;
+  color: currentColor;
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+}
+
+.guarantee-source-info.ok {
   color: var(--color-success);
 }
 
-.guarantee-metric small.warning {
+.guarantee-source-info.warning {
   color: var(--color-warning);
 }
 
-.guarantee-metric small.danger {
+.guarantee-source-info.danger {
   color: var(--color-danger);
 }
 
+.guarantee-source-tooltip {
+  position: absolute;
+  top: 50%;
+  right: 18px;
+  z-index: 40;
+  width: max-content;
+  max-width: 240px;
+  padding: 5px 7px;
+  color: #ffffff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: left;
+  white-space: nowrap;
+  pointer-events: none;
+  background: #17212b;
+  border-radius: 6px;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.18);
+  opacity: 0;
+  transform: translateY(-50%) translateX(-2px);
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+
+.guarantee-source-info:hover .guarantee-source-tooltip,
+.guarantee-source-info:focus-within .guarantee-source-tooltip {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
+.guarantee-stepper-actions {
+  display: inline-grid;
+  grid-template-columns: repeat(2, 14px);
+  gap: 2px;
+}
+
+.guarantee-stepper-actions button {
+  display: inline-grid;
+  width: 14px;
+  height: 18px;
+  place-items: center;
+  padding: 0;
+  color: #31505d;
+  background: #eef5f8;
+  border: 1px solid #d8e2e8;
+  border-radius: 6px;
+}
+
+.guarantee-stepper-actions button:hover:not(:disabled) {
+  color: #ffffff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
 .guarantee-deposit-input-shell {
-  max-width: 150px;
+  width: 84px;
+  max-width: 84px;
   margin-left: auto;
+  padding: 0 4px;
+}
+
+.guarantee-deposit-input-shell .omie-factura-input {
+  height: 24px;
+  font-size: 0.68rem;
+}
+
+.guarantee-deposit-input-shell .omie-factura-suffix {
+  font-size: 0.6rem;
 }
 
 .guarantee-available {
+  overflow: hidden;
   font-weight: 850;
   font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .guarantee-available.danger {
@@ -4463,13 +4633,31 @@ select:disabled {
 }
 
 @media (max-width: 1366px) {
-  .omie-guarantees-kpis {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .omie-guarantees-header {
     align-items: stretch;
     flex-direction: column;
+  }
+}
+
+@media (max-width: 1399px) {
+  .omie-guarantees-table-panel .table-scroll {
+    overflow-x: auto;
+  }
+
+  .ree-download-table.omie-guarantees-table {
+    min-width: 1060px;
+  }
+}
+
+@media (min-width: 1400px) {
+  .omie-guarantees-table-panel .table-scroll {
+    overflow-x: auto;
+  }
+
+  .ree-download-table.omie-guarantees-table {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
   }
 }
 

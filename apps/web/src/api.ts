@@ -509,6 +509,7 @@ export type GuaranteeCalculatorRow = {
   invoicingSource: "REAL" | "ESTIMATED" | "MISSING";
   accumulatedInvoicing: number;
   depositedGuarantee: number | null;
+  prepaidPayment: number | null;
   availableGuarantee: number | null;
   warnings: string[];
 };
@@ -2148,6 +2149,13 @@ export async function downloadOmieGuaranteeCalculator(referenceDate: string): Pr
 
 export async function saveOmieDepositedGuarantee(date: string, amount: number | null): Promise<{ date: string; amount: number | null; updatedAt: string }> {
   return sendJson(`/omie/guarantees/deposited`, "PUT", "Guardando garantias depositadas", REQUEST_TIMEOUT_MS, {
+    date,
+    amount
+  });
+}
+
+export async function saveOmiePrepaidPayment(date: string, amount: number | null): Promise<{ date: string; amount: number | null; prepaidPayment: number | null; updatedAt: string }> {
+  return sendJson(`/omie/guarantees/prepaid`, "PUT", "Guardando pago anticipado", REQUEST_TIMEOUT_MS, {
     date,
     amount
   });

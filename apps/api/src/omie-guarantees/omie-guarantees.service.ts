@@ -3,7 +3,6 @@ import { Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { OmieAnalisisService } from "../omie-analisis/omie-analisis.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { buildCurveMonths, toCurveProduct } from "../pricing-base/meff_forward_curve_service";
 import {
   addDays,
   buildGuaranteeRows,
@@ -24,19 +23,27 @@ export class OmieGuaranteesService {
 
   async calculate(referenceDate: string): Promise<GuaranteeCalculatorResponse> {
     const range = calculateGuaranteeDateRange(referenceDate);
-    const [omieDays, meffPrices, depositedGuarantees] = await Promise.all([
+    const [omieDays, meffPrices, guaranteeAdjustments] = await Promise.all([
       this.loadOmieDays(addDays(parseDateKey(range.startDate), -7), parseDateKey(range.endDate)),
-      this.loadMeffPrices(referenceDate, range.startDate, range.endDate),
-      this.loadDepositedGuarantees(range.startDate, range.endDate)
+      this.loadMeffPrices(range.startDate, range.endDate),
+      this.loadGuaranteeAdjustments(range.startDate, range.endDate)
     ]);
-    return buildGuaranteeRows({ referenceDate, omieDays, meffPrices, depositedGuarantees });
+    return buildGuaranteeRows({ referenceDate, omieDays, meffPrices, depositedGuarantees: guaranteeAdjustments.depositedGuarantees, prepaidPayments: guaranteeAdjustments.prepaidPayments });
   }
 
-  async saveDepositedGuarantee(input: { date: string; amount: number | null }): Promise<DepositedGuarantee | { date: string; amount: null; updatedAt: string }> {
+  async saveDepositedGuarantee(input: { date: string; amount: number | null }): Promise<DepositedGuarantee> {
     const date = parseDateKey(input.date);
     if (input.amount === null) {
-      await this.prisma.omieGuaranteeDeposited.delete({ where: { date } }).catch(() => null);
-      return { date: input.date, amount: null, updatedAt: new Date().toISOString() };
+      const existing = await this.prisma.omieGuaranteeDeposited.findUnique({ where: { date }, select: { prepaidPayment: true } });
+      if (!existing?.prepaidPayment) {
+        await this.prisma.omieGuaranteeDeposited.delete({ where: { date } }).catch(() => null);
+        return { date: input.date, amount: null, prepaidPayment: null, updatedAt: new Date().toISOString() };
+      }
+      const updated = await this.prisma.omieGuaranteeDeposited.update({
+        where: { date },
+        data: { amount: null }
+      });
+      return adjustmentDto(updated);
     }
     const row = await this.prisma.omieGuaranteeDeposited.upsert({
       where: { date },
@@ -48,11 +55,34 @@ export class OmieGuaranteesService {
         amount: new Prisma.Decimal(input.amount.toFixed(2))
       }
     });
-    return {
-      date: formatDateKey(row.date),
-      amount: Number(row.amount.toString()),
-      updatedAt: row.updatedAt.toISOString()
-    };
+    return adjustmentDto(row);
+  }
+
+  async savePrepaidPayment(input: { date: string; amount: number | null }): Promise<DepositedGuarantee> {
+    const date = parseDateKey(input.date);
+    if (input.amount === null) {
+      const existing = await this.prisma.omieGuaranteeDeposited.findUnique({ where: { date }, select: { amount: true } });
+      if (!existing?.amount) {
+        await this.prisma.omieGuaranteeDeposited.delete({ where: { date } }).catch(() => null);
+        return { date: input.date, amount: null, prepaidPayment: null, updatedAt: new Date().toISOString() };
+      }
+      const updated = await this.prisma.omieGuaranteeDeposited.update({
+        where: { date },
+        data: { prepaidPayment: null }
+      });
+      return adjustmentDto(updated);
+    }
+    const row = await this.prisma.omieGuaranteeDeposited.upsert({
+      where: { date },
+      create: {
+        date,
+        prepaidPayment: new Prisma.Decimal(input.amount.toFixed(2))
+      },
+      update: {
+        prepaidPayment: new Prisma.Decimal(input.amount.toFixed(2))
+      }
+    });
+    return adjustmentDto(row);
   }
 
   async export(referenceDate: string) {
@@ -88,6 +118,7 @@ export class OmieGuaranteesService {
           "Tipo importe": row.invoicingSource,
           "Fact. acumulada": row.accumulatedInvoicing,
           "Garantias depositadas": row.depositedGuarantee,
+          "Pago anticipado": row.prepaidPayment,
           "Garantia disponible": row.availableGuarantee,
           Advertencias: row.warnings.join(" | ")
         }))
@@ -121,7 +152,7 @@ export class OmieGuaranteesService {
     return map;
   }
 
-  private async loadDepositedGuarantees(startDate: string, endDate: string) {
+  private async loadGuaranteeAdjustments(startDate: string, endDate: string) {
     const rows = await this.prisma.omieGuaranteeDeposited.findMany({
       where: {
         date: {
@@ -131,37 +162,25 @@ export class OmieGuaranteesService {
       },
       select: {
         date: true,
-        amount: true
+        amount: true,
+        prepaidPayment: true
       }
     });
-    return new Map(rows.map((row) => [formatDateKey(row.date), Number(row.amount.toString())]));
+    return {
+      depositedGuarantees: new Map(rows.flatMap((row) => (row.amount === null ? [] : [[formatDateKey(row.date), Number(row.amount.toString())]]))),
+      prepaidPayments: new Map(rows.flatMap((row) => (row.prepaidPayment === null ? [] : [[formatDateKey(row.date), Number(row.prepaidPayment.toString())]])))
+    };
   }
 
-  private async loadMeffPrices(referenceDate: string, startDate: string, endDate: string) {
-    const publication = await this.prisma.pricingMeffPrice.findFirst({
-      where: {
-        fechaPublicacion: {
-          lte: parseDateKey(referenceDate)
-        }
-      },
+  private async loadMeffPrices(startDate: string, endDate: string) {
+    const dates = enumerateDateKeys(startDate, endDate);
+    const missingMap = new Map(dates.map((date) => [date, { price: null, publicationDate: null, code: null } satisfies MeffGuaranteePrice]));
+    const rows = await this.prisma.pricingMeffPrice.findMany({
       orderBy: {
         fechaPublicacion: "desc"
       },
       select: {
-        fechaPublicacion: true
-      }
-    });
-    const dates = enumerateDateKeys(startDate, endDate);
-    const missingMap = new Map(dates.map((date) => [date, { price: null, publicationDate: null, code: null } satisfies MeffGuaranteePrice]));
-    if (!publication) {
-      return missingMap;
-    }
-
-    const rows = await this.prisma.pricingMeffPrice.findMany({
-      where: {
-        fechaPublicacion: publication.fechaPublicacion
-      },
-      select: {
+        fechaPublicacion: true,
         cod: true,
         tipo: true,
         clase: true,
@@ -170,25 +189,7 @@ export class OmieGuaranteesService {
         precio: true
       }
     });
-    const products = rows
-      .map((row) => toCurveProduct(row))
-      .filter((product): product is NonNullable<ReturnType<typeof toCurveProduct>> => Boolean(product));
-    const months = buildCurveMonths(uniqueMonths(dates), products);
-    const byMonth = new Map(months.map((month) => [month.key, month]));
-    const publicationDate = formatDateKey(publication.fechaPublicacion);
-    return new Map(
-      dates.map((date) => {
-        const month = byMonth.get(date.slice(0, 7));
-        return [
-          date,
-          {
-            price: month?.price ?? null,
-            publicationDate: month?.price === null || month?.price === undefined ? null : publicationDate,
-            code: month?.sourceProductCode ?? month?.productCode ?? null
-          } satisfies MeffGuaranteePrice
-        ];
-      })
-    );
+    return rows.length === 0 ? missingMap : buildDailySwapPriceMap(dates, rows);
   }
 }
 
@@ -202,21 +203,136 @@ function enumerateMonthKeys(startDate: string, endDate: string) {
   return months;
 }
 
-function uniqueMonths(dates: string[]) {
-  const seen = new Set<string>();
-  const months: Array<{ year: number; month: number }> = [];
-  for (const date of dates) {
-    const key = date.slice(0, 7);
-    if (seen.has(key)) {
-      continue;
-    }
-    seen.add(key);
-    months.push({ year: Number(date.slice(0, 4)), month: Number(date.slice(5, 7)) });
-  }
-  return months;
-}
-
 function nullableSum(values: Array<number | null>) {
   const present = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   return present.length > 0 ? Number(present.reduce((sum, value) => sum + value, 0).toFixed(6)) : null;
+}
+
+function adjustmentDto(row: { date: Date; amount: Prisma.Decimal | null; prepaidPayment: Prisma.Decimal | null; updatedAt: Date }): DepositedGuarantee {
+  return {
+    date: formatDateKey(row.date),
+    amount: row.amount === null ? null : Number(row.amount.toString()),
+    prepaidPayment: row.prepaidPayment === null ? null : Number(row.prepaidPayment.toString()),
+    updatedAt: row.updatedAt.toISOString()
+  };
+}
+
+export function buildDailySwapPriceMap(
+  dates: string[],
+  rows: Array<{
+    fechaPublicacion: Date;
+    cod: string;
+    tipo: string | null;
+    clase: string | null;
+    periodo: string | null;
+    entrega: string | null;
+    precio: Prisma.Decimal | number | null;
+  }>
+) {
+  const byDate = new Map<string, MeffGuaranteePrice>();
+  for (const row of rows) {
+    const product = toDailySwapProduct(row);
+    if (!product || byDate.has(product.date)) {
+      continue;
+    }
+    byDate.set(product.date, {
+      price: product.price,
+      publicationDate: formatDateKey(row.fechaPublicacion),
+      code: product.code
+    });
+  }
+  return new Map(dates.map((date) => [date, byDate.get(date) ?? ({ price: null, publicationDate: null, code: null } satisfies MeffGuaranteePrice)]));
+}
+
+export function toDailySwapProduct(row: {
+  cod: string;
+  tipo: string | null;
+  clase: string | null;
+  periodo: string | null;
+  entrega: string | null;
+  precio: Prisma.Decimal | number | null;
+}) {
+  const price = row.precio === null ? null : Number(row.precio);
+  if (price === null || !Number.isFinite(price)) {
+    return null;
+  }
+  const values = [row.cod, row.entrega, row.periodo, row.tipo, row.clase].filter((value): value is string => Boolean(value));
+  if (!isBaseDailySwap(values)) {
+    return null;
+  }
+  const date = parseDeliveryDate(values);
+  return date ? { date, code: row.cod, price } : null;
+}
+
+function isBaseDailySwap(values: string[]) {
+  const normalized = values.map(normalizeText);
+  return (
+    normalized.some((value) => /\bbase\b/.test(value)) &&
+    normalized.some((value) => /\bswaps?\b/.test(value)) &&
+    normalized.some((value) => /\b(?:diario|daily|day|dia)\b/.test(value))
+  );
+}
+
+function parseDeliveryDate(values: string[]) {
+  for (const value of values) {
+    const normalized = normalizeText(value);
+    const iso = /\b(20\d{2})[-/](\d{1,2})[-/](\d{1,2})\b/.exec(normalized);
+    if (iso) {
+      return normalizeDateParts(Number(iso[1]), Number(iso[2]), Number(iso[3]));
+    }
+    const spanish = /\b(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})\b/.exec(normalized);
+    if (spanish) {
+      return normalizeDateParts(normalizeYear(spanish[3]), Number(spanish[2]), Number(spanish[1]));
+    }
+    const monthText = /\b(\d{1,2})[-/\s]*([a-z]{3,})[-/\s]*(\d{2,4})\b/.exec(normalized);
+    if (monthText) {
+      const month = MONTH_ALIASES.get(monthText[2].slice(0, 4)) ?? MONTH_ALIASES.get(monthText[2].slice(0, 3));
+      if (month) {
+        return normalizeDateParts(normalizeYear(monthText[3]), month, Number(monthText[1]));
+      }
+    }
+  }
+  return null;
+}
+
+const MONTH_ALIASES = new Map<string, number>([
+  ["jan", 1],
+  ["ene", 1],
+  ["feb", 2],
+  ["mar", 3],
+  ["apr", 4],
+  ["abr", 4],
+  ["may", 5],
+  ["jun", 6],
+  ["jul", 7],
+  ["aug", 8],
+  ["ago", 8],
+  ["sep", 9],
+  ["sept", 9],
+  ["oct", 10],
+  ["nov", 11],
+  ["dec", 12],
+  ["dic", 12]
+]);
+
+function normalizeDateParts(year: number, month: number, day: number) {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
+    return null;
+  }
+  return formatDateKey(date);
+}
+
+function normalizeYear(value: string) {
+  const year = Number(value);
+  return year < 100 ? 2000 + year : year;
+}
+
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/Ã±/g, "n")
+    .trim()
+    .toLowerCase();
 }

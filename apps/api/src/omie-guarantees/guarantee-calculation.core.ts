@@ -5,8 +5,9 @@ export const GUARANTEE_IVA_RATE = 0.21;
 export function calculateGuaranteeDateRange(referenceDate: string) {
   const reference = parseDateKey(referenceDate);
   const monday = startOfIsoWeek(reference);
-  const start = reference.getUTCDay() === 1 || reference.getUTCDay() === 2 ? addDays(monday, -7) : monday;
-  const end = addDays(monday, 9);
+  const isEarlyWeek = reference.getUTCDay() === 1 || reference.getUTCDay() === 2;
+  const start = isEarlyWeek ? addDays(monday, -7) : monday;
+  const end = addDays(monday, isEarlyWeek ? 2 : 9);
   return {
     referenceDate: formatDateKey(reference),
     startDate: formatDateKey(start),
@@ -19,12 +20,14 @@ export function buildGuaranteeRows(params: {
   omieDays: Map<string, OmieGuaranteeDayData>;
   meffPrices: Map<string, MeffGuaranteePrice>;
   depositedGuarantees?: Map<string, number>;
+  prepaidPayments?: Map<string, number>;
   ivaRate?: number;
 }): GuaranteeCalculatorResponse {
   const range = calculateGuaranteeDateRange(params.referenceDate);
   const ivaRate = params.ivaRate ?? GUARANTEE_IVA_RATE;
   const dates = enumerateDateKeys(range.startDate, range.endDate);
   let accumulated = 0;
+  let accumulatedPrepaid = 0;
   const rows: GuaranteeCalculatorRow[] = [];
 
   for (const date of dates) {
@@ -72,6 +75,11 @@ export function buildGuaranteeRows(params: {
       accumulated = roundEuro(accumulated + invoicingAmount);
     }
     const depositedGuarantee = params.depositedGuarantees?.get(date) ?? null;
+    const prepaidPayment = params.prepaidPayments?.get(date) ?? null;
+    if (prepaidPayment !== null) {
+      accumulatedPrepaid = roundEuro(accumulatedPrepaid + prepaidPayment);
+    }
+    const effectiveAccumulated = roundEuro(Math.max(0, accumulated - accumulatedPrepaid));
 
     rows.push({
       date,
@@ -88,7 +96,8 @@ export function buildGuaranteeRows(params: {
       invoicingSource,
       accumulatedInvoicing: accumulated,
       depositedGuarantee,
-      availableGuarantee: depositedGuarantee === null ? null : roundEuro(depositedGuarantee - accumulated),
+      prepaidPayment,
+      availableGuarantee: depositedGuarantee === null ? null : roundEuro(depositedGuarantee - effectiveAccumulated),
       warnings
     });
   }

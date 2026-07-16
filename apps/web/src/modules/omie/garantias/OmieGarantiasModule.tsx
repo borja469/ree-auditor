@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CalendarDays, FileSpreadsheet } from "lucide-react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { AlertTriangle, CalendarDays, Info, FileSpreadsheet, Minus, Plus } from "lucide-react";
 import { InlineLoading } from "../../../GlobalLoadingOverlay";
-import { downloadOmieGuaranteeCalculator, getOmieGuaranteeCalculator, saveOmieDepositedGuarantee, type GuaranteeCalculatorResponse, type GuaranteeCalculatorRow } from "../../../api";
+import { downloadOmieGuaranteeCalculator, getOmieGuaranteeCalculator, saveOmieDepositedGuarantee, saveOmiePrepaidPayment, type GuaranteeCalculatorResponse, type GuaranteeCalculatorRow } from "../../../api";
 import { downloadBlob } from "../../../components/technical-data-table/TechnicalDataTableHelpers";
 import { getTodayInputValue } from "../../../app-shell/AppState";
 import { formatFixedDecimalNumber, parseEuroInputValue } from "../liquidaciones/OmieLiquidacionesHelpers";
@@ -9,15 +9,16 @@ import { formatFixedDecimalNumber, parseEuroInputValue } from "../liquidaciones/
 export function OmieGarantiasModule() {
   const [referenceDate, setReferenceDate] = useState(getTodayInputValue);
   const [calculation, setCalculation] = useState<GuaranteeCalculatorResponse>();
+  const [adjustments, setAdjustments] = useState<Record<string, GuaranteeRowAdjustment>>({});
   const [depositDrafts, setDepositDrafts] = useState<Record<string, string>>({});
+  const [prepaidDrafts, setPrepaidDrafts] = useState<Record<string, string>>({});
   const savedDeposits = useRef<Record<string, number | null>>({});
+  const savedPrepaids = useRef<Record<string, number | null>>({});
   const [savingDepositDates, setSavingDepositDates] = useState<Set<string>>(() => new Set());
+  const [savingPrepaidDates, setSavingPrepaidDates] = useState<Set<string>>(() => new Set());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
-  const rangeLabel = useMemo(
-    () => (calculation ? `${formatDate(calculation.startDate)} - ${formatDate(calculation.endDate)}` : "Sin calcular"),
-    [calculation]
-  );
+  const visibleCalculation = useMemo(() => (calculation ? applyRowAdjustments(calculation, adjustments) : undefined), [calculation, adjustments]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -43,15 +44,25 @@ export function OmieGarantiasModule() {
   }, [referenceDate]);
 
   useEffect(() => {
+    setAdjustments({});
+  }, [referenceDate]);
+
+  useEffect(() => {
     if (!calculation) {
       setDepositDrafts({});
+      setPrepaidDrafts({});
       savedDeposits.current = {};
+      savedPrepaids.current = {};
       return;
     }
     setDepositDrafts(
       Object.fromEntries(calculation.rows.map((row) => [row.date, row.depositedGuarantee === null ? "" : formatFixedDecimalNumber(row.depositedGuarantee, 2)]))
     );
+    setPrepaidDrafts(
+      Object.fromEntries(calculation.rows.map((row) => [row.date, row.prepaidPayment === null ? "" : formatFixedDecimalNumber(row.prepaidPayment, 2)]))
+    );
     savedDeposits.current = Object.fromEntries(calculation.rows.map((row) => [row.date, row.depositedGuarantee]));
+    savedPrepaids.current = Object.fromEntries(calculation.rows.map((row) => [row.date, row.prepaidPayment]));
   }, [calculation]);
 
   async function exportExcel() {
@@ -61,6 +72,23 @@ export function OmieGarantiasModule() {
 
   function updateDepositDraft(date: string, value: string) {
     setDepositDrafts((current) => ({ ...current, [date]: value }));
+  }
+
+  function updatePrepaidDraft(date: string, value: string) {
+    setPrepaidDrafts((current) => ({ ...current, [date]: value }));
+  }
+
+  function stepAdjustment(date: string, field: keyof GuaranteeRowAdjustment, step: number) {
+    setAdjustments((current) => {
+      const currentRow = current[date] ?? emptyAdjustment;
+      const nextRow = { ...currentRow, [field]: (currentRow[field] ?? 0) + step };
+      if (nextRow.volumeDelta === 0 && nextRow.priceDelta === 0) {
+        const rest = { ...current };
+        delete rest[date];
+        return rest;
+      }
+      return { ...current, [date]: nextRow };
+    });
   }
 
   async function saveDeposit(date: string) {
@@ -95,6 +123,38 @@ export function OmieGarantiasModule() {
     }
   }
 
+  async function savePrepaid(date: string) {
+    const draft = prepaidDrafts[date] ?? "";
+    const parsed = parseEuroInputValue(draft);
+    if (parsed !== null && parsed < 0) {
+      setError("El pago anticipado debe ser mayor o igual que cero.");
+      setPrepaidDrafts((current) => ({ ...current, [date]: savedPrepaids.current[date] === null ? "" : formatFixedDecimalNumber(savedPrepaids.current[date] ?? 0, 2) }));
+      return;
+    }
+    const previous = savedPrepaids.current[date] ?? null;
+    if (parsed === previous) {
+      setPrepaidDrafts((current) => ({ ...current, [date]: parsed === null ? "" : formatFixedDecimalNumber(parsed, 2) }));
+      return;
+    }
+    setSavingPrepaidDates((current) => new Set(current).add(date));
+    setError(undefined);
+    try {
+      const saved = await saveOmiePrepaidPayment(date, parsed);
+      savedPrepaids.current[date] = saved.prepaidPayment;
+      setPrepaidDrafts((current) => ({ ...current, [date]: saved.prepaidPayment === null ? "" : formatFixedDecimalNumber(saved.prepaidPayment, 2) }));
+      setCalculation((current) => (current ? applyPrepaidPayment(current, date, saved.prepaidPayment) : current));
+    } catch (err) {
+      setPrepaidDrafts((current) => ({ ...current, [date]: previous === null ? "" : formatFixedDecimalNumber(previous, 2) }));
+      setError(err instanceof Error ? err.message : "No se pudo guardar el pago anticipado.");
+    } finally {
+      setSavingPrepaidDates((current) => {
+        const next = new Set(current);
+        next.delete(date);
+        return next;
+      });
+    }
+  }
+
   return (
     <section className="content-grid omie-guarantees">
       <div className="panel wide omie-guarantees-header">
@@ -118,48 +178,58 @@ export function OmieGarantiasModule() {
       {error && <div className="status-message error">{error}</div>}
       {loading && !calculation && <InlineLoading label="Calculando garantias OMIE" />}
 
-      <div className="technical-kpis omie-guarantees-kpis">
-        <div className="technical-kpi"><span>Rango</span><strong>{rangeLabel}</strong><small>dias naturales</small></div>
-        <div className="technical-kpi"><span>Volumen total</span><strong>{formatEnergy(calculation?.summary.totalVolume ?? null)}</strong><small>MWh efectivos</small></div>
-        <div className="technical-kpi"><span>Facturacion total</span><strong>{formatCurrency(calculation?.summary.totalInvoicing ?? null)}</strong><small>IVA incluido</small></div>
-        <div className="technical-kpi warning"><span>Volumen sustituido</span><strong>{calculation?.summary.daysWithSubstitutedVolume ?? 0}</strong><small>dias</small></div>
-        <div className="technical-kpi warning"><span>Precio MEFF</span><strong>{calculation?.summary.daysWithMeffPrice ?? 0}</strong><small>dias</small></div>
-        <div className={`technical-kpi ${(calculation?.summary.daysWithMissingData ?? 0) > 0 ? "danger" : "good"}`}><span>Pendientes</span><strong>{calculation?.summary.daysWithMissingData ?? 0}</strong><small>dias</small></div>
-      </div>
-
       <div className="panel wide omie-guarantees-table-panel">
         <div className="ops-table-head">
           <strong>Matriz diaria</strong>
-          <span>{loading ? "Actualizando..." : `${calculation?.rows.length ?? 0} dias`}</span>
+          <span>{loading ? "Actualizando..." : `${visibleCalculation?.rows.length ?? 0} dias`}</span>
         </div>
         <div className="table-scroll">
           <table className="ree-download-table omie-guarantees-table">
+            <colgroup>
+              <col className="guarantee-col-date" />
+              <col className="guarantee-col-day" />
+              <col className="guarantee-col-volume" />
+              <col className="guarantee-col-price" />
+              <col className="guarantee-col-amount" />
+              <col className="guarantee-col-accumulated" />
+              <col className="guarantee-col-deposited" />
+              <col className="guarantee-col-prepaid" />
+              <col className="guarantee-col-available" />
+            </colgroup>
             <thead>
               <tr>
                 <th>Fecha</th>
-                <th>Día</th>
-                <th className="number">Volumen</th>
-                <th className="number">Precio</th>
-                <th className="number">Importe facturacion</th>
-                <th className="number">Fact. acumulada hasta fecha</th>
-                <th className="number">Garantías depositadas</th>
-                <th className="number">Garantía disponible</th>
+                <th>Dia</th>
+                <th className="number">Volumen (MWh)</th>
+                <th className="number">Precio (EUR/MWh)</th>
+                <th className="number">Importe (EUR)</th>
+                <th className="number">Fact. acum. (EUR)</th>
+                <th className="number">Garantias (EUR)</th>
+                <th className="number">Pago ant. (EUR)</th>
+                <th className="number">Disponible (EUR)</th>
               </tr>
             </thead>
             <tbody>
-              {(calculation?.rows ?? []).map((row) => (
+              {(visibleCalculation?.rows ?? []).map((row) => (
                 <GuaranteeRow
+                  adjustment={adjustments[row.date] ?? emptyAdjustment}
                   depositDraft={depositDrafts[row.date] ?? ""}
                   key={row.date}
                   onDepositBlur={() => void saveDeposit(row.date)}
                   onDepositChange={(value) => updateDepositDraft(row.date, value)}
+                  onPriceStep={(step) => stepAdjustment(row.date, "priceDelta", step)}
+                  onPrepaidBlur={() => void savePrepaid(row.date)}
+                  onPrepaidChange={(value) => updatePrepaidDraft(row.date, value)}
+                  onVolumeStep={(step) => stepAdjustment(row.date, "volumeDelta", step)}
+                  prepaidDraft={prepaidDrafts[row.date] ?? ""}
                   row={row}
                   savingDeposit={savingDepositDates.has(row.date)}
+                  savingPrepaid={savingPrepaidDates.has(row.date)}
                 />
               ))}
-              {calculation && calculation.rows.length === 0 && (
+              {visibleCalculation && visibleCalculation.rows.length === 0 && (
                 <tr>
-                  <td colSpan={8}>Sin datos para la fecha seleccionada.</td>
+                  <td colSpan={9}>Sin datos para la fecha seleccionada.</td>
                 </tr>
               )}
             </tbody>
@@ -172,16 +242,30 @@ export function OmieGarantiasModule() {
 
 function GuaranteeRow({
   row,
+  adjustment,
   depositDraft,
+  prepaidDraft,
   savingDeposit,
+  savingPrepaid,
   onDepositChange,
-  onDepositBlur
+  onDepositBlur,
+  onPrepaidChange,
+  onPrepaidBlur,
+  onVolumeStep,
+  onPriceStep
 }: {
   row: GuaranteeCalculatorRow;
+  adjustment: GuaranteeRowAdjustment;
   depositDraft: string;
+  prepaidDraft: string;
   savingDeposit: boolean;
+  savingPrepaid: boolean;
   onDepositChange: (value: string) => void;
   onDepositBlur: () => void;
+  onPrepaidChange: (value: string) => void;
+  onPrepaidBlur: () => void;
+  onVolumeStep: (step: number) => void;
+  onPriceStep: (step: number) => void;
 }) {
   const hasWarnings = row.warnings.length > 0;
   const availableTone = row.availableGuarantee === null || row.availableGuarantee === 0 ? "neutral" : row.availableGuarantee < 0 ? "danger" : "ok";
@@ -196,10 +280,22 @@ function GuaranteeRow({
       </td>
       <td>{row.weekday}</td>
       <td className="number">
-        <MetricWithSource value={formatEnergy(row.volume)} source={volumeSourceText(row)} tone={row.volumeSource === "REAL" ? "ok" : row.volumeSource === "PREVIOUS_WEEK" ? "warning" : "danger"} />
+        <MetricStepper
+          disabled={row.volume === null}
+          onStep={onVolumeStep}
+          source={volumeSourceText(row, adjustment.volumeDelta)}
+          tone={row.volumeSource === "REAL" ? "ok" : row.volumeSource === "PREVIOUS_WEEK" ? "warning" : "danger"}
+          value={formatEnergy(row.volume)}
+        />
       </td>
       <td className="number">
-        <MetricWithSource value={formatPrice(row.price)} source={priceSourceText(row)} tone={row.priceSource === "OMIE" ? "ok" : row.priceSource === "MEFF" ? "warning" : "danger"} />
+        <MetricStepper
+          disabled={row.price === null}
+          onStep={onPriceStep}
+          source={priceSourceText(row, adjustment.priceDelta)}
+          tone={row.priceSource === "OMIE" ? "ok" : row.priceSource === "MEFF" ? "warning" : "danger"}
+          value={formatPrice(row.price)}
+        />
       </td>
       <td className="number">
         <MetricWithSource value={formatCurrency(row.invoicingAmount)} source={invoicingSourceText(row)} tone={row.invoicingSource === "REAL" ? "ok" : row.invoicingSource === "ESTIMATED" ? "warning" : "danger"} />
@@ -223,7 +319,28 @@ function GuaranteeRow({
             type="text"
             value={depositDraft}
           />
-          <span className="omie-factura-suffix">{savingDeposit ? "..." : "€"}</span>
+          {savingDeposit && <span className="omie-factura-suffix">...</span>}
+        </label>
+      </td>
+      <td className="number">
+        <label className="omie-factura-input-shell guarantee-deposit-input-shell">
+          <span className="sr-only">Pago anticipado {row.displayDate}</span>
+          <input
+            className="omie-factura-input"
+            inputMode="decimal"
+            min="0"
+            onBlur={onPrepaidBlur}
+            onChange={(event) => onPrepaidChange(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
+            placeholder="0,00"
+            type="text"
+            value={prepaidDraft}
+          />
+          {savingPrepaid && <span className="omie-factura-suffix">...</span>}
         </label>
       </td>
       <td className={`number guarantee-available ${availableTone}`}>{formatCurrency(row.availableGuarantee)}</td>
@@ -231,33 +348,71 @@ function GuaranteeRow({
   );
 }
 
-function MetricWithSource({ value, source, tone }: { value: string; source: string; tone: "ok" | "warning" | "danger" }) {
+function MetricStepper({
+  value,
+  source,
+  tone,
+  disabled,
+  onStep
+}: {
+  value: string;
+  source: string;
+  tone: "ok" | "warning" | "danger";
+  disabled: boolean;
+  onStep: (step: number) => void;
+}) {
   return (
-    <div className="guarantee-metric">
-      <strong>{value}</strong>
-      <small className={tone}>{source}</small>
+    <div className="guarantee-stepper-cell">
+      <MetricWithSource value={value} source={source} tone={tone} />
+      <div className="guarantee-stepper-actions">
+        <button aria-label="Restar 1" disabled={disabled} onClick={() => onStep(-1)} title="Restar 1" type="button">
+          <Minus size={13} />
+        </button>
+        <button aria-label="Sumar 1" disabled={disabled} onClick={() => onStep(1)} title="Sumar 1" type="button">
+          <Plus size={13} />
+        </button>
+      </div>
     </div>
   );
 }
 
-function volumeSourceText(row: GuaranteeCalculatorRow) {
-  if (row.volumeSource === "REAL") {
-    return "Real";
-  }
-  if (row.volumeSource === "PREVIOUS_WEEK") {
-    return `Semana anterior: ${row.volumeSourceDate ? formatDate(row.volumeSourceDate) : "-"}`;
-  }
-  return "Sin dato";
+function MetricWithSource({ value, source, tone }: { value: string; source: string; tone: "ok" | "warning" | "danger" }) {
+  const tooltipId = useId();
+  return (
+    <div className="guarantee-metric">
+      <strong>{value}</strong>
+      <span className={`guarantee-source-info ${tone}`}>
+        <button aria-describedby={tooltipId} aria-label={source} type="button">
+          <Info size={13} />
+        </button>
+        <span className="guarantee-source-tooltip" id={tooltipId} role="tooltip">
+          {source}
+        </span>
+      </span>
+    </div>
+  );
 }
 
-function priceSourceText(row: GuaranteeCalculatorRow) {
+function volumeSourceText(row: GuaranteeCalculatorRow, delta = 0) {
+  const suffix = delta === 0 ? "" : ` | Ajuste ${formatSignedNumber(delta, 0)} MWh`;
+  if (row.volumeSource === "REAL") {
+    return `Real${suffix}`;
+  }
+  if (row.volumeSource === "PREVIOUS_WEEK") {
+    return `Semana anterior: ${row.volumeSourceDate ? formatDate(row.volumeSourceDate) : "-"}${suffix}`;
+  }
+  return `Sin dato${suffix}`;
+}
+
+function priceSourceText(row: GuaranteeCalculatorRow, delta = 0) {
+  const suffix = delta === 0 ? "" : ` | Ajuste ${formatSignedNumber(delta, 0)} EUR/MWh`;
   if (row.priceSource === "OMIE") {
-    return "OMIE";
+    return `Precio OMIE${suffix}`;
   }
   if (row.priceSource === "MEFF") {
-    return `MEFF${row.pricePublicationDate ? ` · ${formatDate(row.pricePublicationDate)}` : ""}`;
+    return `Precio MEFF${row.pricePublicationDate ? ` · Publicacion ${formatDate(row.pricePublicationDate)}` : ""}${suffix}`;
   }
-  return "Sin dato";
+  return `Sin dato${suffix}`;
 }
 
 function invoicingSourceText(row: GuaranteeCalculatorRow) {
@@ -276,19 +431,23 @@ function formatDate(value: string) {
 }
 
 function formatEnergy(value: number | null) {
-  return value === null ? "-" : `${formatNumber(value, 2)} MWh`;
+  return value === null ? "-" : formatNumber(value, 2);
 }
 
 function formatPrice(value: number | null) {
-  return value === null ? "-" : `${formatNumber(value, 2)} €/MWh`;
+  return value === null ? "-" : formatNumber(value, 2);
 }
 
 function formatCurrency(value: number | null) {
-  return value === null ? "-" : `${formatNumber(value, 2)} €`;
+  return value === null ? "-" : formatNumber(value, 2);
 }
 
 function formatNumber(value: number, decimals: number) {
   return value.toLocaleString("es-ES", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+function formatSignedNumber(value: number, decimals: number) {
+  return `${value > 0 ? "+" : ""}${formatNumber(value, decimals)}`;
 }
 
 function applyDepositedGuarantee(calculation: GuaranteeCalculatorResponse, date: string, amount: number | null): GuaranteeCalculatorResponse {
@@ -298,8 +457,21 @@ function applyDepositedGuarantee(calculation: GuaranteeCalculatorResponse, date:
       row.date === date
         ? {
             ...row,
-            depositedGuarantee: amount,
-            availableGuarantee: amount === null ? null : roundCurrency(amount - row.accumulatedInvoicing)
+            depositedGuarantee: amount
+          }
+        : row
+    )
+  };
+}
+
+function applyPrepaidPayment(calculation: GuaranteeCalculatorResponse, date: string, amount: number | null): GuaranteeCalculatorResponse {
+  return {
+    ...calculation,
+    rows: calculation.rows.map((row) =>
+      row.date === date
+        ? {
+            ...row,
+            prepaidPayment: amount
           }
         : row
     )
@@ -308,4 +480,56 @@ function applyDepositedGuarantee(calculation: GuaranteeCalculatorResponse, date:
 
 function roundCurrency(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+type GuaranteeRowAdjustment = {
+  volumeDelta: number;
+  priceDelta: number;
+};
+
+const emptyAdjustment: GuaranteeRowAdjustment = { volumeDelta: 0, priceDelta: 0 };
+const GUARANTEE_IVA_RATE = 0.21;
+
+function applyRowAdjustments(calculation: GuaranteeCalculatorResponse, adjustments: Record<string, GuaranteeRowAdjustment>): GuaranteeCalculatorResponse {
+  let accumulated = 0;
+  let accumulatedPrepaid = 0;
+  const rows = calculation.rows.map((row) => {
+    const adjustment = adjustments[row.date] ?? emptyAdjustment;
+    const volume = row.volume === null ? null : roundEnergy(Math.max(0, row.volume + adjustment.volumeDelta));
+    const price = row.price === null ? null : roundPrice(Math.max(0, row.price + adjustment.priceDelta));
+    const hasAdjustment = adjustment.volumeDelta !== 0 || adjustment.priceDelta !== 0;
+    const invoicingAmount = hasAdjustment && volume !== null && price !== null ? roundCurrency(volume * price * (1 + GUARANTEE_IVA_RATE)) : row.invoicingAmount;
+    if (invoicingAmount !== null) {
+      accumulated = roundCurrency(accumulated + invoicingAmount);
+    }
+    if (row.prepaidPayment !== null) {
+      accumulatedPrepaid = roundCurrency(accumulatedPrepaid + row.prepaidPayment);
+    }
+    const effectiveAccumulated = roundCurrency(Math.max(0, accumulated - accumulatedPrepaid));
+    return {
+      ...row,
+      volume,
+      price,
+      invoicingAmount,
+      accumulatedInvoicing: accumulated,
+      availableGuarantee: row.depositedGuarantee === null ? null : roundCurrency(row.depositedGuarantee - effectiveAccumulated)
+    };
+  });
+  return {
+    ...calculation,
+    rows,
+    summary: {
+      ...calculation.summary,
+      totalVolume: roundEnergy(rows.reduce((sum, row) => sum + (row.volume ?? 0), 0)),
+      totalInvoicing: roundCurrency(rows.reduce((sum, row) => sum + (row.invoicingAmount ?? 0), 0))
+    }
+  };
+}
+
+function roundEnergy(value: number) {
+  return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
+}
+
+function roundPrice(value: number) {
+  return Math.round((value + Number.EPSILON) * 1_000_000) / 1_000_000;
 }

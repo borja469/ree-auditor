@@ -2,22 +2,23 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildCurveMonths, toCurveProduct } from "../pricing-base/meff_forward_curve_service";
 import { buildGuaranteeRows, calculateGuaranteeDateRange } from "./guarantee-calculation.core";
+import { buildDailySwapPriceMap, toDailySwapProduct } from "./omie-guarantees.service";
 import type { MeffGuaranteePrice, OmieGuaranteeDayData } from "./types/guarantee-calculation.types";
 
 void describe("calculateGuaranteeDateRange", () => {
   void it("usa el lunes anterior si la referencia es lunes", () => {
-    assert.deepEqual(calculateGuaranteeDateRange("2026-07-13"), {
-      referenceDate: "2026-07-13",
-      startDate: "2026-07-06",
-      endDate: "2026-07-22"
+    assert.deepEqual(calculateGuaranteeDateRange("2026-06-29"), {
+      referenceDate: "2026-06-29",
+      startDate: "2026-06-22",
+      endDate: "2026-07-01"
     });
   });
 
   void it("usa el lunes anterior si la referencia es martes", () => {
-    assert.deepEqual(calculateGuaranteeDateRange("2026-07-14"), {
-      referenceDate: "2026-07-14",
-      startDate: "2026-07-06",
-      endDate: "2026-07-22"
+    assert.deepEqual(calculateGuaranteeDateRange("2026-06-30"), {
+      referenceDate: "2026-06-30",
+      startDate: "2026-06-22",
+      endDate: "2026-07-01"
     });
   });
 
@@ -38,7 +39,7 @@ void describe("calculateGuaranteeDateRange", () => {
     assert.deepEqual(calculateGuaranteeDateRange("2026-08-03"), {
       referenceDate: "2026-08-03",
       startDate: "2026-07-27",
-      endDate: "2026-08-12"
+      endDate: "2026-08-05"
     });
   });
 
@@ -155,6 +156,25 @@ void describe("buildGuaranteeRows", () => {
     assert.equal(response.rows[0].availableGuarantee, 29);
     assert.equal(response.rows[1].availableGuarantee, -63);
   });
+
+  void it("resta pagos anticipados acumulados a la facturacion acumulada para la garantia disponible", () => {
+    const response = buildGuaranteeRows({
+      referenceDate: "2026-07-15",
+      omieDays: days([
+        { date: "2026-07-13", volume: 10, costWithoutTax: 100 },
+        { date: "2026-07-14", volume: 10, costWithoutTax: 200 }
+      ]),
+      meffPrices: meff([]),
+      depositedGuarantees: new Map([
+        ["2026-07-13", 150],
+        ["2026-07-14", 300]
+      ]),
+      prepaidPayments: new Map([["2026-07-13", 50]])
+    });
+    assert.equal(response.rows[0].prepaidPayment, 50);
+    assert.equal(response.rows[0].availableGuarantee, 79);
+    assert.equal(response.rows[1].availableGuarantee, -13);
+  });
 });
 
 void describe("MEFF helpers", () => {
@@ -196,6 +216,111 @@ void describe("MEFF helpers", () => {
       precio: 91.43
     });
     assert.equal(product?.price, 91.43);
+  });
+
+  void it("selecciona swap diario BASE para garantias", () => {
+    const product = toDailySwapProduct({
+      cod: "D 15/07/2026",
+      tipo: "Swap",
+      clase: "Base",
+      periodo: "Diario",
+      entrega: "15/07/2026",
+      precio: 63.4
+    });
+    assert.deepEqual(product, { date: "2026-07-15", code: "D 15/07/2026", price: 63.4 });
+  });
+
+  void it("lee entregas diarias MEFF con formato 29-jun-26", () => {
+    const product = toDailySwapProduct({
+      cod: "SMBCD29JUN26",
+      tipo: "Base",
+      clase: "Swap",
+      periodo: "Diario",
+      entrega: "29-jun-26",
+      precio: 76.49
+    });
+    assert.deepEqual(product, { date: "2026-06-29", code: "SMBCD29JUN26", price: 76.49 });
+  });
+
+  void it("ignora futuros mensuales en garantias aunque exista precio", () => {
+    const prices = buildDailySwapPriceMap(
+      ["2026-07-15"],
+      [
+        {
+          fechaPublicacion: new Date(Date.UTC(2026, 5, 24)),
+          cod: "M Jul-26",
+          tipo: "Futuro",
+          clase: "Base",
+          periodo: "Mensual",
+          entrega: "Jul-26",
+          precio: 72.35
+        }
+      ]
+    );
+    assert.deepEqual(prices.get("2026-07-15"), { price: null, publicationDate: null, code: null });
+  });
+
+  void it("elige la publicacion mas reciente disponible para cada swap diario", () => {
+    const prices = buildDailySwapPriceMap(
+      ["2026-06-29"],
+      [
+        {
+          fechaPublicacion: new Date(Date.UTC(2026, 5, 25)),
+          cod: "SMBCD29JUN26",
+          tipo: "Base",
+          clase: "Swap",
+          periodo: "Diario",
+          entrega: "29-jun-26",
+          precio: 76.15
+        },
+        {
+          fechaPublicacion: new Date(Date.UTC(2026, 5, 24)),
+          cod: "SMBCD29JUN26",
+          tipo: "Base",
+          clase: "Swap",
+          periodo: "Diario",
+          entrega: "29-jun-26",
+          precio: 76.49
+        }
+      ]
+    );
+    assert.deepEqual(prices.get("2026-06-29"), { price: 76.15, publicationDate: "2026-06-25", code: "SMBCD29JUN26" });
+  });
+
+  void it("usa siempre BASE y descarta PUNTA aunque punta sea la publicacion mas reciente", () => {
+    const prices = buildDailySwapPriceMap(
+      ["2026-06-29"],
+      [
+        {
+          fechaPublicacion: new Date(Date.UTC(2026, 5, 29)),
+          cod: "SMPCD29JUN26",
+          tipo: "Punta",
+          clase: "Swap",
+          periodo: "Diario",
+          entrega: "29-jun-26",
+          precio: 48.85
+        },
+        {
+          fechaPublicacion: new Date(Date.UTC(2026, 5, 29)),
+          cod: "SMBCD29JUN26",
+          tipo: "Base",
+          clase: "Swap",
+          periodo: "Diario",
+          entrega: "29-jun-26",
+          precio: 83.51
+        },
+        {
+          fechaPublicacion: new Date(Date.UTC(2026, 5, 24)),
+          cod: "SMBCD29JUN26",
+          tipo: "Base",
+          clase: "Swap",
+          periodo: "Diario",
+          entrega: "29-jun-26",
+          precio: 76.49
+        }
+      ]
+    );
+    assert.deepEqual(prices.get("2026-06-29"), { price: 83.51, publicationDate: "2026-06-29", code: "SMBCD29JUN26" });
   });
 });
 

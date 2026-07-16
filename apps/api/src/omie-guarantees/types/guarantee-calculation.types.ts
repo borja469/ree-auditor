@@ -17,6 +17,7 @@ export type GuaranteeCalculatorRow = {
   invoicingSource: GuaranteeInvoicingSource;
   accumulatedInvoicing: number;
   depositedGuarantee: number | null;
+  prepaidPayment: number | null;
   availableGuarantee: number | null;
   warnings: string[];
 };
@@ -51,6 +52,7 @@ export type MeffGuaranteePrice = {
 
 export type DepositedGuarantee = {
   date: string;
-  amount: number;
+  amount: number | null;
+  prepaidPayment: number | null;
   updatedAt: string;
 };
