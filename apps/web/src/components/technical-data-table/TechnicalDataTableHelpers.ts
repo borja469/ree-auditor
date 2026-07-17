@@ -246,8 +246,8 @@ function csvCell(value: unknown) {
   return `"${String(value ?? "").replace(/"/g, "\"\"")}"`;
 }
 
-export function downloadBlob(name: string, content: string, type: string) {
-  const blob = new Blob([content], { type });
+export function downloadBlob(name: string, content: string | Blob, type: string) {
+  const blob = content instanceof Blob ? content : new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;

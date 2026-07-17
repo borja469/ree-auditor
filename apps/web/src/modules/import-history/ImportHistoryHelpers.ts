@@ -131,7 +131,7 @@ export function exportCsv<T extends object>(name: string, rows: T[]) {
       ];
       downloadBlob(name, lines.join("\n"), "text/csv;charset=utf-8");
     },
-    { label: "Preparando exportaciï¿½n" }
+    { label: "Preparando exportaci?n" }
   );
 }
 

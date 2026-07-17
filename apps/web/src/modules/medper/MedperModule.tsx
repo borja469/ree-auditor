@@ -53,14 +53,13 @@ import { deleteImportFile, getImportFileDetail, getImportFileErrorsCsv, getImpor
 import type { ImportHistoryFile, ImportHistoryMode, LoadSortKey, LoadStatus, MedidasView, Message } from "../../app-shell/AppShellTypes";
 import type { MedperFilterBandProps, MedperViewPanelProps } from "./MedperTypes";
 import {
-  aggregateMedperRows,
+  buildMedperMonthlyOperationalSummary,
   buildMedperqhKpis,
   formatDate,
   formatDateTime,
   formatMonthKeyLabel,
   formatNumber,
-  formatPercentOf,
-  getMedperValidationByVersion,
+  formatRatio,
   medperqhQuality,
   normalizeNumericValue,
   parseDateTimeValue
@@ -237,7 +236,7 @@ export function MedperFilterBand({
   onApply: () => void;
   disabled?: boolean;
 }) {
-  if (view === "history") {
+  if (view === "history" || view === "summary") {
     return null;
   }
 
@@ -249,11 +248,11 @@ export function MedperFilterBand({
 
   return (
     <section className="filter-band medper-filter-band">
-      {view !== "summary" && <FilterSelect disabled={disabled} loading={loadingOptions} label="VersiÃ¯Â¿Â½n" value={filters.version ?? ""} options={versions} onChange={(value) => onChange("version", value)} />}
+      <FilterSelect disabled={disabled} loading={loadingOptions} label="Versión" value={filters.version ?? ""} options={versions} onChange={(value) => onChange("version", value)} />
       <FilterSelect disabled={disabled} loading={loadingOptions} label="Mes" value={filters.fecha ?? ""} options={months} onChange={(value) => onChange("fecha", value)} />
       {(view === "qh" || view === "graphs") && (
         <>
-          <FilterSelect disabled={disabled} loading={loadingOptions} label="CÃ¯Â¿Â½digo unidad" value={filters.codigoUnidad ?? ""} options={qhUnits} onChange={(value) => onChange("codigoUnidad", value)} />
+          <FilterSelect disabled={disabled} loading={loadingOptions} label="Código unidad" value={filters.codigoUnidad ?? ""} options={qhUnits} onChange={(value) => onChange("codigoUnidad", value)} />
           <FilterSelect disabled={disabled} loading={loadingOptions} label="Peaje" value={filters.peaje ?? ""} options={qhPeajes} onChange={(value) => onChange("peaje", value)} />
         </>
       )}
@@ -384,88 +383,92 @@ function MedperSummaryMetricsView(props: {
   monthlyConsumption: MedperMonthlyConsumptionRow[];
   selectedMonth: string | null;
 }) {
-  const summary = props.summary;
-  const qhRows = (summary?.qh ?? []).filter((row) => SUMMARY_VERSIONS.includes(row.version as ReeVersion));
-  const validationRows = getMedperValidationByVersion(summary);
-  const qhByVersion = new Map(
-    SUMMARY_VERSIONS.map((version) => [
-      version,
-      aggregateMedperRows(
-        qhRows.filter((row) => row.version === version),
-        (row) => row.codigoUnidad
-      )
-    ])
+  const rows = useMemo(() => buildMedperMonthlyOperationalSummary(props.monthlyConsumption), [props.monthlyConsumption]);
+  const totals = useMemo(
+    () =>
+      rows.reduce(
+        (acc, row) => ({
+          pf: acc.pf + row.totalPf,
+          bc: acc.bc + row.totalBc,
+          danger: acc.danger + (row.tone === "danger" ? 1 : 0),
+          warning: acc.warning + (row.tone === "warning" ? 1 : 0),
+          missing: acc.missing + row.missingVersions.length
+        }),
+        { pf: 0, bc: 0, danger: 0, warning: 0, missing: 0 }
+      ),
+    [rows]
   );
-  return (
+    return (
     <section className="content-grid">
       <div className="panel wide">
-        <PanelTitle icon={<Activity size={18} />} title="Cuartohorario" />
-        <div className="summary-version-grid">
-          {SUMMARY_VERSIONS.map((version) => (
-            <section className="summary-version-column" key={`qh-${version}`}>
-              <h3>{version}</h3>
-              <div className="table-scroll">
-                <table className="medper-summary-table compact">
-                  <thead>
-                    <tr>
-                      <th>Codigo unidad</th>
-                      <th>BC MWh</th>
-                      <th>PF MWh</th>
-                      <th>Perdidas MWh</th>
-                      <th>% Perdidas/BC</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {qhByVersion.get(version)?.map((row) => (
-                      <tr key={`${version}-${row.code}`}>
-                        <th scope="row">{row.code}</th>
-                        <td>{formatNumber(row.bc)}</td>
-                        <td>{formatNumber(row.pf)}</td>
-                        <td>{formatNumber(row.losses)}</td>
-                        <td>{formatPercentOf(row.losses, row.bc)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ))}
+        <PanelTitle icon={<Activity size={18} />} title="Resumen mensual de medidas" subtitle="Todo lo cargado · C3 / C4 / C5 · PF / BC" />
+        <div className="technical-kpis medper-operational-kpis">
+          <div className="technical-kpi neutral">
+            <span>Meses</span>
+            <strong>{formatNumber(rows.length)}</strong>
+            <small>rango disponible</small>
+          </div>
+          <div className="technical-kpi good">
+            <span>Total PF</span>
+            <strong>{formatNumber(totals.pf)}</strong>
+            <small>MWh</small>
+          </div>
+          <div className="technical-kpi good">
+            <span>Total BC</span>
+            <strong>{formatNumber(totals.bc)}</strong>
+            <small>MWh</small>
+          </div>
+            <div className={`technical-kpi ${totals.missing > 0 ? "warning" : "good"}`}>
+            <span>Sin carga</span>
+            <strong>{formatNumber(totals.missing)}</strong>
+            <small>versiones/mes</small>
+          </div>
+          <div className={`technical-kpi ${totals.danger > 0 ? "danger" : totals.warning > 0 ? "warning" : "good"}`}>
+            <span>Anomalias</span>
+            <strong>{formatNumber(totals.danger + totals.warning)}</strong>
+            <small>{formatNumber(totals.danger)} criticas</small>
+          </div>
         </div>
-      </div>
-      <div className="panel wide">
-        <PanelTitle icon={<AlertTriangle size={18} />} title="Validaciones cuartohorario" />
-        <div className="summary-version-grid">
-          {SUMMARY_VERSIONS.map((version) => {
-            const row = validationRows.find((item) => item.version === version);
-            return (
-              <section className="summary-version-column" key={`qh-validation-${version}`}>
-                <h3>{version}</h3>
-                <div className="table-scroll">
-                  <table className="medper-summary-table compact">
-                    <tbody>
-                      <tr>
-                        <th scope="row">Huecos QH</th>
-                        <td>{formatNumber(row?.missingQh ?? 0)}</td>
-                      </tr>
-                      <tr>
-                        <th scope="row">Negativos QH</th>
-                        <td>{formatNumber(row?.negativeQhRecords ?? 0)}</td>
-                      </tr>
-                      <tr>
-                        <th scope="row">BC/PF incoherente</th>
-                        <td>{formatNumber(row?.inconsistentBcPfRecords ?? 0)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            );
-          })}
+        <div className="table-scroll medper-operational-summary-scroll">
+          <table className="medper-summary-table medper-operational-summary-table">
+            <thead>
+              <tr>
+                <th>Mes</th>
+                <th>C3 PF</th>
+                <th>C3 BC</th>
+                <th>C4 PF</th>
+                <th>C4 BC</th>
+                <th>C5 PF</th>
+                <th>C5 BC</th>
+                <th>Completado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && (
+                <tr>
+                  <td colSpan={8}>Sin medidas cargadas.</td>
+                </tr>
+              )}
+              {rows.map((row) => (
+                <tr className={`medper-summary-diff-${row.tone}`} key={row.month}>
+                  <th scope="row">
+                    <span>{formatMonthKeyLabel(row.month)}</span>
+                    {row.missingVersions.length > 0 && <small>Faltan {row.missingVersions.join(", ")}</small>}
+                  </th>
+                  {SUMMARY_VERSIONS.flatMap((version) => [
+                    <td className={row.versions[version].pf === null ? "missing" : ""} key={`${row.month}-${version}-pf`}>{formatNumber(row.versions[version].pf)}</td>,
+                    <td className={row.versions[version].bc === null ? "missing" : ""} key={`${row.month}-${version}-bc`}>{formatNumber(row.versions[version].bc)}</td>
+                  ])}
+                  <td>
+                    <span className={`medper-diff-badge ${row.missingVersions.length === 0 ? "good" : "warning"}`}>
+                      {row.missingVersions.length === 0 ? "Completado" : `Falta ${row.missingVersions.join(", ")}`}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </div>
-      <div className="panel wide">
-        <PanelTitle icon={<BarChart3 size={18} />} title="Consumo PF + perdidas por version y mes" />
-        <MedperMonthlyConsumptionBars rows={props.monthlyConsumption} selectedMonth={props.selectedMonth} />
       </div>
     </section>
   );
@@ -496,14 +499,14 @@ function MedperQhView({
       { id: "fecha", label: "Fecha", width: 118, sticky: true, type: "date", filter: "text", value: (row) => row.fecha, render: (row) => formatDate(row.fecha) },
       { id: "hora", label: "Hora", help: "Hora a la que pertenece el cuarto horario.", width: 72, sticky: true, align: "right", type: "number", filter: "number", value: (row) => row.hora },
       { id: "qh", label: "QH", help: "Cuartohorario dentro de la hora: 1, 2, 3 o 4.", width: 68, sticky: true, align: "right", type: "number", filter: "number", value: (row) => row.cuartoHora },
-      { id: "codigoUnidad", label: "CÃ¯Â¿Â½digo unidad", width: 156, sticky: true, filter: "select", value: (row) => row.codigoUnidad },
-      { id: "bc", label: "BC", help: "Balance de consumo: PF + pÃ¯Â¿Â½rdidas.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.bcMwh },
-      { id: "pf", label: "PF", help: "EnergÃ¯Â¿Â½a en punto frontera.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.pfMwh },
-      { id: "perdidas", label: "PÃ¯Â¿Â½rdidas", help: "PÃ¯Â¿Â½rdidas de red asociadas a la medida.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.perdidasMwh },
+      { id: "codigoUnidad", label: "Código unidad", width: 156, sticky: true, filter: "select", value: (row) => row.codigoUnidad },
+      { id: "bc", label: "BC", help: "Balance de consumo: PF + pérdidas.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.bcMwh },
+      { id: "pf", label: "PF", help: "Energía en punto frontera.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.pfMwh },
+      { id: "perdidas", label: "Pérdidas", help: "Pérdidas de red asociadas a la medida.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.perdidasMwh },
       { id: "peaje", label: "Peaje", width: 98, advanced: true, filter: "select", value: (row) => row.peaje },
-      { id: "version", label: "VersiÃ¯Â¿Â½n", width: 86, advanced: true, filter: "select", value: (row) => row.version },
+      { id: "version", label: "Versión", width: 86, advanced: true, filter: "select", value: (row) => row.version },
       { id: "diferencia", label: "Dif. BC/PF", width: 128, advanced: true, align: "right", type: "number", filter: "number", value: (row) => row.bcPfDifferenceMwh },
-      { id: "linea", label: "LÃ¯Â¿Â½nea", width: 86, advanced: true, align: "right", type: "number", filter: "number", value: (row) => row.sourceLineNumber }
+      { id: "linea", label: "Línea", width: 86, advanced: true, align: "right", type: "number", filter: "number", value: (row) => row.sourceLineNumber }
     ],
     []
   );
@@ -513,7 +516,7 @@ function MedperQhView({
       columns={columns}
       exportFileName="medperqh-filtrado"
       getDuplicateKey={(row) => [row.fecha, row.hora, row.cuartoHora, row.codigoUnidad, row.peaje ?? ""].join("|")}
-      getGroupLabel={(row) => `Fecha ${formatDate(row.fecha)} Ã¯Â¿Â½ Hora ${formatNumber(row.hora)}`}
+      getGroupLabel={(row) => `Fecha ${formatDate(row.fecha)} € Hora ${formatNumber(row.hora)}`}
       getRowId={(row) => row.id}
       getRowQuality={medperqhQuality}
       hasNext={hasNext}
@@ -682,7 +685,7 @@ function TechnicalDataTableV2<T extends object>({
   const bottomSpacer = Math.max((entries.length - start - visibleEntries.length) * rowHeight, 0);
   const from = rows.length === 0 ? 0 : page * pageSize + 1;
   const to = page * pageSize + rows.length;
-  const pageTotalLabel = hasNext ? `mÃ¯Â¿Â½s de ${formatNumber(to)}` : formatNumber(to);
+  const pageTotalLabel = hasNext ? `más de ${formatNumber(to)}` : formatNumber(to);
   const quality = buildTechnicalQuality(rows, activeColumns, getRowQuality, duplicateCounts);
 
   function updateSort(column: TechnicalColumn<T>) {
@@ -793,9 +796,9 @@ function TechnicalDataTableV2<T extends object>({
             />
           </label>
           {showModeSelector && (
-            <div className="technical-mode" aria-label="Modo de visualizaciÃ¯Â¿Â½n" role="group">
+            <div className="technical-mode" aria-label="Modo de visualización" role="group">
               <button className={mode === "basic" ? "active" : ""} disabled={loading} onClick={() => applyModePreset("basic")} type="button">
-                BÃ¯Â¿Â½sica
+                B?sica
               </button>
               <button className={mode === "advanced" ? "active" : ""} disabled={loading} onClick={() => applyModePreset("advanced")} type="button">
                 Avanzada
@@ -854,9 +857,9 @@ function TechnicalDataTableV2<T extends object>({
           <span className={quality.completeness >= 98 ? "good" : quality.completeness >= 90 ? "warning" : "danger"}>
             Datos completos: {formatCompleteness(quality.completeness)}
           </span>
-          <span className={quality.anomalies > 0 ? "warning" : "good"}>{formatNumber(quality.anomalies)} registros anÃ¯Â¿Â½malos</span>
-          <span className={quality.duplicates > 0 ? "warning" : "good"}>{formatNumber(quality.duplicates)} duplicados en pÃ¯Â¿Â½gina</span>
-          <span className={quality.nulls > 0 ? "warning" : "good"}>{formatNumber(quality.nulls)} valores vacÃ¯Â¿Â½os</span>
+          <span className={quality.anomalies > 0 ? "warning" : "good"}>{formatNumber(quality.anomalies)} registros anómalos</span>
+          <span className={quality.duplicates > 0 ? "warning" : "good"}>{formatNumber(quality.duplicates)} duplicados en página</span>
+          <span className={quality.nulls > 0 ? "warning" : "good"}>{formatNumber(quality.nulls)} valores vacíos</span>
         </div>
       )}
 
@@ -864,7 +867,7 @@ function TechnicalDataTableV2<T extends object>({
         <div className="technical-pagination">
           <span>
             Mostrando {formatNumber(from)}-{formatNumber(to)} de {pageTotalLabel} registros
-            {visibleRows.length !== rows.length ? ` Ã¯Â¿Â½ ${formatNumber(visibleRows.length)} visibles con filtros` : ""}
+            {visibleRows.length !== rows.length ? ` · ${formatNumber(visibleRows.length)} visibles con filtros` : ""}
           </span>
           <label>
             Filas
@@ -876,10 +879,10 @@ function TechnicalDataTableV2<T extends object>({
               ))}
             </select>
           </label>
-          <button className="pagination-button" disabled={loading || page === 0} onClick={() => onPageChange(page - 1)} title="PÃ¯Â¿Â½gina anterior" type="button">
+          <button className="pagination-button" disabled={loading || page === 0} onClick={() => onPageChange(page - 1)} title="Página anterior" type="button">
             <ChevronLeft size={16} />
           </button>
-          <button className="pagination-button" disabled={loading || !hasNext} onClick={() => onPageChange(page + 1)} title="PÃ¯Â¿Â½gina siguiente" type="button">
+          <button className="pagination-button" disabled={loading || !hasNext} onClick={() => onPageChange(page + 1)} title="Página siguiente" type="button">
             <ChevronRight size={16} />
           </button>
         </div>
@@ -912,8 +915,8 @@ function TechnicalDataTableV2<T extends object>({
               <div className={technicalCellClass(column, "filter")} key={column.id} style={stickyCellStyle(column, stickyOffsets)}>
                 {column.filter === "number" ? (
                   <div className="range-filter">
-                    <input aria-label={`${column.label} mÃ¯Â¿Â½nimo`} disabled={loading} onChange={(event) => updateFilter(`${column.id}:min`, event.target.value)} placeholder="Min" value={filters[`${column.id}:min`] ?? ""} />
-                    <input aria-label={`${column.label} mÃ¯Â¿Â½ximo`} disabled={loading} onChange={(event) => updateFilter(`${column.id}:max`, event.target.value)} placeholder="Max" value={filters[`${column.id}:max`] ?? ""} />
+                    <input aria-label={`${column.label} mínimo`} disabled={loading} onChange={(event) => updateFilter(`${column.id}:min`, event.target.value)} placeholder="Min" value={filters[`${column.id}:min`] ?? ""} />
+                    <input aria-label={`${column.label} máximo`} disabled={loading} onChange={(event) => updateFilter(`${column.id}:max`, event.target.value)} placeholder="Max" value={filters[`${column.id}:max`] ?? ""} />
                   </div>
                 ) : column.filter === "select" ? (
                   <select aria-label={`Filtrar ${column.label}`} disabled={loading} onChange={(event) => updateFilter(column.id, event.target.value)} value={filters[column.id] ?? ""}>
@@ -1015,6 +1018,7 @@ function OperationalEnergyChartPanel({
   const [fullscreen, setFullscreen] = useState(false);
   const points = useMemo(() => buildEnergySeries(rows), [rows]);
   const metrics = useMemo(() => buildEnergyMetrics(points), [points]);
+  const totals = useMemo(() => buildEnergyTotals(points), [points]);
   const option = useMemo<EChartsOption>(() => buildEnergyChartOption(points, range), [points, range]);
 
   useEffect(() => {
@@ -1061,16 +1065,18 @@ function OperationalEnergyChartPanel({
 
       <MedperFilterBand disabled={loading} view="qh" filters={filters} options={options} onChange={onFilterChange} onApply={onApply} />
 
+      <EnergyTotalsSummary totals={totals} />
+
       <div className="energy-chart-kpis">
-        <EnergyKpi label="% pÃ¯Â¿Â½rdida media" value={formatPercentValue(metrics.meanDeviationPct)} meta={metrics.anomalyCount > 0 ? `${formatNumber(metrics.anomalyCount)} anomalÃ¯Â¿Â½as` : "Sin anomalÃ¯Â¿Â½as"} />
+        <EnergyKpi label="% pérdida media" value={formatPercentValue(metrics.meanDeviationPct)} meta={metrics.anomalyCount > 0 ? `${formatNumber(metrics.anomalyCount)} anomalías` : "Sin anomalías"} />
         <EnergyKpi label="Pico BC" value={`${formatNumber(metrics.peakBc)} MWh`} meta={metrics.peakBcLabel} />
         <EnergyKpi label="Pico PF" value={`${formatNumber(metrics.peakPf)} MWh`} meta={metrics.peakPfLabel} />
-        <EnergyKpi label="PÃ¯Â¿Â½rdidas medias" value={`${formatNumber(metrics.meanLosses)} MWh`} meta={metrics.meanLossLabel} />
-        <EnergyKpi label="Peor % pÃ¯Â¿Â½rdida" value={formatPercentValue(metrics.worstDeviationPct)} meta={metrics.worstDeviationLabel} tone="alert" />
+        <EnergyKpi label="Pérdidas medias" value={`${formatNumber(metrics.meanLosses)} MWh`} meta={metrics.meanLossLabel} />
+        <EnergyKpi label="Peor % pérdida" value={formatPercentValue(metrics.worstDeviationPct)} meta={metrics.worstDeviationLabel} tone="alert" />
       </div>
 
       <div className="energy-chart-insight">
-        <strong>AnÃ¯Â¿Â½lisis automÃ¯Â¿Â½tico</strong>
+        <strong>Análisis automático</strong>
         <span>{metrics.insight}</span>
       </div>
 
@@ -1095,6 +1101,33 @@ function EnergyKpi({
       <span>{label}</span>
       <strong>{value}</strong>
       <small>{meta}</small>
+    </div>
+  );
+}
+
+function EnergyTotalsSummary({ totals }: { totals: EnergyTotals }) {
+  return (
+    <div className="energy-totals-summary">
+      <div>
+        <span>PF Total</span>
+        <strong>{formatNumber(totals.pfKwh)} kWh</strong>
+      </div>
+      <div>
+        <span>BC Total</span>
+        <strong>{formatNumber(totals.bcKwh)} kWh</strong>
+      </div>
+      <div>
+        <span>Diferencia</span>
+        <strong>{formatNumber(totals.differenceKwh)} kWh</strong>
+      </div>
+      <div>
+        <span>Diferencia %</span>
+        <strong>{formatRatio(totals.differencePct)}</strong>
+      </div>
+      <div>
+        <span>Ratio PF/BC</span>
+        <strong>{formatRatio(totals.ratio)}</strong>
+      </div>
     </div>
   );
 }
@@ -1140,10 +1173,10 @@ function MedperMonthlyConsumptionBars(props: {
 
           return [
             `<strong>${formatMonthKeyLabel(month)}</strong>`,
-            `VersiÃ¯Â¿Â½n: ${version}`,
+            `Versión: ${version}`,
             `PF: ${formatNumber(data.pf)} MWh`,
             `BC: ${formatNumber(data.bc)} MWh`,
-            `PÃ¯Â¿Â½rdidas: ${formatNumber(data.losses)} MWh`
+            `Pérdidas: ${formatNumber(data.losses)} MWh`
           ].join("<br/>");
         }
       },
@@ -1227,7 +1260,7 @@ const ENERGY_RANGE_OPTIONS: Array<{ key: EnergyRangePreset; label: string }> = [
   { key: "day", label: "D?a" },
   { key: "week", label: "Semana" },
   { key: "month", label: "Mes" },
-  { key: "last7", label: "?ltimos 7 d?as" },
+  { key: "last7", label: "Últimos 7 días" },
   { key: "all", label: "Todo" }
 ];
 
@@ -1259,6 +1292,14 @@ type EnergyMetrics = {
   worstDeviationLabel: string;
   anomalyCount: number;
   insight: string;
+};
+
+type EnergyTotals = {
+  pfKwh: number;
+  bcKwh: number;
+  differenceKwh: number;
+  differencePct: number | null;
+  ratio: number | null;
 };
 
 function buildEnergySeries(rows: MedperCurves["qh"]): EnergyPoint[] {
@@ -1340,12 +1381,25 @@ function buildEnergyMetrics(points: EnergyPoint[]): EnergyMetrics {
     meanLosses,
     meanLossLabel: `${formatChartTooltipDate(points[0].timestampMs)} - ${formatChartTooltipDate(points[points.length - 1].timestampMs)}`,
     worstDeviationPct: worstDeviationPoint.deviationPct,
-    worstDeviationLabel: `${worstDate} Ã¯Â¿Â½ ${liftLabel}`,
+    worstDeviationLabel: `${worstDate} € ${liftLabel}`,
     anomalyCount,
     insight:
       worstDeviationPoint.deviationPct === 0
-        ? "No se detectan pÃ¯Â¿Â½rdidas relativas relevantes en el rango actual."
-        : `El ${worstDate} registrÃ¯Â¿Â½ la mayor pÃ¯Â¿Â½rdida relativa: ${formatPercentValue(Math.abs(worstDeviationPoint.deviationPct))}, ${liftLabel} sobre la media.`
+        ? "No se detectan pérdidas relativas relevantes en el rango actual."
+        : `El ${worstDate} registr? la mayor pérdida relativa: ${formatPercentValue(Math.abs(worstDeviationPoint.deviationPct))}, ${liftLabel} sobre la media.`
+  };
+}
+
+function buildEnergyTotals(points: EnergyPoint[]): EnergyTotals {
+  const totalPfMwh = points.reduce((sum, point) => sum + (point.displayPf ?? 0), 0);
+  const totalBcMwh = points.reduce((sum, point) => sum + (point.displayBc ?? 0), 0);
+  const differenceMwh = totalPfMwh - totalBcMwh;
+  return {
+    pfKwh: totalPfMwh * 1000,
+    bcKwh: totalBcMwh * 1000,
+    differenceKwh: differenceMwh * 1000,
+    differencePct: Math.abs(totalBcMwh) < 0.000001 ? null : Math.abs(differenceMwh) / Math.abs(totalBcMwh),
+    ratio: Math.abs(totalBcMwh) < 0.000001 ? null : totalPfMwh / totalBcMwh
   };
 }
 
@@ -1374,7 +1428,7 @@ function buildEnergyChartOption(points: EnergyPoint[], range: EnergyRangePreset)
       icon: "roundRect",
       textStyle: { color: "#294553", fontWeight: 700 },
       selected: {
-        "% pÃ¯Â¿Â½rdida": false
+        "% pérdida": false
       }
     },
     tooltip: {
@@ -1399,9 +1453,9 @@ function buildEnergyChartOption(points: EnergyPoint[], range: EnergyRangePreset)
             `<strong>${formatChartTooltipDate(point.timestampMs)}</strong>`,
             `BC: ${formatNumber(point.displayBc)} MWh`,
             `PF: ${formatNumber(point.displayPf)} MWh`,
-            `PÃ¯Â¿Â½rdidas: ${formatNumber(point.displayLosses)} MWh`,
+            `Pérdidas: ${formatNumber(point.displayLosses)} MWh`,
             `Diferencia absoluta: ${formatNumber(point.displayDeviation === null ? null : Math.abs(point.displayDeviation))} MWh`,
-            `% pÃ¯Â¿Â½rdida: ${formatPercentValue(point.displayDeviationPct)}`
+            `% pérdida: ${formatPercentValue(point.displayDeviationPct)}`
           ].join("<br/>");
         }
       },
@@ -1459,7 +1513,7 @@ function buildEnergyChartOption(points: EnergyPoint[], range: EnergyRangePreset)
     ],
     series: [
       {
-        name: "Banda % pÃ¯Â¿Â½rdida",
+        name: "Banda % pérdida",
         type: "custom",
         silent: true,
         z: 1,
@@ -1519,7 +1573,7 @@ function buildEnergyChartOption(points: EnergyPoint[], range: EnergyRangePreset)
         z: 3
       },
       {
-        name: "PÃ¯Â¿Â½rdidas",
+        name: "Pérdidas",
         type: "line",
         showSymbol: false,
         sampling: "lttb",
@@ -1531,7 +1585,7 @@ function buildEnergyChartOption(points: EnergyPoint[], range: EnergyRangePreset)
         z: 3
       },
       {
-        name: "% pÃ¯Â¿Â½rdida",
+        name: "% pérdida",
         type: "line",
         yAxisIndex: 1,
         showSymbol: false,
@@ -1876,21 +1930,22 @@ function ImportHistoryDashboardView({
   const selectedCount = [...selectedIds].filter((id) => filteredFiles.some((file) => file.id === id)).length;
   const kpis = buildImportHistoryKpis(files, latestImport);
   const chartData = buildImportHistoryCharts(files);
+  const hasInvalidsChartSignal = chartData.monthlyInvalids.some((row) => row.value > 0);
   const copy = mode === "reganecu"
     ? {
-        eyebrow: "REGANECU Ã¯Â¿Â½ HistÃ¯Â¿Â½rico",
+        eyebrow: "REGANECU · Histórico",
         title: "Consola operativa de cargas REGANECU",
-        description: "SupervisiÃ¯Â¿Â½n de ficheros horarios y cuartohorarios, calidad de datos y trazabilidad de cargas.",
-        importHint: "Arrastra TXT, CSV o ZIP en la zona superior de la aplicaciÃ¯Â¿Â½n. La validaciÃ¯Â¿Â½n bloquea duplicados por tipo, fecha y versiÃ¯Â¿Â½n.",
+        description: "Supervisión de ficheros horarios y cuartohorarios, calidad de datos y trazabilidad de cargas.",
+        importHint: "Arrastra TXT, CSV o ZIP en la zona superior de la aplicación. La validación bloquea duplicados por tipo, fecha y versión.",
         tableTitle: "Cargas REGANECU",
         empty: "Sin cargas REGANECU con los filtros seleccionados.",
         exportName: "cargas-reganecu.csv"
       }
     : {
-        eyebrow: "MEDPERQH Ã¯Â¿Â½ HistÃ¯Â¿Â½rico",
+        eyebrow: "MEDPERQH · Histórico",
         title: "Consola operativa de cargas de medidas",
-        description: "SupervisiÃ¯Â¿Â½n de ficheros MEDPERQH, calidad de medida y trazabilidad de cargas cuartohorarias.",
-        importHint: "Arrastra TXT, CSV o ZIP en la zona superior de la aplicaciÃ¯Â¿Â½n. La validaciÃ¯Â¿Â½n bloquea duplicados por tipo, fecha y versiÃ¯Â¿Â½n.",
+        description: "Supervisión de ficheros MEDPERQH, calidad de medida y trazabilidad de cargas cuartohorarias.",
+        importHint: "Arrastra TXT, CSV o ZIP en la zona superior de la aplicación. La validación bloquea duplicados por tipo, fecha y versión.",
         tableTitle: "Cargas MEDPERQH",
         empty: "Sin cargas MEDPERQH con los filtros seleccionados.",
         exportName: "cargas-medidas.csv"
@@ -1954,7 +2009,7 @@ function ImportHistoryDashboardView({
     try {
       await action();
     } catch (error) {
-      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo completar la accion." });
+      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo completar la acción." });
     } finally {
       setActionBusyId(null);
     }
@@ -1964,7 +2019,7 @@ function ImportHistoryDashboardView({
     void runHistoryAction(file, async () => {
       const detail = await getImportFileDetail(file.id);
       setActionModal({
-        title: `Detalle de carga Ã¯Â¿Â½ ${file.fileName}`,
+        title: `Detalle de carga · ${file.fileName}`,
         content: <ImportDetailModalContent detail={detail} />
       });
     });
@@ -1979,7 +2034,7 @@ function ImportHistoryDashboardView({
   }
 
   function reprocessFile(file: ImportHistoryFile) {
-    if (!window.confirm(`Se reprocesara la carga ${file.fileName} y se sobrescribiran los datos anteriores. Ã¯Â¿Â½Continuar?`)) {
+    if (!window.confirm(`Se reprocesara la carga ${file.fileName} y se sobrescribirán los datos anteriores. ¿¿Continuar?`)) {
       return;
     }
 
@@ -1994,7 +2049,7 @@ function ImportHistoryDashboardView({
   }
 
   function deleteFile(file: ImportHistoryFile) {
-    if (!window.confirm(`Se eliminara la carga ${file.fileName} y sus registros relacionados. Ã¯Â¿Â½Continuar?`)) {
+    if (!window.confirm(`Se eliminara la carga ${file.fileName} y sus registros relacionados. ¿¿Continuar?`)) {
       return;
     }
 
@@ -2014,7 +2069,7 @@ function ImportHistoryDashboardView({
     void runHistoryAction(file, async () => {
       const logs = await getImportFileLogs(file.id);
       setActionModal({
-        title: `Logs de carga Ã¯Â¿Â½ ${file.fileName}`,
+        title: `Logs de carga · ${file.fileName}`,
         content: <ImportLogsModalContent logs={logs} />
       });
     });
@@ -2053,16 +2108,16 @@ function ImportHistoryDashboardView({
             <UploadCloud size={24} />
           </div>
           <div>
-            <strong>ImportaciÃ¯Â¿Â½n rÃ¯Â¿Â½pida</strong>
+            <strong>Importación rápida</strong>
             <span>{copy.importHint}</span>
           </div>
           <div className="ops-progress-track">
             <span style={{ width: `${Math.min(100, Math.max(8, latestImport ? 100 : 18))}%` }} />
           </div>
-          <small>{latestImport ? `${latestImport.summary.recordsImported} registros en la Ã¯Â¿Â½ltima carga` : "Sin carga reciente en esta sesiÃ¯Â¿Â½n"}</small>
+          <small>{latestImport ? `${latestImport.summary.recordsImported} registros en la Última carga` : "Sin carga reciente en esta sesión"}</small>
         </div>
-        <OpsMiniChart title="EvoluciÃ¯Â¿Â½n cargas" rows={chartData.monthlyLoads} valueLabel="cargas" tone="cyan" />
-        <OpsMiniChart title="InvÃ¯Â¿Â½lidos por mes" rows={chartData.monthlyInvalids} valueLabel="incidencias" tone="rose" />
+        <OpsMiniChart title="Evolución cargas" rows={chartData.monthlyLoads} valueLabel="cargas" tone="cyan" />
+        {hasInvalidsChartSignal ? <OpsMiniChart title="Inválidos por mes" rows={chartData.monthlyInvalids} valueLabel="incidencias" tone="rose" /> : null}
         <OpsMiniChart title="Volumen por tipo" rows={chartData.byVersion} valueLabel="registros" tone="emerald" />
       </div>
 
@@ -2093,11 +2148,11 @@ function ImportHistoryDashboardView({
         <div className="ops-table-head">
           <div>
             <strong>{copy.tableTitle}</strong>
-            <span>{filteredFiles.length} ficheros filtrados Ã¯Â¿Â½ {selectedCount} seleccionados</span>
+            <span>{filteredFiles.length} ficheros filtrados · {selectedCount} seleccionados</span>
           </div>
           <div className="ops-view-toggle">
             <button className={compact ? "active" : ""} onClick={() => setCompact(true)} type="button">Compacto</button>
-            <button className={!compact ? "active" : ""} onClick={() => setCompact(false)} type="button">CÃ¯Â¿Â½modo</button>
+            <button className={!compact ? "active" : ""} onClick={() => setCompact(false)} type="button">Cómodo</button>
             <button className={cardMode ? "active" : ""} onClick={() => setCardMode((current) => !current)} type="button">Tarjetas</button>
           </div>
         </div>
@@ -2130,7 +2185,7 @@ function ImportHistoryDashboardView({
         )}
 
         <div className="ops-pagination">
-          <span>PÃ¯Â¿Â½gina {tablePage + 1} de {pageCount}</span>
+          <span>Página {tablePage + 1} de {pageCount}</span>
           <button disabled={tablePage === 0} onClick={() => setTablePage((current) => Math.max(0, current - 1))} type="button">
             <ChevronLeft size={16} />
           </button>
@@ -2222,8 +2277,8 @@ function OpsLoadsTable({
     { key: "period" as const, label: "Periodo" },
     { key: "fileName" as const, label: "Archivo" },
     { key: "totalRecords" as const, label: "Registros" },
-    { key: "validRecords" as const, label: "VÃ¯Â¿Â½lidos" },
-    { key: "invalidRecords" as const, label: "InvÃ¯Â¿Â½lidos" },
+    { key: "validRecords" as const, label: "Válidos" },
+    { key: "invalidRecords" as const, label: "Inválidos" },
     { key: "duplicatedRecords" as const, label: "Duplicados" },
     { key: "importedAt" as const, label: "Fecha carga" }
   ];
@@ -2304,12 +2359,12 @@ function ImportDetailModalContent({ detail }: { detail: ImportHistoryDetail }) {
       <div className="ops-detail-grid">
         <Metric label="Estado" value={file.status} />
         <Metric label="Tipo fichero" value={file.tipoArchivo} />
-        <Metric label="VersiÃ¯Â¿Â½n" value={file.version} />
+        <Metric label="Versión" value={file.version} />
         <Metric label="Periodo" value={getHistoryPeriodLabel(file)} />
         <Metric label="Registros" value={file.totalRecords.toLocaleString("es-ES")} />
         <Metric label="Persistidos" value={detail.recordCounts.total.toLocaleString("es-ES")} />
-        <Metric label="VÃ¯Â¿Â½lidos" value={file.validRecords.toLocaleString("es-ES")} />
-        <Metric label="InvÃ¯Â¿Â½lidos" value={file.invalidRecords.toLocaleString("es-ES")} />
+        <Metric label="Válidos" value={file.validRecords.toLocaleString("es-ES")} />
+        <Metric label="Inválidos" value={file.invalidRecords.toLocaleString("es-ES")} />
         <Metric label="Duplicados" value={file.duplicatedRecords.toLocaleString("es-ES")} />
         <Metric label="Carga" value={formatDateTime(file.importedAt)} />
       </div>
@@ -2322,7 +2377,7 @@ function ImportDetailModalContent({ detail }: { detail: ImportHistoryDetail }) {
           <div className="ops-error-preview">
             {detail.errors.slice(0, 8).map((error, index) => (
               <div key={`${error.sourceFileName}-${error.lineNumber}-${index}`}>
-                <b>LÃ¯Â¿Â½nea {error.lineNumber}</b>
+                <b>Línea {error.lineNumber}</b>
                 <span>{error.message}</span>
               </div>
             ))}
@@ -2369,12 +2424,12 @@ function OpsLoadCard({ file }: { file: ImportHistoryFile }) {
       <div>
         <LoadStatusBadge status={getLoadStatus(file)} />
         <strong>{file.fileName}</strong>
-        <span>{file.version} Ã¯Â¿Â½ {file.tipoArchivo} Ã¯Â¿Â½ {getHistoryPeriodLabel(file)} Ã¯Â¿Â½ {file.sujetoEic}</span>
+        <span>{file.version} € {file.tipoArchivo} € {getHistoryPeriodLabel(file)} € {file.sujetoEic}</span>
       </div>
       <div className="ops-load-card-metrics">
         <span>{file.totalRecords.toLocaleString("es-ES")} total</span>
-        <span className="good">{file.validRecords.toLocaleString("es-ES")} vÃ¯Â¿Â½lidos</span>
-        <span className="danger">{file.invalidRecords.toLocaleString("es-ES")} invÃ¯Â¿Â½lidos</span>
+        <span className="good">{file.validRecords.toLocaleString("es-ES")} válidos</span>
+        <span className="danger">{file.invalidRecords.toLocaleString("es-ES")} inválidos</span>
         <span className="warning">{file.duplicatedRecords.toLocaleString("es-ES")} dup.</span>
       </div>
     </article>
@@ -2402,11 +2457,11 @@ function buildImportHistoryKpis(files: ImportHistoryFile[], latestImport?: { sum
 
   return [
     { label: "Total registros", value: totals.records.toLocaleString("es-ES"), detail: `${files.length} cargas`, tone: "info", icon: <Database size={18} /> },
-    { label: "VÃ¯Â¿Â½lidos", value: totals.valid.toLocaleString("es-ES"), detail: qualityLabel(totals.valid, totals.records), tone: "good", icon: <CheckCircle2 size={18} /> },
-    { label: "InvÃ¯Â¿Â½lidos", value: totals.invalid.toLocaleString("es-ES"), detail: qualityLabel(totals.invalid, totals.records), tone: totals.invalid > 0 ? "danger" : "good", icon: <AlertTriangle size={18} /> },
+    { label: "Válidos", value: totals.valid.toLocaleString("es-ES"), detail: qualityLabel(totals.valid, totals.records), tone: "good", icon: <CheckCircle2 size={18} /> },
+    { label: "Inválidos", value: totals.invalid.toLocaleString("es-ES"), detail: qualityLabel(totals.invalid, totals.records), tone: totals.invalid > 0 ? "danger" : "good", icon: <AlertTriangle size={18} /> },
     { label: "Duplicados", value: totals.duplicated.toLocaleString("es-ES"), detail: qualityLabel(totals.duplicated, totals.records), tone: totals.duplicated > 0 ? "warning" : "good", icon: <Clipboard size={18} /> },
-    { label: "Ã¯Â¿Â½ltima carga", value: latestFile ? formatDateTime(latestFile.importedAt) : "-", detail: latestImport ? `${latestImport.summary.recordsImported} registros importados` : "Sin carga en sesiÃ¯Â¿Â½n", tone: "accent", icon: <FileClock size={18} /> },
-    { label: "Ã¯Â¿Â½ltimo periodo", value: latestPeriod ? formatMonthKeyLabel(latestPeriod) : "-", detail: latestFile?.version ?? "Sin periodo", tone: "info", icon: <Activity size={18} /> }
+    { label: "Última carga", value: latestFile ? formatDateTime(latestFile.importedAt) : "-", detail: latestImport ? `${latestImport.summary.recordsImported} registros importados` : "Sin carga en sesión", tone: "accent", icon: <FileClock size={18} /> },
+    { label: "Último periodo", value: latestPeriod ? formatMonthKeyLabel(latestPeriod) : "-", detail: latestFile?.version ?? "Sin periodo", tone: "info", icon: <Activity size={18} /> }
   ];
 }
 
@@ -2561,7 +2616,7 @@ function exportCsv<T extends object>(name: string, rows: T[]) {
       ];
       downloadBlob(name, lines.join("\n"), "text/csv;charset=utf-8");
     },
-    { label: "Preparando exportaciÃ¯Â¿Â½n" }
+    { label: "Preparando exportaci?n" }
   );
 }
 

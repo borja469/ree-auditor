@@ -1,6 +1,6 @@
 import { beginLoading, withGlobalLoading } from "./loading";
 
-export type ReeFileType = "REGANECU" | "REGANECUQH";
+export type ReeFileType = "REGANECU" | "REGANECUQH" | "SEIE";
 export type ReeVersion = "A1" | "C1" | "C2" | "C3" | "C4" | "C5";
 export type MedperFileType = "MEDPERQH";
 export type ReeKFactorFileType = "KESTIMQH" | "KREALQH";
@@ -10,6 +10,40 @@ export type OmieDownloadModulo = "Programas" | "Precios" | "Transacciones";
 export type OmieDownloadCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4121";
 export type OmieDownloadDocumentType = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES";
 export type OmieDownloadEstado = "PENDIENTE" | "DESCARGANDO" | "DESCARGADO" | "PROCESADO" | "ERROR";
+
+export type AnnualReportMetricKind = "energy" | "currency" | "price" | "text";
+export type AnnualReportMetricRow = {
+  key: string;
+  label: string;
+  kind: AnnualReportMetricKind;
+  months: Array<number | string | null>;
+  total: number | string | null;
+  editable?: {
+    type: "OS" | "OM" | "REMIT";
+  };
+};
+export type AnnualReportTable = {
+  key: "peninsula" | "seie";
+  title: string;
+  missingMonths: Array<{
+    month: number;
+    label: string;
+    missing: string[];
+  }>;
+  rows: AnnualReportMetricRow[];
+};
+export type AnnualReportResponse = {
+  year: number;
+  availableYears: number[];
+  months: string[];
+  missingMonths: Array<{
+    month: number;
+    label: string;
+    missing: string[];
+  }>;
+  rows: AnnualReportMetricRow[];
+  tables?: AnnualReportTable[];
+};
 
 export type ReeFile = {
   id: string;
@@ -137,6 +171,16 @@ export type ReeLossesImportFile = {
   validRecords: number;
   invalidRecords: number;
   duplicatedRecords: number;
+};
+
+export type ReeDownloadCenterSummaryRow = {
+  month: string;
+  module: "REGANECU" | "MEDPER" | "K REE" | "SEIE";
+  status: "correct" | "error" | "pending" | "incomplete" | "duplicated" | "warning";
+  label: string | null;
+  loads: number;
+  records: number;
+  latestLoad: string | null;
 };
 
 export type ImportHistoryKind = "reganecu" | "medper";
@@ -309,6 +353,32 @@ export type OmieDailyBulkDownloadResponse = {
   resultados: OmieDailyBulkDownloadItem[];
 };
 
+export type OmieAutomationConfig = {
+  active: boolean;
+  daysBack: number;
+  sessions: [string, string, string];
+  lastRunKey: string | null;
+  lastRunAt: string | null;
+  lastRunAtUtc?: string | null;
+};
+
+export type OmieAutomationRunResponse = {
+  session: string;
+  startedAt: string;
+  finishedAt: string;
+  force: true;
+  daysBack: number;
+  dates: string[];
+  totalConsultas: number;
+  totalConsultasEjecutadas: number;
+  procesadas: number;
+  sinDatos: number;
+  errores: number;
+  omitidas: number;
+  tiempoTotalMs: number;
+  resultados: OmieDailyBulkDownloadResponse[];
+};
+
 export type OmiePrecioPeriodo = {
   fecha: string;
   periodo: number;
@@ -458,6 +528,42 @@ export type OmieComprobacionLiquidacionesResponse = {
   cuadroEnergetico: OmieComprobacionCuadre;
 };
 
+export type GuaranteeCalculatorRow = {
+  date: string;
+  displayDate: string;
+  weekday: string;
+  volume: number | null;
+  volumeSource: "REAL" | "PREVIOUS_WEEK" | "MISSING";
+  volumeSourceDate: string | null;
+  price: number | null;
+  priceSource: "OMIE" | "MEFF" | "MISSING";
+  pricePublicationDate: string | null;
+  meffCode: string | null;
+  invoicingAmount: number | null;
+  invoicingSource: "REAL" | "ESTIMATED" | "MISSING";
+  accumulatedInvoicing: number;
+  depositedGuarantee: number | null;
+  prepaidPayment: number | null;
+  availableGuarantee: number | null;
+  warnings: string[];
+};
+
+export type GuaranteeCalculatorResponse = {
+  referenceDate: string;
+  startDate: string;
+  endDate: string;
+  rows: GuaranteeCalculatorRow[];
+  summary: {
+    totalVolume: number;
+    totalInvoicing: number;
+    daysWithRealVolume: number;
+    daysWithSubstitutedVolume: number;
+    daysWithOmiePrice: number;
+    daysWithMeffPrice: number;
+    daysWithMissingData: number;
+  };
+};
+
 export type OmieLiquidationInvoiceResponse = {
   fecha: string;
   fechaIso: string;
@@ -585,6 +691,618 @@ export type OmieTransactionStagingRowsResponse = {
   filas: OmieTransactionStagingRow[];
 };
 
+export type EsiosConfig = {
+  apiUrl: string;
+  tokenConfigured: boolean;
+  timeoutSeconds: number;
+  retries: number;
+  active: boolean;
+};
+
+export type EsiosConnectionResult = {
+  status: "ok" | "invalid_token" | "network_error" | "api_error" | "inactive";
+  message: string;
+  statusCode?: number;
+};
+
+export type EsiosIndicator = {
+  id: string;
+  indicatorId: number;
+  name: string | null;
+  description: string | null;
+  shortName: string | null;
+  unit: string | null;
+  frequency: string | null;
+  active: boolean;
+  hasData?: boolean;
+  latestDownload?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosIndicatorValue = {
+  id: string;
+  indicatorId: number;
+  datetime: string;
+  datetimeUtc: string | null;
+  value: number | null;
+  geoId: number | null;
+  geoName: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosValuesFilters = {
+  fechaDesde?: string;
+  fechaHasta?: string;
+  year?: number | string;
+  month?: number | string;
+  skip?: number;
+  take?: number;
+};
+
+export type EsiosValuesResponse = {
+  indicator: EsiosIndicator | null;
+  filters: {
+    startDate: string;
+    endDate: string;
+    skip: number;
+    take: number;
+  };
+  total: number;
+  hasNext: boolean;
+  kpis: {
+    firstRecord: string | null;
+    lastRecord: string | null;
+    totalRecords: number;
+    average: number | null;
+    maximum: number | null;
+    minimum: number | null;
+    latestDownload: string | null;
+  };
+  rows: EsiosIndicatorValue[];
+};
+
+export type EsiosDownloadSummary = {
+  indicatorId: number;
+  startDate: string;
+  endDate: string;
+  downloadedRecords: number;
+  insertedRecords: number;
+  updatedRecords: number;
+  executionTimeMs: number;
+  status: "SUCCESS" | "ERROR";
+  errorMessage: string | null;
+};
+
+export type EsiosSeriesAutomationConfig = {
+  active: boolean;
+  scheduleTime: string;
+  daysBack: number;
+  daysForward: number;
+  selectedIndicatorIds: number[];
+  lastRunKey: string | null;
+  lastRunAt: string | null;
+  lastRunAtUtc?: string | null;
+};
+
+export type EsiosSeriesAutomationRunResponse = {
+  scheduleTime: string;
+  startedAt: string;
+  finishedAt: string;
+  force: true;
+  startDate: string;
+  endDate: string;
+  daysBack: number;
+  daysForward: number;
+  totalIndicators: number;
+  success: number;
+  errors: number;
+  downloadedRecords: number;
+  insertedRecords: number;
+  updatedRecords: number;
+  executionTimeMs: number;
+  results: Array<{
+    indicatorId: number;
+    status: "SUCCESS" | "ERROR";
+    downloadedRecords: number;
+    insertedRecords: number;
+    updatedRecords: number;
+    executionTimeMs: number;
+    errorMessage: string | null;
+  }>;
+};
+
+
+export type PricingBaseStatus = "ok" | "partial" | "missing";
+export type PricingSettlementVersion = "C1" | "C2" | "C3" | "C4" | "C5";
+
+export type PricingBaseRow = {
+  fecha: string;
+  ano: number;
+  mes: number;
+  dia: number;
+  diaSemana: number;
+  diaSemanaNombre: string;
+  hora: number;
+  timestampInicio: string;
+  timestampFin: string;
+  cambioHorarioDst: "none" | "spring_forward_23h" | "fall_back_25h";
+  ordenDia365: number;
+  ordenHora: number;
+  perfilIntermedio20TD: number | null;
+  perfilIntermedio30TD: number | null;
+  perfilIntermedio30TDVE: number | null;
+  perfilIntermedio61TD: number | null;
+  productoPerfilOmie20TD: number | null;
+  productoPerfilOmie30TD: number | null;
+  productoPerfilOmie30TDVE: number | null;
+  productoPerfilOmie61TD: number | null;
+  productoPerfilCad20TD: number | null;
+  productoPerfilCad30TD: number | null;
+  productoPerfilCad30TDVE: number | null;
+  productoPerfilCad61TD: number | null;
+  productoPerfilRad20TD: number | null;
+  productoPerfilRad30TD: number | null;
+  productoPerfilRad30TDVE: number | null;
+  productoPerfilRad61TD: number | null;
+  productoPerfilPerdidas20TD: number | null;
+  productoPerfilPerdidas30TD: number | null;
+  productoPerfilPerdidas30TDVE: number | null;
+  productoPerfilPerdidas61TD: number | null;
+  perdidas20TD: number | null;
+  perdidas30TD: number | null;
+  perdidas61TD: number | null;
+  periodo20TD: string;
+  periodo30TD: string;
+  periodo6XTD: string;
+  precioOmie: number | null;
+  precioOmieUnidad: "EUR/MWh";
+  cad: number | null;
+  cadVersion: PricingSettlementVersion | null;
+  cadStatus: "ok" | "missing";
+  rad: number | null;
+  radVersion: PricingSettlementVersion | null;
+  radStatus: PricingBaseStatus;
+  perdidas: number | null;
+  perdidasVersion: PricingSettlementVersion | null;
+  perdidasStatus: PricingBaseStatus;
+  perfil20TDStatus: PricingBaseStatus;
+  perfil30TDStatus: PricingBaseStatus;
+  perfil30TDVEStatus: PricingBaseStatus;
+  omieStatus: PricingBaseStatus;
+};
+
+export type PricingBaseMeffCurveMonth = {
+  year: number;
+  month: number;
+  key: string;
+  label: string;
+  price: number | null;
+  origin: "Mensual" | "Trimestral" | "Anual" | "Calculado" | null;
+  productCode: string | null;
+  sourceProductCode: string | null;
+  previous7DaysPrice: number | null;
+  previous14DaysPrice: number | null;
+  change7DaysPct: number | null;
+  change14DaysPct: number | null;
+};
+
+export type PricingBaseMeffProfileRow = {
+  fecha: string;
+  ano: number;
+  mes: number;
+  dia: number;
+  diaSemana: number;
+  diaSemanaNombre: string;
+  hora: number;
+  timestampInicio: string;
+  timestampFin: string;
+  cambioHorarioDst: "none" | "spring_forward_23h" | "fall_back_25h";
+  ordenDia365: number;
+  ordenHora: number;
+  curvaMes: string;
+  curvaMesLabel: string;
+  precioMeff: number | null;
+  precioMeffOrigen: PricingBaseMeffCurveMonth["origin"];
+  precioMeffProducto: string | null;
+  precioMeffProductoOrigen: string | null;
+  perfilIntermedio20TD: number | null;
+  perfilIntermedio30TD: number | null;
+  perfilIntermedio30TDVE: number | null;
+  perfilIntermedio61TD: number | null;
+  productoPerfilMeff20TD: number | null;
+  productoPerfilMeff30TD: number | null;
+  productoPerfilMeff30TDVE: number | null;
+  productoPerfilMeff61TD: number | null;
+  periodo20TD: string;
+  periodo30TD: string;
+  periodo6XTD: string;
+  perfil20TDStatus: PricingBaseStatus;
+  perfil30TDStatus: PricingBaseStatus;
+  perfil30TDVEStatus: PricingBaseStatus;
+  meffStatus: PricingBaseStatus;
+};
+
+export type PricingBaseFilters = {
+  fechaReferencia?: string;
+  incluirFechaReferencia?: boolean;
+  skip?: number;
+  take?: number;
+};
+
+export type PricingBaseValidation = {
+  name: string;
+  status: "ok" | "warning" | "error";
+  message: string;
+};
+
+export type PricingBaseResponse = {
+  filters: PricingBaseFilters & {
+    fechaReferencia: string;
+    incluirFechaReferencia: boolean;
+    zonaHoraria: "Europe/Madrid";
+    skip: number;
+    take: number;
+  };
+  range: {
+    fechaInicio: string;
+    fechaFin: string;
+    diasNaturales: number;
+    expectedHours: number;
+    totalRows: number;
+  };
+  total: number;
+  hasNext: boolean;
+  rows: PricingBaseRow[];
+  meffForward: {
+    publicationDate: string | null;
+    months: PricingBaseMeffCurveMonth[];
+    rows: PricingBaseMeffProfileRow[];
+  };
+  validations: PricingBaseValidation[];
+  profileSources: Array<{ tariff: "2.0TD" | "3.0TD" | "3.0TDVE" | "6.1TD"; profileSource: "REE_PROFILE" | "UNIT_PROFILE" }>;
+  sourceData: {
+    profiles: string;
+    omie: string;
+    timezone: "Europe/Madrid";
+  };
+};
+
+export type PricingCalculatorManualConcept =
+  | "renta4"
+  | "cos"
+  | "si3"
+  | "ppc"
+  | "retribucionOm"
+  | "retribucionOs"
+  | "aportacionFnee"
+  | "desvio"
+  | "modificador"
+  | "perdidasInc"
+  | "atr";
+
+export type PricingCalculatorManualValue = {
+  concepto: PricingCalculatorManualConcept;
+  tarifa: string;
+  periodo: string;
+  valor: number | null;
+  updatedAt: string;
+};
+
+export type PricingMeffComparison = {
+  precio: number | null;
+  porcentaje: number | null;
+};
+
+export type PricingMeffRow = {
+  id: string;
+  fechaPublicacion: string;
+  cod: string;
+  tipo: string | null;
+  clase: string | null;
+  periodo: string | null;
+  entrega: string | null;
+  multiplicador: string | null;
+  precio: number | null;
+  precio7Dias: PricingMeffComparison;
+  precio14Dias: PricingMeffComparison;
+};
+
+export type PricingMeffFilters = {
+  fechaPublicacion?: string;
+  tipo?: string[];
+  clase?: string[];
+  periodo?: string[];
+  entrega?: string[];
+  multiplicador?: string[];
+  skip?: number;
+  take?: number;
+};
+
+export type PricingMeffImportResponse = {
+  inserted: number;
+  updated: number;
+  errors: Array<{ row: number; message: string }>;
+};
+
+export type PricingMeffResponse = {
+  total: number;
+  rows: PricingMeffRow[];
+  filterOptions: {
+    tipos: string[];
+    clases: string[];
+    periodos: string[];
+    entregas: string[];
+    multiplicadores: string[];
+  };
+};
+
+
+export type EsiosDownloadLog = {
+  id: string;
+  indicatorId: number | null;
+  indicatorName: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  downloadedRecords: number;
+  insertedRecords: number;
+  updatedRecords: number;
+  executionTimeMs: number;
+  status: string;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+export type EsiosDownloadLogsResponse = {
+  total: number;
+  hasNext: boolean;
+  logs: EsiosDownloadLog[];
+};
+
+export type EsiosSyncIndicatorsResponse = {
+  downloadedRecords: number;
+  savedRecords: number;
+  indicators: EsiosIndicator[];
+};
+
+export type EsiosProfileTariff = "2.0TD" | "3.0TD" | "3.0TDVE";
+
+export type EsiosInitialProfile = {
+  id: string;
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  datetime: string;
+  profile20td: number;
+  profile30td: number;
+  profile30tdve: number;
+  referenceDemandMw: number;
+  uploadId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosProfileCoefficient = {
+  id?: string;
+  year?: number;
+  tariff: EsiosProfileTariff;
+  alpha: number;
+  beta: number;
+  gamma: number;
+  uploadId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type EsiosProfileUpload = {
+  id: string;
+  year: number;
+  fileName: string;
+  uploadedAt: string;
+  uploadedBy: string | null;
+  status: string;
+  errorMessage: string | null;
+  totalRows: number;
+  validRows: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosProfilesFilters = {
+  year?: number | string;
+  month?: number | string;
+  tariff?: EsiosProfileTariff | "";
+  fechaDesde?: string;
+  fechaHasta?: string;
+  skip?: number;
+  take?: number;
+};
+
+export type EsiosInitialProfilesResponse = {
+  rows: EsiosInitialProfile[];
+  total: number;
+  hasNext: boolean;
+  filters: EsiosProfilesFilters;
+};
+
+export type EsiosProfilesSummary = {
+  year: number;
+  expectedHours: number;
+  loadedHours: number;
+  loadStatus: string;
+  latestUpload: EsiosProfileUpload | null;
+  sumProfile20td: number | null;
+  sumProfile30td: number | null;
+  sumProfile30tdve: number | null;
+  totalReferenceDemandMw: number | null;
+  coefficientCount: number;
+};
+
+export type EsiosProfileIntermediateRow = {
+  id: string;
+  year: number;
+  datetime: string;
+  month: number;
+  day: number;
+  hour: number;
+  tariff: EsiosProfileTariff;
+  initialProfile: number;
+  h0: number;
+  h1: number;
+  hf: number;
+  c0: number;
+  c1: number;
+  cf: number;
+  m0: number;
+  m1: number;
+  intermediateProfile: number;
+  demandUsedMw: number;
+  demandSource: "REE_DEMR" | "FINAL_1335" | "FORECAST_460" | "REFERENCE_REE";
+  referenceDemandMw: number;
+  forecastDemandMw: number | null;
+  finalDemandMw: number | null;
+  systemDemandMw?: number | null;
+  reeFinalProfile: number | null;
+  finalProfileDifference: number | null;
+  finalProfileValidationStatus: "VALIDADO" | "DIFERENTE" | "SIN_PERFF";
+  calculatedIntermediateProfile: number;
+  profileValidationDifference: number;
+  profileValidationStatus: "VALIDADO" | "DIFERENTE";
+  validationStatus: "VALIDADO" | "DIFERENTE" | "SIN_PERFF";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosProfileIntermediateLog = {
+  id: string;
+  year: number;
+  status: string;
+  startedAt: string;
+  finishedAt: string | null;
+  executionTimeMs: number | null;
+  rowsProcessed: number;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+export type EsiosProfileIntermediateSummary = {
+  year: number;
+  expectedHours: number;
+  calculatedHours: number;
+  calculatedTariffs: number;
+  status: string;
+  latestCalculation: EsiosProfileIntermediateLog | null;
+  sumIntermediateProfiles: Record<EsiosProfileTariff, number | null>;
+  totalDemandUsedMw: number | null;
+  totalFinalDemandMw: number | null;
+  totalReferenceDemandMw: number | null;
+  finalDemandValidation?: {
+    loadedHours: number;
+    matchedHours: number;
+    mismatchedHours: number;
+    pendingHours: number;
+    toleranceMw: number;
+  };
+  finalProfileValidation?: {
+    loadedHours: number;
+    matchedRows: number;
+    mismatchedRows: number;
+    pendingRows: number;
+    tolerance: number;
+  };
+  profileValidation?: {
+    matchedRows: number;
+    mismatchedRows: number;
+    tolerance: number;
+  };
+};
+
+export type EsiosProfileIntermediatesResponse = {
+  rows: EsiosProfileIntermediateRow[];
+  total: number;
+  hasNext: boolean;
+  filters: EsiosProfilesFilters & { year: number };
+};
+
+export type EsiosProfileCalculationLogsResponse = {
+  total: number;
+  hasNext: boolean;
+  logs: EsiosProfileIntermediateLog[];
+};
+
+export type EsiosProfilesUploadsResponse = {
+  uploads: EsiosProfileUpload[];
+  total: number;
+  hasNext: boolean;
+};
+
+export type EsiosProfilesUploadResponse = {
+  upload: EsiosProfileUpload;
+  summary: EsiosProfilesSummary;
+  rowsImported: number;
+  coefficientsImported: number;
+};
+
+export type EsiosReeFinalDemandUpload = {
+  id: string;
+  year: number;
+  month: number;
+  day: number | null;
+  periodKey: string | null;
+  fileName: string;
+  fileHash: string;
+  uploadedAt: string;
+  uploadedBy: string | null;
+  status: string;
+  errorMessage: string | null;
+  totalRows: number;
+  validRows: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosReeFinalDemandUploadsResponse = {
+  uploads: EsiosReeFinalDemandUpload[];
+  total: number;
+  hasNext: boolean;
+};
+
+export type EsiosReeFinalDemandUploadResponse = {
+  upload: EsiosReeFinalDemandUpload;
+  rowsImported: number;
+  validation: EsiosProfileIntermediateSummary;
+};
+
+export type EsiosReeFinalProfileUpload = {
+  id: string;
+  year: number;
+  month: number;
+  fileName: string;
+  fileHash: string;
+  uploadedAt: string;
+  uploadedBy: string | null;
+  status: string;
+  errorMessage: string | null;
+  totalRows: number;
+  validRows: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type EsiosReeFinalProfileUploadsResponse = {
+  uploads: EsiosReeFinalProfileUpload[];
+  total: number;
+  hasNext: boolean;
+};
+
+export type EsiosReeFinalProfileUploadResponse = {
+  upload: EsiosReeFinalProfileUpload;
+  rowsImported: number;
+  validation: EsiosProfileIntermediateSummary;
+};
+
 export type UploadOptions = {
   overwrite?: boolean;
 };
@@ -649,12 +1367,122 @@ export type A1Record = {
   file?: ReeFile;
 };
 
+export type ReeSeieFile = {
+  id: string;
+  fileName: string;
+  containerFileName?: string | null;
+  fileHash: string;
+  tipoArchivo: "SEIE";
+  version: string;
+  fechaLiquidacion: string;
+  sujetoEic?: string | null;
+  encoding: string;
+  delimiter: string;
+  status: "IMPORTED" | "FAILED" | "DUPLICATED";
+  errorMessage?: string | null;
+  importedAt: string;
+  totalRecords: number;
+  validRecords: number;
+  invalidRecords: number;
+  duplicatedRecords: number;
+};
+
+export type ReeSeieRecord = {
+  id: string;
+  fileId: string;
+  uploadId: string;
+  filename: string;
+  hash: string;
+  fechaCarga: string;
+  version: string;
+  fechaLiquidacion: string;
+  sujetoEic?: string | null;
+  fecha?: string | null;
+  hora?: number | null;
+  codigo?: string | null;
+  unidad?: string | null;
+  tipo?: string | null;
+  sentido?: string | null;
+  segmento?: string | null;
+  magnitud?: string | null;
+  precio?: string | null;
+  energia?: string | null;
+  validationErrors?: string[] | null;
+  rawPayloadJson?: Record<string, string | null>;
+  sourceLineNumber: number;
+  file?: ReeSeieFile;
+};
+
+export type ReeSeieFilters = {
+  fecha?: string;
+  fechaInicio?: string;
+  fechaFin?: string;
+  codigo?: string;
+  unidad?: string;
+  tipo?: string;
+  sentido?: string;
+  segmento?: string;
+  hora?: number;
+  archivo?: string;
+  version?: string;
+  skip?: number;
+  take?: number;
+};
+
+export type ReeSeieFilterOptions = {
+  versions: string[];
+  months: string[];
+  codigos: string[];
+  unidades: string[];
+  tipos: string[];
+  sentidos: string[];
+  segmentos: string[];
+  archivos: string[];
+  latestMonth: string | null;
+};
+
+export type ReeSeieSummary = {
+  files: ReeSeieFile[];
+  groups: Array<{
+    fechaLiquidacion: string;
+    version: string;
+    segmento?: string | null;
+    tipo?: string | null;
+    sentido?: string | null;
+    records: number;
+    magnitud?: string | null;
+    energia?: string | null;
+  }>;
+  validation: {
+    invalidRecords: number;
+  };
+};
+
+export type ReeSeieImportResponse = Omit<ImportResponse, "results" | "files"> & {
+  results: Array<{
+    fileName: string;
+    status: "IMPORTED" | "FAILED" | "DUPLICATE";
+    file?: ReeSeieFile;
+    recordsImported: number;
+    validRecords: number;
+    invalidRecords: number;
+    duplicatedRecords: number;
+    errors: Array<{
+      sourceFileName: string;
+      lineNumber: number;
+      message: string;
+    }>;
+  }>;
+  files: ReeSeieFile[];
+};
+
 export type Filters = {
   fecha?: string;
   fechaInicio?: string;
   fechaFin?: string;
   version?: ReeVersion;
   brp?: string;
+  brps?: string[];
   sujeto?: string;
   segmento?: string;
   codigoApunte?: string;
@@ -829,6 +1657,7 @@ export type MedperMonthlyConsumptionRow = {
   perdidasMwh?: string | null;
   bcMwh?: string | null;
   consumoMwh?: string | null;
+  hasData?: boolean;
 };
 
 export type MedperLossRow = {
@@ -998,11 +1827,75 @@ export type ReeLossesAnalyticsSummary = {
   versionComparison: ReeLossesVersionComparisonRow[];
 };
 
-const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:3000";
+const API_URL = resolveApiUrl();
 const REQUEST_TIMEOUT_MS = 60000;
+const AUTH_STORAGE_KEY = "ree-auditor-auth";
+
+export type AuthSession = {
+  token: string;
+  user: string;
+  expiresAt: string;
+};
+
+function resolveApiUrl() {
+  const configured = import.meta.env.VITE_API_URL?.trim();
+  if (configured && configured !== "auto") {
+    return configured;
+  }
+
+  if (typeof window !== "undefined") {
+    return `${window.location.protocol}//${window.location.hostname}:3000`;
+  }
+
+  return "http://localhost:3000";
+}
 
 export async function listImports(query: Pick<Filters, "skip" | "take"> = {}): Promise<ReeFile[]> {
   return getJson(`/imports${toQuery(query)}`);
+}
+
+export async function getReeDownloadCenterSummary(): Promise<ReeDownloadCenterSummaryRow[]> {
+  const [base, seie] = await Promise.all([
+    getJson<ReeDownloadCenterSummaryRow[]>(`/imports/download-center-summary`),
+    getJson<ReeDownloadCenterSummaryRow[]>(`/ree-seie/download-center-summary`)
+  ]);
+  return [...base, ...seie];
+}
+
+export async function login(username: string, password: string): Promise<AuthSession> {
+  const response = await fetch(`${API_URL}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password })
+  });
+  if (!response.ok) {
+    throw new Error(await readError(response, "No se pudo iniciar sesion."));
+  }
+
+  const session = (await response.json()) as AuthSession;
+  window.localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+  window.localStorage.setItem("ree-auditor-user", session.user);
+  return session;
+}
+
+export function logout() {
+  window.localStorage.removeItem(AUTH_STORAGE_KEY);
+  window.localStorage.removeItem("ree-auditor-user");
+}
+
+export function getStoredAuthSession() {
+  const text = window.localStorage.getItem(AUTH_STORAGE_KEY);
+  if (!text) {
+    return undefined;
+  }
+
+  const session = parseJson(text) as Partial<AuthSession> | undefined;
+  if (!session?.token || !session.user || !session.expiresAt || new Date(session.expiresAt).getTime() <= Date.now()) {
+    logout();
+    return undefined;
+  }
+
+  return session as AuthSession;
 }
 
 export async function getImportFileDetail(id: string): Promise<ImportHistoryDetail> {
@@ -1018,8 +1911,12 @@ export async function getImportFileErrorsCsv(id: string): Promise<string> {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS * 2);
     try {
-      const response = await fetch(`${API_URL}/imports/${encodeURIComponent(id)}/errors`, { signal: controller.signal });
+      const response = await fetch(`${API_URL}/imports/${encodeURIComponent(id)}/errors`, {
+        signal: controller.signal,
+        headers: authHeaders()
+      });
       if (!response.ok) {
+        handleUnauthorized(response);
         throw new Error(await readError(response, "Error descargando errores."));
       }
 
@@ -1078,12 +1975,52 @@ export async function uploadReeLossesFiles(files: File[], onProgress?: (progress
   return sendMultipart<ReeLossesImportResponse>(`${API_URL}/ree-losses/import`, formData, onProgress);
 }
 
+export async function uploadReeSeieFiles(
+  files: File[],
+  onProgress?: (progress: number) => void,
+  options: UploadOptions = {}
+): Promise<ReeSeieImportResponse> {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("files", file, file.name);
+  }
+
+  return sendMultipart<ReeSeieImportResponse>(`${API_URL}/ree-seie/import${toQuery({ overwrite: options.overwrite ? "true" : undefined })}`, formData, onProgress);
+}
+
 export async function listReganecu(filters: Filters): Promise<A1Record[]> {
   return getJson(`/reganecu${toQuery(filters)}`);
 }
 
 export async function listReganecuQh(filters: Filters): Promise<A1Record[]> {
   return getJson(`/reganecu-qh${toQuery(filters)}`);
+}
+
+export async function listReeSeieFiles(query: Pick<ReeSeieFilters, "skip" | "take"> = {}): Promise<ReeSeieFile[]> {
+  return getJson(`/ree-seie/files${toQuery(query)}`);
+}
+
+export async function getReeSeieFilterOptions(): Promise<ReeSeieFilterOptions> {
+  return getJson(`/ree-seie/filters`);
+}
+
+export async function getReeSeieSummary(filters: ReeSeieFilters): Promise<ReeSeieSummary> {
+  return getJson(`/ree-seie/summary${toQuery(filters)}`);
+}
+
+export async function listReeSeieRecords(filters: ReeSeieFilters): Promise<ReeSeieRecord[]> {
+  return getJson(`/ree-seie/records${toQuery(filters)}`);
+}
+
+export async function downloadReeSeieExport(filters: ReeSeieFilters = {}, format: "csv" | "xlsx"): Promise<Blob> {
+  return withGlobalLoading(async () => {
+    const response = await fetch(`${API_URL}/ree-seie/export${toQuery({ ...filters, format })}`, { headers: authHeaders() });
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(await readError(response, "Error exportando SEIE."));
+    }
+    return response.blob();
+  }, { label: "Exportando SEIE" });
 }
 
 export async function getSettlementSummary(filters: Filters): Promise<SettlementSummary> {
@@ -1194,6 +2131,21 @@ export async function executeOmieDescargaDiaria(fecha: string, force = false): P
   );
 }
 
+export async function getOmieAutomationConfig(): Promise<OmieAutomationConfig> {
+  return getJson(`/omie/descargas/automatizacion`);
+}
+
+export async function saveOmieAutomationConfig(config: Partial<OmieAutomationConfig>): Promise<OmieAutomationConfig> {
+  return sendJson(`/omie/descargas/automatizacion`, "PUT", "Guardando automatismo OMIE", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function executeOmieAutomation(daysBack: number): Promise<OmieAutomationRunResponse> {
+  return sendJson(`/omie/descargas/automatizacion/ejecutar`, "POST", "Ejecutando automatismo OMIE", REQUEST_TIMEOUT_MS * 20, {
+    session: "00:00",
+    daysBack
+  });
+}
+
 export async function reprocessOmieDescarga(id: string): Promise<OmieDownloadExecuteResponse> {
   return sendJson(`/omie/descargas/control/${encodeURIComponent(id)}/reprocesar`, "POST", "Reprocesando descarga OMIE", REQUEST_TIMEOUT_MS * 6);
 }
@@ -1214,6 +2166,35 @@ export async function getOmieComprobacionLiquidaciones(year: number | string, mo
   return getJson(`/omie/analisis/comprobacion-liquidaciones${toQuery({ year, month })}`);
 }
 
+export async function getOmieGuaranteeCalculator(referenceDate: string): Promise<GuaranteeCalculatorResponse> {
+  return getJson(`/omie/guarantees/calculator${toQuery({ referenceDate })}`);
+}
+
+export async function downloadOmieGuaranteeCalculator(referenceDate: string): Promise<Blob> {
+  return withGlobalLoading(async () => {
+    const response = await fetch(`${API_URL}/omie/guarantees/calculator/export${toQuery({ referenceDate })}`, { headers: authHeaders() });
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(await readError(response, "Error exportando calculadora de garantias."));
+    }
+    return response.blob();
+  }, { label: "Exportando garantias OMIE" });
+}
+
+export async function saveOmieDepositedGuarantee(date: string, amount: number | null): Promise<{ date: string; amount: number | null; updatedAt: string }> {
+  return sendJson(`/omie/guarantees/deposited`, "PUT", "Guardando garantias depositadas", REQUEST_TIMEOUT_MS, {
+    date,
+    amount
+  });
+}
+
+export async function saveOmiePrepaidPayment(date: string, amount: number | null): Promise<{ date: string; amount: number | null; prepaidPayment: number | null; updatedAt: string }> {
+  return sendJson(`/omie/guarantees/prepaid`, "PUT", "Guardando pago anticipado", REQUEST_TIMEOUT_MS, {
+    date,
+    amount
+  });
+}
+
 export async function saveOmieLiquidationInvoice(fecha: string, facturaCompra: number | null, facturaVenta: number | null): Promise<OmieLiquidationInvoiceResponse> {
   return sendJson(`/omie/analisis/comprobacion-liquidaciones/factura`, "POST", "Guardando factura OMIE", REQUEST_TIMEOUT_MS, {
     fecha,
@@ -1230,13 +2211,210 @@ export async function getOmieTransactionStagingRows(downloadId: string, take = 1
   return getJson(`/omie/transacciones/historico/${encodeURIComponent(downloadId)}/filas${toQuery({ take })}`);
 }
 
+export async function getEsiosConfig(): Promise<EsiosConfig> {
+  return getJson(`/esios/config`);
+}
+
+export async function saveEsiosConfig(config: Partial<EsiosConfig> & { apiToken?: string }): Promise<EsiosConfig> {
+  return sendJson(`/esios/config`, "PUT", "Guardando configuracion ESIOS", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function testEsiosConnection(): Promise<EsiosConnectionResult> {
+  return sendJson(`/esios/test-connection`, "POST", "Probando conexion ESIOS", REQUEST_TIMEOUT_MS * 2);
+}
+
+export async function getEsiosIndicators(): Promise<EsiosIndicator[]> {
+  return getJson(`/esios/indicators`);
+}
+
+export async function getEsiosIndicatorValues(indicatorId: number, filters: EsiosValuesFilters = {}): Promise<EsiosValuesResponse> {
+  return getJson(`/esios/indicators/${encodeURIComponent(indicatorId)}/values${toQuery(filters)}`);
+}
+
+export async function syncEsiosIndicators(): Promise<EsiosSyncIndicatorsResponse> {
+  return sendJson(`/esios/indicators/sync`, "POST", "Sincronizando catalogo ESIOS", REQUEST_TIMEOUT_MS * 4);
+}
+
+export async function getEsiosDemandForecast(filters: EsiosValuesFilters = {}): Promise<EsiosValuesResponse> {
+  return getJson(`/esios/demanda-prevista${toQuery(filters)}`);
+}
+
+export async function downloadEsiosDemandForecast(startDate: string, endDate: string): Promise<EsiosDownloadSummary> {
+  return downloadEsiosIndicator(460, startDate, endDate);
+}
+
+export async function downloadEsiosIndicator(indicatorId: number, startDate: string, endDate: string): Promise<EsiosDownloadSummary> {
+  return sendJson(
+    `/esios/indicators/${encodeURIComponent(indicatorId)}/download`,
+    "POST",
+    "Descargando ESIOS",
+    REQUEST_TIMEOUT_MS * 6,
+    { startDate, endDate }
+  );
+}
+
+export async function getEsiosDownloadLogs(query: { indicatorId?: number; skip?: number; take?: number } = {}): Promise<EsiosDownloadLogsResponse> {
+  return getJson(`/esios/download-logs${toQuery(query)}`);
+}
+
+export async function getEsiosSeriesAutomationConfig(): Promise<EsiosSeriesAutomationConfig> {
+  return getJson(`/esios/series-automation`);
+}
+
+export async function saveEsiosSeriesAutomationConfig(config: Partial<EsiosSeriesAutomationConfig>): Promise<EsiosSeriesAutomationConfig> {
+  return sendJson(`/esios/series-automation`, "PUT", "Guardando automatismo ESIOS", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function runEsiosSeriesAutomation(): Promise<EsiosSeriesAutomationRunResponse> {
+  return sendJson(`/esios/series-automation/run`, "POST", "Ejecutando automatismo ESIOS", REQUEST_TIMEOUT_MS * 10);
+}
+
+export async function getEsiosInitialProfiles(filters: EsiosProfilesFilters = {}): Promise<EsiosInitialProfilesResponse> {
+  return getJson(`/esios/profiles/initial${toQuery(filters)}`);
+}
+
+export async function getEsiosProfilesSummary(year: number | string): Promise<EsiosProfilesSummary> {
+  return getJson(`/esios/profiles/summary/${encodeURIComponent(year)}`);
+}
+
+export async function getEsiosProfileCoefficients(year: number | string): Promise<EsiosProfileCoefficient[]> {
+  return getJson(`/esios/profiles/coefficients/${encodeURIComponent(year)}`);
+}
+
+export async function saveEsiosProfileCoefficients(year: number | string, coefficients: EsiosProfileCoefficient[]): Promise<EsiosProfileCoefficient[]> {
+  return sendJson(`/esios/profiles/coefficients/${encodeURIComponent(year)}`, "PUT", "Guardando coeficientes ESIOS", REQUEST_TIMEOUT_MS, { coefficients });
+}
+
+export async function getEsiosProfileUploads(query: { year?: number | string; skip?: number; take?: number } = {}): Promise<EsiosProfilesUploadsResponse> {
+  return getJson(`/esios/profiles/uploads${toQuery(query)}`);
+}
+
+export async function calculateEsiosIntermediateProfiles(year: number | string): Promise<{ summary: EsiosProfileIntermediateSummary; rowsProcessed: number; tariffsProcessed: number }> {
+  return sendJson<{ summary: EsiosProfileIntermediateSummary; rowsProcessed: number; tariffsProcessed: number }>(
+    `/esios/profiles/intermediate/${encodeURIComponent(year)}/calculate`,
+    "POST",
+    "Calculando perfiles intermedios",
+    REQUEST_TIMEOUT_MS * 8
+  );
+}
+
+export async function getEsiosIntermediateProfiles(filters: EsiosProfilesFilters = {}): Promise<EsiosProfileIntermediatesResponse> {
+  return getJson(`/esios/profiles/intermediate${toQuery(filters)}`);
+}
+
+export async function getEsiosIntermediateProfilesSummary(year: number | string): Promise<EsiosProfileIntermediateSummary> {
+  return getJson(`/esios/profiles/intermediate/summary/${encodeURIComponent(year)}`);
+}
+
+export async function getEsiosProfileCalculationLogs(query: { year?: number | string; skip?: number; take?: number } = {}): Promise<EsiosProfileCalculationLogsResponse> {
+  return getJson(`/esios/profiles/intermediate/logs${toQuery(query)}`);
+}
+
+export async function uploadEsiosProfiles(file: File, year: number | string, replace = false, onProgress?: (progress: number) => void): Promise<EsiosProfilesUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  return sendMultipart<EsiosProfilesUploadResponse>(`${API_URL}/esios/profiles/upload${toQuery({ year, replace: replace ? "true" : undefined })}`, formData, onProgress);
+}
+
+export async function getEsiosReeFinalDemandUploads(query: { year?: number | string; month?: number | string; day?: number | string; skip?: number; take?: number } = {}): Promise<EsiosReeFinalDemandUploadsResponse> {
+  return getJson(`/esios/profiles/final-demand/uploads${toQuery(query)}`);
+}
+
+export async function uploadEsiosReeFinalDemand(
+  file: File,
+  year: number | string,
+  month: number | string,
+  replace = false,
+  onProgress?: (progress: number) => void,
+  day?: number | string
+): Promise<EsiosReeFinalDemandUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  return sendMultipart<EsiosReeFinalDemandUploadResponse>(`${API_URL}/esios/profiles/final-demand/upload${toQuery({ year, month, day, replace: replace ? "true" : undefined })}`, formData, onProgress);
+}
+
+export async function getEsiosReeFinalProfileUploads(query: { year?: number | string; month?: number | string; skip?: number; take?: number } = {}): Promise<EsiosReeFinalProfileUploadsResponse> {
+  return getJson(`/esios/profiles/final-profiles/uploads${toQuery(query)}`);
+}
+
+export async function uploadEsiosReeFinalProfiles(
+  file: File,
+  year: number | string,
+  month: number | string,
+  replace = false,
+  onProgress?: (progress: number) => void
+): Promise<EsiosReeFinalProfileUploadResponse> {
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  return sendMultipart<EsiosReeFinalProfileUploadResponse>(`${API_URL}/esios/profiles/final-profiles/upload${toQuery({ year, month, replace: replace ? "true" : undefined })}`, formData, onProgress);
+}
+
+
+export async function getPricingBaseTable(filters: PricingBaseFilters = {}): Promise<PricingBaseResponse> {
+  return getJson(`/pricing-base/table${toQuery({
+    ...filters,
+    incluirFechaReferencia: filters.incluirFechaReferencia === undefined ? undefined : String(filters.incluirFechaReferencia)
+  })}`);
+}
+
+export async function getPricingCalculatorManualValues(): Promise<PricingCalculatorManualValue[]> {
+  return getJson(`/pricing-base/calculator/manual-values`);
+}
+
+export async function savePricingCalculatorManualValue(input: Omit<PricingCalculatorManualValue, "updatedAt">): Promise<PricingCalculatorManualValue> {
+  return sendJson(`/pricing-base/calculator/manual-values`, "POST", "Guardando valor del calculador", REQUEST_TIMEOUT_MS, input);
+}
+
+export async function downloadPricingBaseExport(filters: PricingBaseFilters = {}, format: "csv" | "xls"): Promise<Blob> {
+  return withGlobalLoading(async () => {
+    const response = await fetch(`${API_URL}/pricing-base/export.${format}${toQuery({
+      ...filters,
+      incluirFechaReferencia: filters.incluirFechaReferencia === undefined ? undefined : String(filters.incluirFechaReferencia)
+    })}`, { headers: authHeaders() });
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(await readError(response, "Error exportando tabla base de pricing."));
+    }
+    return response.blob();
+  }, { label: "Exportando pricing" });
+}
+
+export async function getPricingMeff(filters: PricingMeffFilters = {}): Promise<PricingMeffResponse> {
+  return getJson(`/pricing/meff${toQuery(filters)}`);
+}
+
+export async function uploadPricingMeffFile(file: File, onProgress?: (progress: number) => void): Promise<PricingMeffImportResponse> {
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  return sendMultipart<PricingMeffImportResponse>(`${API_URL}/pricing/meff/import`, formData, onProgress);
+}
+
+
+export async function getAnnualReport(year: number | string): Promise<AnnualReportResponse> {
+  return getJson(`/annual-report${toQuery({ year })}`);
+}
+
+export async function getAnnualReportYears(): Promise<number[]> {
+  return getJson(`/annual-report/years`);
+}
+
+export async function saveAnnualReportRetributionPrice(request: {
+  year: number;
+  month: number;
+  type: "OS" | "OM" | "REMIT";
+  price: number | null;
+}): Promise<{ year: number; month: number; type: "OS" | "OM" | "REMIT"; price: number | null; updatedAt: string }> {
+  return sendJson(`/annual-report/retribution-price`, "PUT", "Guardando retribucion", REQUEST_TIMEOUT_MS, request);
+}
+
 async function getJson<T>(path: string): Promise<T> {
   return withGlobalLoading(async () => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch(`${API_URL}${path}`, { signal: controller.signal });
+      const response = await fetch(`${API_URL}${path}`, { signal: controller.signal, headers: authHeaders() });
       if (!response.ok) {
+        handleUnauthorized(response);
         throw new Error(await readError(response, "Error consultando la API."));
       }
 
@@ -1252,7 +2430,7 @@ async function getJson<T>(path: string): Promise<T> {
   }, { label: "Cargando datos" });
 }
 
-async function sendJson<T>(path: string, method: "POST" | "DELETE", label: string, timeoutMs = REQUEST_TIMEOUT_MS, body?: unknown): Promise<T> {
+async function sendJson<T>(path: string, method: "POST" | "PUT" | "DELETE", label: string, timeoutMs = REQUEST_TIMEOUT_MS, body?: unknown): Promise<T> {
   return withGlobalLoading(async () => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
@@ -1261,19 +2439,21 @@ async function sendJson<T>(path: string, method: "POST" | "DELETE", label: strin
         method,
         signal: controller.signal,
         headers: {
+          ...authHeaders(),
           "X-User": getAuditUser(),
           ...(body === undefined ? {} : { "Content-Type": "application/json" })
         },
         body: body === undefined ? undefined : JSON.stringify(body)
       });
       if (!response.ok) {
-        throw new Error(await readError(response, "Error procesando la accion."));
+        handleUnauthorized(response);
+        throw new Error(await readError(response, "Error procesando la acción."));
       }
 
       return response.json();
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
-        throw new Error("Tiempo de espera agotado procesando la accion.");
+        throw new Error("Tiempo de espera agotado procesando la acción.");
       }
       throw error;
     } finally {
@@ -1293,6 +2473,10 @@ function sendMultipart<TResponse = ImportResponse>(
     const request = new XMLHttpRequest();
     request.timeout = REQUEST_TIMEOUT_MS * 4;
     request.open("POST", url);
+    const authHeader = authHeaders().Authorization;
+    if (authHeader) {
+      request.setRequestHeader("Authorization", authHeader);
+    }
     request.setRequestHeader("X-User", getAuditUser());
     const finish = (callback: () => void) => {
       if (settled) {
@@ -1320,6 +2504,10 @@ function sendMultipart<TResponse = ImportResponse>(
         return;
       }
 
+      if (request.status === 401) {
+        logout();
+        window.dispatchEvent(new Event("ree-auditor-auth-expired"));
+      }
       finish(() => reject(new Error(readErrorPayload(payload) ?? (request.responseText || "No se pudo importar."))));
     };
     request.onerror = () => finish(() => reject(new Error("No se pudo conectar con la API.")));
@@ -1342,10 +2530,28 @@ function getAuditUser() {
   return window.localStorage.getItem("ree-auditor-user")?.trim() || "web";
 }
 
-function toQuery(filters: Record<string, string | number | undefined>) {
+function authHeaders(): Record<string, string> {
+  const session = getStoredAuthSession();
+  return session ? { Authorization: `Bearer ${session.token}` } : {};
+}
+
+function handleUnauthorized(response: Response) {
+  if (response.status === 401) {
+    logout();
+    window.dispatchEvent(new Event("ree-auditor-auth-expired"));
+  }
+}
+
+function toQuery(filters: Record<string, string | number | boolean | Array<string | number> | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) {
-    if (value !== undefined && value !== "") {
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (item !== "") {
+          params.append(key, String(item));
+        }
+      }
+    } else if (value !== undefined && value !== "") {
       params.set(key, String(value));
     }
   }

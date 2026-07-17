@@ -264,6 +264,16 @@ export function TechnicalDataTable<T extends object>({
   }, [columnsOpen]);
 
   const exportRows = filteredRows;
+  const resolvedHeaderMeta = useMemo(
+    () =>
+      new Map(
+        activeColumns.map((column) => [
+          column.id,
+          typeof column.headerMeta === "function" ? column.headerMeta(filteredRows) : column.headerMeta ?? ""
+        ])
+      ),
+    [activeColumns, filteredRows]
+  );
 
   async function exportTechnicalDataset(format: "csv" | "xls") {
     const sourceRows = loadExportRows ? await loadExportRows() : rows;
@@ -397,9 +407,12 @@ export function TechnicalDataTable<T extends object>({
             {activeColumns.map((column) => (
               <div className={technicalCellClass(column, "header")} key={column.id} style={stickyCellStyle(column, stickyOffsets)}>
                 <button disabled={loading} onClick={() => updateSort(column)} title={column.help ?? `Ordenar por ${column.label}`} type="button">
-                  {column.label}
-                  {column.help && <span className="column-help">?</span>}
-                  {sort?.id === column.id && <small>{sort.direction === "asc" ? "↑" : "↓"}</small>}
+                  {resolvedHeaderMeta.get(column.id) ? <span className="column-header-meta">{resolvedHeaderMeta.get(column.id)}</span> : null}
+                  <span className="column-header-label">
+                    {column.label}
+                    {column.help && <span className="column-help">?</span>}
+                    {sort?.id === column.id && <small>{sort.direction === "asc" ? "↑" : "↓"}</small>}
+                  </span>
                 </button>
               </div>
             ))}

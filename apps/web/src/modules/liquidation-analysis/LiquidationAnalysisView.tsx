@@ -521,7 +521,7 @@ function buildLiquidationAnalysisScopeLabel(filters: LiquidationAnalysisFilters)
   if (filters.version) {
     parts.push(`Version ${filters.version}`);
   }
-  return parts.length > 0 ? parts.join(" Â· ") : "Selecciona mes y version";
+  return parts.length > 0 ? parts.join(" ? ") : "Selecciona mes y version";
 }
 
 function totalRatio(numerator: number | string | null | undefined, denominator: number | string | null | undefined) {

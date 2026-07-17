@@ -15,6 +15,7 @@ const OMIE_PRECIO_MD_CODIGO = "5202";
 const OMIE_PRECIO_MI_CODIGO = "5603";
 const OMIE_PRECIO_XBID_CODIGO = "4125";
 const OMIE_PRECIO_RESOLUCION = "PT15M";
+const OMIE_MD_QUARTER_HOURLY_START = "2025-10-01";
 const DIAGNOSTICO_MI_SESIONES = ["01", "02", "03", "04", "05", "06", "07"];
 
 type SyncOptions = {
@@ -377,7 +378,8 @@ function mapPrecioPeriodos(fecha: string, tipoPrecio: OmieTipoPrecio, result: Om
   for (const periodo of periodos) {
     unique.set(periodo.periodo, periodo);
   }
-  return [...unique.values()].sort((left, right) => left.periodo - right.periodo);
+  const sorted = [...unique.values()].sort((left, right) => left.periodo - right.periodo);
+  return shouldExpandHourlyMdPrices(fecha, tipoPrecio, sorted) ? expandHourlyMdPrices(fecha, sorted) : sorted;
 }
 
 function mapDirectPriceRows(fecha: string, filas: OmieConsultaEncolumnadaFila[]): PrecioPeriodo[] {
@@ -624,4 +626,29 @@ function buildClave(fecha: string, periodo: number) {
 
 function roundPrice(value: number) {
   return Number(value.toFixed(6));
+}
+
+function shouldExpandHourlyMdPrices(fecha: string, tipoPrecio: OmieTipoPrecio, periodos: PrecioPeriodo[]) {
+  return (
+    tipoPrecio === OmieTipoPrecio.MD &&
+    fecha < OMIE_MD_QUARTER_HOURLY_START &&
+    periodos.length === 24 &&
+    periodos.every((periodo, index) => periodo.periodo === index + 1)
+  );
+}
+
+function expandHourlyMdPrices(fecha: string, hourlyPrices: PrecioPeriodo[]) {
+  const quarterHourlyPrices: PrecioPeriodo[] = [];
+  for (const hourlyPrice of hourlyPrices) {
+    const firstQuarter = (hourlyPrice.periodo - 1) * 4 + 1;
+    for (let offset = 0; offset < 4; offset += 1) {
+      const periodo = firstQuarter + offset;
+      quarterHourlyPrices.push({
+        periodo,
+        clave: buildClave(fecha, periodo),
+        precioEurMWh: hourlyPrice.precioEurMWh
+      });
+    }
+  }
+  return quarterHourlyPrices;
 }

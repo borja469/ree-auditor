@@ -67,7 +67,7 @@ export function ReeLossesView({
   }
 
   if (!report && loading) {
-    return <section className="content-grid"><div className="panel wide"><InlineLoading label="Cargando perdidas REE" /></div></section>;
+    return <section className="content-grid"><div className="panel wide"><InlineLoading label="Cargando Liquidaciones REE" /></div></section>;
   }
 
   if (!report) {
@@ -151,6 +151,7 @@ function ReeLossesHistoryModule({
   const pageCount = Math.max(Math.ceil(filteredFiles.length / tablePageSize), 1);
   const kpis = buildReeLossesHistoryKpis(files, latestImport);
   const chartData = buildReeLossesHistoryCharts(files);
+  const hasInvalidsChartSignal = chartData.monthlyInvalids.some((row) => row.value > 0);
 
   useEffect(() => {
     if (tablePage > pageCount - 1) {
@@ -181,7 +182,7 @@ function ReeLossesHistoryModule({
     <section className="ops-dashboard">
       <div className="ops-hero">
         <div>
-          <p className="ops-eyebrow">Pérdidas REE · Histórico</p>
+          <p className="ops-eyebrow">Liquidaciones REE · Histórico</p>
           <h2>Histórico de cargas K REE</h2>
           <span>Supervisión de ficheros KESTIMQH/KREALQH, estado de carga y trazabilidad de registros usados en pérdidas.</span>
         </div>
@@ -223,7 +224,7 @@ function ReeLossesHistoryModule({
           <small>{latestImport ? `${latestImport.summary.recordsImported} registros K en la última carga` : "Sin carga reciente en esta sesión"}</small>
         </div>
         <OpsMiniChart title="Evolución cargas" rows={chartData.monthlyLoads} valueLabel="cargas" tone="cyan" />
-        <OpsMiniChart title="Inválidos por mes" rows={chartData.monthlyInvalids} valueLabel="incidencias" tone="rose" />
+        {hasInvalidsChartSignal ? <OpsMiniChart title="Inválidos por mes" rows={chartData.monthlyInvalids} valueLabel="incidencias" tone="rose" /> : null}
         <OpsMiniChart title="Volumen por tipo" rows={chartData.byType} valueLabel="registros" tone="emerald" />
       </div>
 
@@ -255,7 +256,7 @@ function ReeLossesHistoryModule({
       <div className="ops-table-panel">
         <div className="ops-table-head">
           <div>
-            <strong>Cargas de pérdidas REE</strong>
+            <strong>Cargas de Liquidaciones REE</strong>
             <span>{filteredFiles.length} ficheros filtrados</span>
           </div>
           <div className="ops-view-toggle">
@@ -265,7 +266,7 @@ function ReeLossesHistoryModule({
         </div>
 
         {loading && files.length === 0 ? (
-          <InlineLoading label="Cargando histórico de pérdidas REE" />
+          <InlineLoading label="Cargando histórico de Liquidaciones REE" />
         ) : (
           <ReeLossesLoadsTable
             compact={compact}
@@ -342,7 +343,7 @@ function ReeLossesLoadsTable({
           <span className="ops-file-cell" title={file.errorMessage ?? file.tipoArchivo ?? ""}>{file.errorMessage ?? file.tipoArchivo ?? "-"}</span>
         </div>
       ))}
-      {files.length === 0 && <div className="ops-empty">Sin cargas de pérdidas REE con los filtros seleccionados.</div>}
+      {files.length === 0 && <div className="ops-empty">Sin cargas de Liquidaciones REE con los filtros seleccionados.</div>}
     </div>
   );
 }
@@ -375,7 +376,7 @@ function ReeLossesSystemModule({
       </div>
 
       {loading && rows.length === 0 ? (
-        <div className="panel wide"><InlineLoading label="Actualizando perdidas REE" /></div>
+        <div className="panel wide"><InlineLoading label="Actualizando Liquidaciones REE" /></div>
       ) : rows.length > 0 ? (
         <ReeLossesEvolutionPanel rows={rows} />
       ) : (
@@ -409,7 +410,7 @@ function ReeLossesDetailModule({ rows, loading }: { rows: ReeLossesRow[]; loadin
   return (
     <section className="content-grid ree-losses-grid">
       {loading && rows.length === 0 ? (
-        <div className="panel wide"><InlineLoading label="Actualizando detalle de perdidas REE" /></div>
+        <div className="panel wide"><InlineLoading label="Actualizando detalle de Liquidaciones REE" /></div>
       ) : rows.length > 0 ? (
         <TechnicalDataTable
           columns={columns}
@@ -427,7 +428,7 @@ function ReeLossesDetailModule({ rows, loading }: { rows: ReeLossesRow[]; loadin
           pageSize={Math.max(rows.length, 1)}
           rows={rows}
           showPagination={false}
-          title="Detalle de perdidas REE"
+          title="Detalle de Liquidaciones REE"
           getTotalsRow={buildReeLossesTotalsRow}
         />
       ) : (
@@ -465,7 +466,7 @@ function ReeLossesAnalyticsModule({
       </div>
 
       {loading && !analyticsSummary ? (
-        <div className="panel wide"><InlineLoading label="Actualizando analitica de perdidas REE" /></div>
+        <div className="panel wide"><InlineLoading label="Actualizando analitica de Liquidaciones REE" /></div>
       ) : hasAnalyticsData && analyticsSummary ? (
         <>
           <ReeLossesAnnualSummaryTable rows={analyticsSummary.annualPeriodRows} />

@@ -45,24 +45,39 @@ export function monthDateRange(monthKey?: string | null) {
 }
 
 export function activeSidebarGroupKeys(section: Section): SidebarGroupKey[] {
-  if (section === "reganecu" || section === "medidas" || section === "reeLosses" || section === "liquidationAnalysis") {
+  if (section === "reeDownloads" || section === "reganecu" || section === "reeSeie" || section === "medidas" || section === "reeLosses" || section === "liquidationAnalysis") {
     return ["ree"];
   }
   if (isOmieSection(section)) {
     return ["omie"];
   }
+  if (isEsiosSection(section)) {
+    return ["esios"];
+  }
+  if (isPricingSection(section)) {
+    return ["pricing"];
+  }
+  if (isInformesSection(section)) {
+    return ["informes"];
+  }
   return ["ree"];
 }
 
 export function activeSidebarItemKeys(section: Section): string[] {
+  if (section === "reeDownloads") {
+    return [];
+  }
   if (section === "reganecu") {
     return ["ree-reganecu-menu"];
+  }
+  if (section === "reeSeie") {
+    return ["ree-seie-menu"];
   }
   if (section === "medidas") {
     return ["ree-medidas-menu"];
   }
   if (section === "reeLosses") {
-    return ["ree-losses-menu"];
+    return [];
   }
   if (section === "omieProgramas" || section === "omieTransacciones") {
     return ["omie-programas-menu"];
@@ -70,8 +85,20 @@ export function activeSidebarItemKeys(section: Section): string[] {
   if (section === "omieAnalisisMensual" || section === "omieComprobacionLiquidaciones") {
     return ["omie-hoja-control-menu"];
   }
+  if (section === "omieGarantias") {
+    return ["omie-garantias-menu"];
+  }
   if (section === "liquidationAnalysis") {
     return ["ree-reganecu-menu"];
+  }
+  if (isEsiosSection(section)) {
+    return ["esios-menu"];
+  }
+  if (isPricingSection(section)) {
+    return [];
+  }
+  if (isInformesSection(section)) {
+    return [];
   }
   return [];
 }
@@ -82,9 +109,29 @@ export function isOmieSection(section: Section) {
     section === "omiePrecios" ||
     section === "omieAnalisisMensual" ||
     section === "omieComprobacionLiquidaciones" ||
+    section === "omieGarantias" ||
     section === "omieTransacciones" ||
     section === "omieDescargas"
   );
+}
+
+export function isEsiosSection(section: Section) {
+  return (
+    section === "esiosIndicadores" ||
+    section === "esiosPerfiles" ||
+    section === "esiosSeries" ||
+    section === "esiosDescargas" ||
+    section === "esiosConfiguracion"
+  );
+}
+
+
+export function isPricingSection(section: Section) {
+  return section === "pricingBase" || section === "pricingMeff";
+}
+
+export function isInformesSection(section: Section) {
+  return section === "annualReport";
 }
 
 export function selectOmieTransactionDownloadId(

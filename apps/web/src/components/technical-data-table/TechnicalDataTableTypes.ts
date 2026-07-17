@@ -7,6 +7,7 @@ export type TechnicalSortDirection = "asc" | "desc";
 export type TechnicalColumn<T> = {
   id: string;
   label: string;
+  headerMeta?: string | ((rows: T[]) => string);
   help?: string;
   width: number;
   align?: "left" | "center" | "right";

@@ -11,16 +11,28 @@
     "dev": "concurrently \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "npm run start:dev --workspace apps/api",
     "dev:web": "npm run dev --workspace apps/web",
+    "install:prod": "npm ci --omit=dev",
+    "prod:install": "npm ci",
+    "prod:generate": "npm run prisma:generate --workspace apps/api",
+    "prod:build:api": "npm run build --workspace apps/api",
+    "prod:build:web": "npm run build --workspace apps/web",
+    "prod:build": "npm run prod:generate && npm run prod:build:api && npm run prod:build:web",
+    "prod:migrate": "npm run prisma:migrate:deploy --workspace apps/api",
+    "prod:start:api": "npm run start:prod --workspace apps/api",
     "build": "npm run build --workspaces",
     "lint": "npm run lint --workspaces",
     "format": "npm run format --workspaces",
     "db:generate": "npm run prisma:generate --workspace apps/api",
     "db:push": "npm run prisma:push --workspace apps/api",
+    "db:migrate:deploy": "npm run prisma:migrate:deploy --workspace apps/api",
     "docker:up": "docker compose up --build",
     "docker:down": "docker compose down"
   },
   "engines": {
     "node": ">=20"
+  },
+  "overrides": {
+    "qs": "^6.15.3"
   },
   "devDependencies": {
     "concurrently": "^9.0.0"

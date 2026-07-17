@@ -1,5 +1,7 @@
 export type Section =
+  | "reeDownloads"
   | "reganecu"
+  | "reeSeie"
   | "medidas"
   | "liquidationAnalysis"
   | "reeLosses"
@@ -7,15 +9,25 @@ export type Section =
   | "omiePrecios"
   | "omieAnalisisMensual"
   | "omieComprobacionLiquidaciones"
+  | "omieGarantias"
   | "omieTransacciones"
-  | "omieDescargas";
+  | "omieDescargas"
+  | "esiosIndicadores"
+  | "esiosPerfiles"
+  | "esiosSeries"
+  | "esiosDescargas"
+  | "esiosConfiguracion"
+  | "pricingBase"
+  | "pricingMeff"
+  | "annualReport";
 
 export type ReganecuView = "history" | "summary" | "hourly" | "qh";
+export type ReeSeieView = "summary" | "hourly";
 export type MedidasView = "history" | "summary" | "qh" | "graphs";
 export type ReeLossesViewKey = "history" | "system" | "detail";
 export type OmieProgramasViewKey = "mercadoDiario" | "intradiarios" | "evolucion";
-export type ImportMode = "reganecu" | "medper" | "reeLosses";
-export type SidebarGroupKey = "ree" | "omie";
+export type ImportMode = "reganecu" | "medper" | "reeLosses" | "reeSeie";
+export type SidebarGroupKey = "ree" | "omie" | "esios" | "pricing" | "informes";
 
 export type SidebarMenuItem = {
   key: string;
