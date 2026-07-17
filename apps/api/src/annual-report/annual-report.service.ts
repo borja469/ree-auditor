@@ -481,17 +481,17 @@ function aggregateMedperBySelectedVersion(rows: MedperAnnualRow[], versions: Map
 }
 
 function aggregateSeieProgramC2(rows: SeieAnnualRow[]) {
-  const map = new Map<number, { primary: number | null; fallback: number | null }>();
+  const map = new Map<number, number | null>();
   for (const row of rows) {
     if (row.version !== "C2") {
       continue;
     }
-    const bucket = map.get(row.month) ?? { primary: null, fallback: null };
-    if (row.segmento === "IEAC") bucket.primary = roundEnergy(displayMedperEnergy(decimalToNullableNumber(row.magnitud)));
-    if (row.segmento === "IEAD") bucket.fallback = addNullable(bucket.fallback, roundEnergy(displayMedperEnergy(decimalToNullableNumber(row.magnitud))));
-    map.set(row.month, bucket);
+    if (row.segmento !== "IEAD" && row.segmento !== "IECD") {
+      continue;
+    }
+    map.set(row.month, addNullable(map.get(row.month) ?? null, roundEnergy(displayMedperEnergy(decimalToNullableNumber(row.magnitud)))));
   }
-  return new Map([...map.entries()].map(([month, values]) => [month, values.primary ?? values.fallback]));
+  return map;
 }
 
 function aggregateSeieBySelectedVersion(rows: SeieAnnualRow[], versions: Map<number, AnnualReportVersion | null>) {
@@ -784,7 +784,7 @@ function buildMissingMonth(month: number, values: MonthValues) {
 
 function buildSeieMissingMonth(month: number, values: MonthValues) {
   const missing: string[] = [];
-  if (values.programaMwh === null) missing.push("Programa SEIE C2 IEAC");
+  if (values.programaMwh === null) missing.push("Programa SEIE C2 IEAD + IECD");
   if (values.versionUtilizada === null) missing.push("Version SEIE");
   if (values.energiaBcMwh === null) missing.push("Energia BC SEIE IEAC");
   if (values.importeIeadEur === null && values.importeIecdEur === null && values.importeIepcEur === null) missing.push("Liquidaciones SEIE");
