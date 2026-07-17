@@ -1,4 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { AnnualReportModule } from "./annual-report/annual-report.module";
 import { AuthMiddleware } from "./auth/auth.middleware";
 import { AuthModule } from "./auth/auth.module";
 import { EsiosModule } from "./esios/esios.module";
@@ -22,6 +23,7 @@ import { ReeSeieModule } from "./ree-seie/ree-seie.module";
     AuthModule,
     PrismaModule,
     HealthModule,
+    AnnualReportModule,
     ImportsModule,
     ReeLossesModule,
     OmieSiom2Module,

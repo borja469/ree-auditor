@@ -11,6 +11,40 @@ export type OmieDownloadCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4
 export type OmieDownloadDocumentType = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES";
 export type OmieDownloadEstado = "PENDIENTE" | "DESCARGANDO" | "DESCARGADO" | "PROCESADO" | "ERROR";
 
+export type AnnualReportMetricKind = "energy" | "currency" | "price" | "text";
+export type AnnualReportMetricRow = {
+  key: string;
+  label: string;
+  kind: AnnualReportMetricKind;
+  months: Array<number | string | null>;
+  total: number | string | null;
+  editable?: {
+    type: "OS" | "OM";
+  };
+};
+export type AnnualReportTable = {
+  key: "peninsula" | "seie";
+  title: string;
+  missingMonths: Array<{
+    month: number;
+    label: string;
+    missing: string[];
+  }>;
+  rows: AnnualReportMetricRow[];
+};
+export type AnnualReportResponse = {
+  year: number;
+  availableYears: number[];
+  months: string[];
+  missingMonths: Array<{
+    month: number;
+    label: string;
+    missing: string[];
+  }>;
+  rows: AnnualReportMetricRow[];
+  tables?: AnnualReportTable[];
+};
+
 export type ReeFile = {
   id: string;
   fileName: string;
@@ -2355,6 +2389,23 @@ export async function uploadPricingMeffFile(file: File, onProgress?: (progress: 
   return sendMultipart<PricingMeffImportResponse>(`${API_URL}/pricing/meff/import`, formData, onProgress);
 }
 
+
+export async function getAnnualReport(year: number | string): Promise<AnnualReportResponse> {
+  return getJson(`/annual-report${toQuery({ year })}`);
+}
+
+export async function getAnnualReportYears(): Promise<number[]> {
+  return getJson(`/annual-report/years`);
+}
+
+export async function saveAnnualReportRetributionPrice(request: {
+  year: number;
+  month: number;
+  type: "OS" | "OM";
+  price: number | null;
+}): Promise<{ year: number; month: number; type: "OS" | "OM"; price: number | null; updatedAt: string }> {
+  return sendJson(`/annual-report/retribution-price`, "PUT", "Guardando retribucion", REQUEST_TIMEOUT_MS, request);
+}
 
 async function getJson<T>(path: string): Promise<T> {
   return withGlobalLoading(async () => {

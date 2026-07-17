@@ -18,7 +18,8 @@ export type Section =
   | "esiosDescargas"
   | "esiosConfiguracion"
   | "pricingBase"
-  | "pricingMeff";
+  | "pricingMeff"
+  | "annualReport";
 
 export type ReganecuView = "history" | "summary" | "hourly" | "qh";
 export type ReeSeieView = "summary" | "hourly";
@@ -26,7 +27,7 @@ export type MedidasView = "history" | "summary" | "qh" | "graphs";
 export type ReeLossesViewKey = "history" | "system" | "detail";
 export type OmieProgramasViewKey = "mercadoDiario" | "intradiarios" | "evolucion";
 export type ImportMode = "reganecu" | "medper" | "reeLosses" | "reeSeie";
-export type SidebarGroupKey = "ree" | "omie" | "esios" | "pricing";
+export type SidebarGroupKey = "ree" | "omie" | "esios" | "pricing" | "informes";
 
 export type SidebarMenuItem = {
   key: string;

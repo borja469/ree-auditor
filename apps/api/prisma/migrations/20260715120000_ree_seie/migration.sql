@@ -1,6 +1,6 @@
 ALTER TYPE "ReeFileType" ADD VALUE IF NOT EXISTS 'SEIE';
 
-CREATE TABLE "ree_seie_files" (
+CREATE TABLE IF NOT EXISTS "ree_seie_files" (
   "id" UUID NOT NULL DEFAULT gen_random_uuid(),
   "file_name" TEXT NOT NULL,
   "container_file_name" TEXT,
@@ -22,7 +22,7 @@ CREATE TABLE "ree_seie_files" (
   CONSTRAINT "ree_seie_files_pkey" PRIMARY KEY ("id")
 );
 
-CREATE TABLE "ree_seie_records" (
+CREATE TABLE IF NOT EXISTS "ree_seie_records" (
   "id" UUID NOT NULL DEFAULT gen_random_uuid(),
   "file_id" UUID NOT NULL,
   "upload_id" UUID NOT NULL,
@@ -76,22 +76,29 @@ CREATE TABLE "ree_seie_records" (
   CONSTRAINT "ree_seie_records_pkey" PRIMARY KEY ("id")
 );
 
-CREATE UNIQUE INDEX "ree_seie_files_file_hash_key" ON "ree_seie_files"("file_hash");
-CREATE INDEX "ree_seie_files_tipo_archivo_idx" ON "ree_seie_files"("tipo_archivo");
-CREATE INDEX "ree_seie_files_version_idx" ON "ree_seie_files"("version");
-CREATE INDEX "ree_seie_files_fecha_liquidacion_idx" ON "ree_seie_files"("fecha_liquidacion");
-CREATE INDEX "ree_seie_files_sujeto_eic_idx" ON "ree_seie_files"("sujeto_eic");
-CREATE INDEX "ree_seie_files_imported_at_idx" ON "ree_seie_files"("imported_at");
-CREATE UNIQUE INDEX "ree_seie_records_record_hash_key" ON "ree_seie_records"("record_hash");
-CREATE INDEX "ree_seie_records_upload_id_idx" ON "ree_seie_records"("upload_id");
-CREATE INDEX "ree_seie_records_hash_idx" ON "ree_seie_records"("hash");
-CREATE INDEX "ree_seie_records_fecha_carga_idx" ON "ree_seie_records"("fecha_carga");
-CREATE INDEX "ree_seie_records_fecha_idx" ON "ree_seie_records"("fecha");
-CREATE INDEX "ree_seie_records_fecha_liquidacion_idx" ON "ree_seie_records"("fecha_liquidacion");
-CREATE INDEX "ree_seie_records_codigo_idx" ON "ree_seie_records"("codigo");
-CREATE INDEX "ree_seie_records_unidad_idx" ON "ree_seie_records"("unidad");
-CREATE INDEX "ree_seie_records_tipo_idx" ON "ree_seie_records"("tipo");
-CREATE INDEX "ree_seie_records_sentido_idx" ON "ree_seie_records"("sentido");
-CREATE INDEX "ree_seie_records_segmento_idx" ON "ree_seie_records"("segmento");
-CREATE INDEX "ree_seie_records_filename_idx" ON "ree_seie_records"("filename");
-ALTER TABLE "ree_seie_records" ADD CONSTRAINT "ree_seie_records_file_id_fkey" FOREIGN KEY ("file_id") REFERENCES "ree_seie_files"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+CREATE UNIQUE INDEX IF NOT EXISTS "ree_seie_files_file_hash_key" ON "ree_seie_files"("file_hash");
+CREATE INDEX IF NOT EXISTS "ree_seie_files_tipo_archivo_idx" ON "ree_seie_files"("tipo_archivo");
+CREATE INDEX IF NOT EXISTS "ree_seie_files_version_idx" ON "ree_seie_files"("version");
+CREATE INDEX IF NOT EXISTS "ree_seie_files_fecha_liquidacion_idx" ON "ree_seie_files"("fecha_liquidacion");
+CREATE INDEX IF NOT EXISTS "ree_seie_files_sujeto_eic_idx" ON "ree_seie_files"("sujeto_eic");
+CREATE INDEX IF NOT EXISTS "ree_seie_files_imported_at_idx" ON "ree_seie_files"("imported_at");
+CREATE UNIQUE INDEX IF NOT EXISTS "ree_seie_records_record_hash_key" ON "ree_seie_records"("record_hash");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_upload_id_idx" ON "ree_seie_records"("upload_id");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_hash_idx" ON "ree_seie_records"("hash");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_fecha_carga_idx" ON "ree_seie_records"("fecha_carga");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_fecha_idx" ON "ree_seie_records"("fecha");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_fecha_liquidacion_idx" ON "ree_seie_records"("fecha_liquidacion");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_codigo_idx" ON "ree_seie_records"("codigo");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_unidad_idx" ON "ree_seie_records"("unidad");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_tipo_idx" ON "ree_seie_records"("tipo");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_sentido_idx" ON "ree_seie_records"("sentido");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_segmento_idx" ON "ree_seie_records"("segmento");
+CREATE INDEX IF NOT EXISTS "ree_seie_records_filename_idx" ON "ree_seie_records"("filename");
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'ree_seie_records_file_id_fkey'
+  ) THEN
+    ALTER TABLE "ree_seie_records" ADD CONSTRAINT "ree_seie_records_file_id_fkey" FOREIGN KEY ("file_id") REFERENCES "ree_seie_files"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;

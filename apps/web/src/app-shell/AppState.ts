@@ -57,6 +57,9 @@ export function activeSidebarGroupKeys(section: Section): SidebarGroupKey[] {
   if (isPricingSection(section)) {
     return ["pricing"];
   }
+  if (isInformesSection(section)) {
+    return ["informes"];
+  }
   return ["ree"];
 }
 
@@ -94,6 +97,9 @@ export function activeSidebarItemKeys(section: Section): string[] {
   if (isPricingSection(section)) {
     return [];
   }
+  if (isInformesSection(section)) {
+    return [];
+  }
   return [];
 }
 
@@ -122,6 +128,10 @@ export function isEsiosSection(section: Section) {
 
 export function isPricingSection(section: Section) {
   return section === "pricingBase" || section === "pricingMeff";
+}
+
+export function isInformesSection(section: Section) {
+  return section === "annualReport";
 }
 
 export function selectOmieTransactionDownloadId(

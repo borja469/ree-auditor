@@ -1749,6 +1749,216 @@ select:disabled {
   width: 100%;
 }
 
+.annual-report-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.annual-report-header {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.annual-report-year-filter {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.annual-report-year-filter span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.annual-report-year-filter select {
+  min-width: 110px;
+}
+
+.annual-report-loading {
+  align-items: center;
+  display: flex;
+  min-height: 48px;
+}
+
+.annual-report-save-message {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin: -4px 0 8px;
+}
+
+.annual-report-save-message.success {
+  color: #16803c;
+}
+
+.annual-report-save-message.error {
+  color: #b42318;
+}
+
+.annual-report-tables {
+  display: grid;
+  gap: 20px;
+}
+
+.annual-report-table-section {
+  display: grid;
+  gap: 8px;
+}
+
+.annual-report-table-section h3 {
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 800;
+  margin: 0;
+}
+
+.annual-report-table-shell {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-height: calc(100vh - 230px) !important;
+  overflow-x: hidden;
+  overflow-y: auto;
+  width: 100%;
+}
+
+.annual-report-table {
+  min-width: 0 !important;
+  table-layout: fixed;
+  width: 100%;
+}
+
+.annual-report-metric-col {
+  width: 14.5%;
+}
+
+.annual-report-month-col {
+  width: 6.2%;
+}
+
+.annual-report-total-col {
+  width: 11.1%;
+}
+
+.annual-report-table th,
+.annual-report-table td {
+  border-right: 1px solid #e1e8ee;
+  font-size: clamp(0.62rem, 0.72vw, 0.78rem);
+  min-width: 0;
+  overflow: hidden;
+  padding-left: 5px;
+  padding-right: 5px;
+  text-overflow: ellipsis;
+}
+
+.annual-report-table th:last-child,
+.annual-report-table td:last-child {
+  border-right: 0;
+}
+
+.annual-report-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+}
+
+.annual-report-table tbody th {
+  color: var(--ink);
+  font-weight: 700;
+  text-align: left;
+}
+
+.annual-report-table td.text {
+  color: var(--ink);
+  text-align: center;
+}
+
+.annual-report-table td.number {
+  font-variant-numeric: tabular-nums;
+}
+
+.annual-report-table tbody td {
+  font-weight: 400;
+}
+
+.annual-report-table tbody tr.annual-report-highlight-row th,
+.annual-report-table tbody tr.annual-report-highlight-row td {
+  background: #f1f5f9;
+}
+
+.annual-report-editable-price {
+  background: #ffffff;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: #17313f;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  height: 24px;
+  max-width: 100%;
+  padding: 2px 4px;
+  text-align: right;
+  width: 100%;
+}
+
+.annual-report-editable-price:focus {
+  border-color: #5c8fa3;
+  box-shadow: 0 0 0 2px rgba(92, 143, 163, 0.18);
+  outline: none;
+}
+
+.annual-report-editable-price-saving {
+  background: #f8fafc;
+  color: #64748b;
+}
+
+.annual-report-editable-price-saved {
+  border-color: #86d39c;
+}
+
+.annual-report-editable-price-error {
+  border-color: #ef4444;
+  color: #b42318;
+}
+
+.annual-report-table .annual-report-sticky-col {
+  box-shadow: 8px 0 12px rgba(15, 23, 42, 0.04);
+  left: 0;
+  position: sticky;
+  z-index: 5;
+}
+
+.annual-report-table thead .annual-report-sticky-col {
+  z-index: 6;
+}
+
+.annual-report-total {
+  background: #f8fafc !important;
+  border-left: 1px solid #cbd8df !important;
+  font-weight: 800 !important;
+}
+
+@media (max-width: 720px) {
+  .annual-report-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .annual-report-table-shell {
+    max-height: calc(100vh - 320px);
+  }
+
+  .annual-report-table th,
+  .annual-report-table td {
+    font-size: 0.58rem;
+    padding-left: 3px;
+    padding-right: 3px;
+  }
+}
+
 .energy-chart-panel {
   display: grid;
   gap: 14px;

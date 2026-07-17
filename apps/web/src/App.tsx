@@ -44,6 +44,7 @@ import {
   getLatestLiquidationAnalysisVersionForMonth,
   getTodayInputValue,
   isEsiosSection,
+  isInformesSection,
   isOmieSection,
   isPricingSection,
   hasAnyReeLossesDateFilter,
@@ -60,6 +61,7 @@ import { OmiePreciosModule } from "./modules/omie/precios/OmiePreciosModule";
 import { OmieProgramasModule } from "./modules/omie/programas/OmieProgramasModule";
 import { OmieTransaccionesModule } from "./modules/omie/transacciones/OmieTransaccionesModule";
 import { EsiosModule, type EsiosViewKey } from "./modules/esios/EsiosModule";
+import { AnnualReportModule } from "./modules/annual-report/AnnualReportModule";
 import { PricingBaseModule } from "./modules/pricing/PricingBaseModule";
 import { PricingMeffModule } from "./modules/pricing/PricingMeffModule";
 import { MedperFilterBand, MedperViewPanel } from "./modules/medper/MedperModule";
@@ -360,7 +362,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     ree: true,
     omie: false,
     esios: false,
-    pricing: true
+    pricing: true,
+    informes: false
   });
   const [openSidebarItems, setOpenSidebarItems] = useState<Record<string, boolean>>({
     "ree-reganecu-menu": true,
@@ -1688,6 +1691,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                     ? "OMIE Transacciones"
                   : section === "omieDescargas"
                     ? "OMIE Control de descargas"
+                    : section === "annualReport"
+                      ? "Informe Anual"
                     : section === "pricingBase"
                       ? "Pricing base apuntamientos"
                       : section === "pricingMeff"
@@ -2131,6 +2136,20 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           onSelect: () => changeSection("pricingMeff")
         }
       ]
+    },
+    {
+      key: "informes",
+      title: "Informes",
+      active: isInformesSection(section),
+      items: [
+        {
+          key: "informes-informe-anual",
+          label: "Informe Anual",
+          description: "resumen mensual consolidado",
+          active: section === "annualReport",
+          onSelect: () => changeSection("annualReport")
+        }
+      ]
     }
   ];
   const showGlobalUploadBand = false;
@@ -2396,6 +2415,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           {isEsiosSection(section) && <EsiosModule key={`${section}-${esiosRefreshKey}`} view={esiosViewFromSection(section)} />}
           {section === "pricingBase" && <PricingBaseModule />}
           {section === "pricingMeff" && <PricingMeffModule />}
+          {section === "annualReport" && <AnnualReportModule />}
 
           {section === "reeDownloads" && (
             <ReeDownloadCenterModule
