@@ -208,10 +208,11 @@ function AnnualReportRow({
         {row.label}
       </th>
       {row.months.map((value, index) => (
-        <td className={row.kind === "text" ? "text" : "number"} key={`${row.key}-${index}`}>
+        <td className={buildAnnualCellClassName(row, value)} key={`${row.key}-${index}`}>
           {row.editable ? (
             <AnnualReportEditablePriceCell
               value={typeof value === "number" ? value : null}
+              kind={row.kind}
               year={year}
               month={index + 1}
               type={row.editable.type}
@@ -228,6 +229,14 @@ function AnnualReportRow({
   );
 }
 
+function buildAnnualCellClassName(row: AnnualReportMetricRow, value: number | string | null) {
+  const classes = [row.kind === "text" ? "text" : "number"];
+  if (row.key === "versionUtilizada" && value === "C5") {
+    classes.push("annual-report-version-c5");
+  }
+  return classes.join(" ");
+}
+
 function isHighlightedAnnualReportRow(key: string) {
   return [
     "programaMwh",
@@ -235,12 +244,14 @@ function isHighlightedAnnualReportRow(key: string) {
     "importeTotalEur",
     "importeOmieEur",
     "importeRetribucionOsEur",
-    "importeRetribucionOmEur"
+    "importeRetribucionOmEur",
+    "importeRemitEur"
   ].includes(key);
 }
 
 function AnnualReportEditablePriceCell({
   value,
+  kind,
   year,
   month,
   type,
@@ -248,25 +259,26 @@ function AnnualReportEditablePriceCell({
   onSaveError
 }: {
   value: number | null;
+  kind: AnnualReportMetricKind;
   year: number;
   month: number;
-  type: "OS" | "OM";
+  type: "OS" | "OM" | "REMIT";
   onSaved: (message: string) => void;
   onSaveError: (message: string) => void;
 }) {
-  const [draft, setDraft] = useState(() => formatEditablePrice(value));
+  const [draft, setDraft] = useState(() => formatEditableValue(value, kind));
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
 
   useEffect(() => {
-    setDraft(formatEditablePrice(value));
+    setDraft(formatEditableValue(value, kind));
     setStatus("idle");
-  }, [value]);
+  }, [kind, value]);
 
   async function save() {
     const parsed = parseEditablePrice(draft);
     if (parsed === "invalid") {
       setStatus("error");
-      onSaveError("El precio debe ser un numero mayor o igual que cero.");
+      onSaveError(type === "REMIT" ? "El importe debe ser un numero mayor o igual que cero." : "El precio debe ser un numero mayor o igual que cero.");
       return;
     }
     if (sameNullableNumber(parsed, value)) {
@@ -276,10 +288,10 @@ function AnnualReportEditablePriceCell({
     try {
       await saveAnnualReportRetributionPrice({ year, month, type, price: parsed });
       setStatus("saved");
-      onSaved(`Precio retribucion ${type} guardado.`);
+      onSaved(type === "REMIT" ? "Importe REMIT guardado." : `Precio retribucion ${type} guardado.`);
     } catch (err) {
       setStatus("error");
-      onSaveError(err instanceof Error ? err.message : "No se pudo guardar el precio.");
+      onSaveError(err instanceof Error ? err.message : type === "REMIT" ? "No se pudo guardar el importe." : "No se pudo guardar el precio.");
     }
   }
 
@@ -299,11 +311,11 @@ function AnnualReportEditablePriceCell({
           event.currentTarget.blur();
         }
         if (event.key === "Escape") {
-          setDraft(formatEditablePrice(value));
+          setDraft(formatEditableValue(value, kind));
           event.currentTarget.blur();
         }
       }}
-      title={status === "saving" ? "Guardando" : status === "saved" ? "Guardado" : status === "error" ? "Error al guardar" : "Editar precio"}
+      title={status === "saving" ? "Guardando" : status === "saved" ? "Guardado" : status === "error" ? "Error al guardar" : type === "REMIT" ? "Editar importe" : "Editar precio"}
     />
   );
 }
@@ -330,11 +342,11 @@ function formatAnnualValue(value: number | string | null, kind: AnnualReportMetr
   return String(value);
 }
 
-function formatEditablePrice(value: number | null) {
+function formatEditableValue(value: number | null, kind: AnnualReportMetricKind) {
   if (value === null || value === undefined || !Number.isFinite(value)) {
     return "";
   }
-  return String(Number(value.toFixed(12))).replace(".", ",");
+  return String(Number(value.toFixed(kind === "currency" ? 2 : 12))).replace(".", ",");
 }
 
 function parseEditablePrice(value: string): number | null | "invalid" {

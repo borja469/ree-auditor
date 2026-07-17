@@ -19,7 +19,7 @@ export type AnnualReportMetricRow = {
   months: Array<number | string | null>;
   total: number | string | null;
   editable?: {
-    type: "OS" | "OM";
+    type: "OS" | "OM" | "REMIT";
   };
 };
 export type AnnualReportTable = {
@@ -2401,9 +2401,9 @@ export async function getAnnualReportYears(): Promise<number[]> {
 export async function saveAnnualReportRetributionPrice(request: {
   year: number;
   month: number;
-  type: "OS" | "OM";
+  type: "OS" | "OM" | "REMIT";
   price: number | null;
-}): Promise<{ year: number; month: number; type: "OS" | "OM"; price: number | null; updatedAt: string }> {
+}): Promise<{ year: number; month: number; type: "OS" | "OM" | "REMIT"; price: number | null; updatedAt: string }> {
   return sendJson(`/annual-report/retribution-price`, "PUT", "Guardando retribucion", REQUEST_TIMEOUT_MS, request);
 }
 

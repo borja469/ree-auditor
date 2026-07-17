@@ -60,6 +60,7 @@ enum OmieTipoPrecio {
 enum AnnualReportRetributionType {
   OS
   OM
+  REMIT
 }
 
 model ReeFile {

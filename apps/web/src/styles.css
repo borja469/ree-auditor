@@ -1890,6 +1890,11 @@ select:disabled {
   background: #f1f5f9;
 }
 
+.annual-report-table td.annual-report-version-c5 {
+  color: #15803d;
+  font-weight: 800;
+}
+
 .annual-report-editable-price {
   background: #ffffff;
   border: 1px solid transparent;

@@ -45,8 +45,8 @@ function parseRetributionPriceBody(body: unknown) {
   if (!Number.isSafeInteger(month) || month < 1 || month > 12) {
     throw new BadRequestException("El parametro month debe ser un mes valido.");
   }
-  if (type !== AnnualReportRetributionType.OS && type !== AnnualReportRetributionType.OM) {
-    throw new BadRequestException("El tipo de retribucion debe ser OS u OM.");
+  if (type !== AnnualReportRetributionType.OS && type !== AnnualReportRetributionType.OM && type !== AnnualReportRetributionType.REMIT) {
+    throw new BadRequestException("El tipo de retribucion debe ser OS, OM o REMIT.");
   }
   if (price !== null && (!Number.isFinite(price) || price < 0)) {
     throw new BadRequestException("El precio debe ser un numero mayor o igual que cero.");

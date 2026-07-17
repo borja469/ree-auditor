@@ -32,7 +32,8 @@ type AnnualMetricKey =
   | "precioRetribucionOsEurMwh"
   | "importeRetribucionOsEur"
   | "precioRetribucionOmEurMwh"
-  | "importeRetribucionOmEur";
+  | "importeRetribucionOmEur"
+  | "importeRemitEur";
 
 export type AnnualReportMetricRow = {
   key: AnnualMetricKey;
@@ -140,6 +141,7 @@ type MonthValues = {
   importeRetribucionOsEur: number | null;
   precioRetribucionOmEurMwh: number | null;
   importeRetribucionOmEur: number | null;
+  importeRemitEur: number | null;
 };
 
 @Injectable()
@@ -531,15 +533,18 @@ function aggregateReganecuBySelectedVersion(rows: ReganecuAnnualRow[], versions:
 }
 
 function aggregateRetributionPrices(rows: RetributionPriceAnnualRow[]) {
-  const map = new Map<number, Pick<MonthValues, "precioRetribucionOsEurMwh" | "precioRetribucionOmEurMwh">>();
+  const map = new Map<number, Pick<MonthValues, "precioRetribucionOsEurMwh" | "precioRetribucionOmEurMwh" | "importeRemitEur">>();
   for (const row of rows) {
-    const bucket = map.get(row.month) ?? { precioRetribucionOsEurMwh: null, precioRetribucionOmEurMwh: null };
+    const bucket = map.get(row.month) ?? { precioRetribucionOsEurMwh: null, precioRetribucionOmEurMwh: null, importeRemitEur: null };
     const price = decimalToNullableNumber(row.price);
     if (row.type === AnnualReportRetributionType.OS) {
       bucket.precioRetribucionOsEurMwh = price;
     }
     if (row.type === AnnualReportRetributionType.OM) {
       bucket.precioRetribucionOmEurMwh = price;
+    }
+    if (row.type === AnnualReportRetributionType.REMIT) {
+      bucket.importeRemitEur = price;
     }
     map.set(row.month, bucket);
   }
@@ -639,7 +644,7 @@ function buildMonthValues(
   medper?: Pick<MonthValues, "energiaBcMwh" | "energiaPfMwh" | "perdidasMwh">,
   reganecu?: Pick<MonthValues, "importeCadEur" | "importeDsvEur" | "importePc3Eur" | "importeBs3Eur" | "importeRad3Eur">,
   omie?: { programaMwh: number | null; importeOmieEur: number | null },
-  retribution?: Pick<MonthValues, "precioRetribucionOsEurMwh" | "precioRetribucionOmEurMwh">
+  retribution?: Pick<MonthValues, "precioRetribucionOsEurMwh" | "precioRetribucionOmEurMwh" | "importeRemitEur">
 ): MonthValues {
   const importeTotalEur = nullableSum([
     reganecu?.importeCadEur ?? null,
@@ -674,7 +679,8 @@ function buildMonthValues(
     precioRetribucionOsEurMwh,
     importeRetribucionOsEur: roundEuro(multiply(precioRetribucionOsEurMwh, programaMwh)),
     precioRetribucionOmEurMwh,
-    importeRetribucionOmEur: roundEuro(multiply(precioRetribucionOmEurMwh, programaMwh))
+    importeRetribucionOmEur: roundEuro(multiply(precioRetribucionOmEurMwh, programaMwh)),
+    importeRemitEur: roundEuro(retribution?.importeRemitEur ?? null)
   };
 }
 
@@ -711,7 +717,8 @@ function buildSeieMonthValues(
     precioRetribucionOsEurMwh,
     importeRetribucionOsEur: roundEuro(multiply(precioRetribucionOsEurMwh, roundedPrograma)),
     precioRetribucionOmEurMwh: null,
-    importeRetribucionOmEur: null
+    importeRetribucionOmEur: null,
+    importeRemitEur: null
   };
 }
 
@@ -722,6 +729,7 @@ function buildRows(values: MonthValues[]): AnnualReportMetricRow[] {
   const totalImporteOmie = sumPresent(values.map((month) => month.importeOmieEur));
   const totalImporteRetribucionOs = sumPresent(values.map((month) => month.importeRetribucionOsEur));
   const totalImporteRetribucionOm = sumPresent(values.map((month) => month.importeRetribucionOmEur));
+  const totalImporteRemit = sumPresent(values.map((month) => month.importeRemitEur));
   const rows: Array<{ key: AnnualMetricKey; label: string; kind: AnnualMetricKind; total?: number | string | null; editable?: { type: AnnualReportRetributionType } }> = [
     { key: "programaMwh", label: "Programa (MWh)", kind: "energy" },
     { key: "versionUtilizada", label: "Version utilizada", kind: "text", total: null },
@@ -740,7 +748,8 @@ function buildRows(values: MonthValues[]): AnnualReportMetricRow[] {
     { key: "precioRetribucionOsEurMwh", label: "Precio retribucion OS (EUR/MWh)", kind: "price", total: ratio(totalImporteRetribucionOs, totalPrograma), editable: { type: AnnualReportRetributionType.OS } },
     { key: "importeRetribucionOsEur", label: "Importe retribucion OS (EUR)", kind: "currency" },
     { key: "precioRetribucionOmEurMwh", label: "Precio retribucion OM (EUR/MWh)", kind: "price", total: ratio(totalImporteRetribucionOm, totalPrograma), editable: { type: AnnualReportRetributionType.OM } },
-    { key: "importeRetribucionOmEur", label: "Importe retribucion OM (EUR)", kind: "currency" }
+    { key: "importeRetribucionOmEur", label: "Importe retribucion OM (EUR)", kind: "currency" },
+    { key: "importeRemitEur", label: "REMIT (EUR)", kind: "currency", total: totalImporteRemit, editable: { type: AnnualReportRetributionType.REMIT } }
   ];
   return rows.map((row) => ({
     ...row,
@@ -880,8 +889,8 @@ function validateMonth(month: number) {
 }
 
 function validateRetributionType(type: string): asserts type is AnnualReportRetributionType {
-  if (type !== AnnualReportRetributionType.OS && type !== AnnualReportRetributionType.OM) {
-    throw new BadRequestException("El tipo de retribucion debe ser OS u OM.");
+  if (type !== AnnualReportRetributionType.OS && type !== AnnualReportRetributionType.OM && type !== AnnualReportRetributionType.REMIT) {
+    throw new BadRequestException("El tipo de retribucion debe ser OS, OM o REMIT.");
   }
 }
 
