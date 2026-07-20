@@ -284,7 +284,7 @@ function GuaranteeRow({
           disabled={row.volume === null}
           onStep={onVolumeStep}
           source={volumeSourceText(row, adjustment.volumeDelta)}
-          tone={row.volumeSource === "REAL" ? "ok" : row.volumeSource === "PREVIOUS_WEEK" ? "warning" : "danger"}
+          tone={row.volumeSource === "REAL" ? "ok" : row.volumeSource === "MISSING" ? "danger" : "warning"}
           value={formatEnergy(row.volume)}
         />
       </td>
@@ -398,8 +398,8 @@ function volumeSourceText(row: GuaranteeCalculatorRow, delta = 0) {
   if (row.volumeSource === "REAL") {
     return `Real${suffix}`;
   }
-  if (row.volumeSource === "PREVIOUS_WEEK") {
-    return `Semana anterior: ${row.volumeSourceDate ? formatDate(row.volumeSourceDate) : "-"}${suffix}`;
+  if (row.volumeSourceDate) {
+    return `Dato de ${formatDate(row.volumeSourceDate)}${suffix}`;
   }
   return `Sin dato${suffix}`;
 }

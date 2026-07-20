@@ -34,21 +34,23 @@ export function buildGuaranteeRows(params: {
     const real = params.omieDays.get(date);
     const previousWeekDate = formatDateKey(addDays(parseDateKey(date), -7));
     const previousWeek = params.omieDays.get(previousWeekDate);
+    const latestSameWeekday = findLatestSameWeekdayVolume(params.omieDays, date, previousWeekDate);
     const warnings: string[] = [];
     const realVolume = finiteOrNull(real?.volume);
     const realCost = finiteOrNull(real?.costWithoutTax);
-    const volume =
-      realVolume !== null
-        ? realVolume
-        : finiteOrNull(previousWeek?.volume);
-    const volumeSource = realVolume !== null ? "REAL" : volume !== null ? "PREVIOUS_WEEK" : "MISSING";
-    const volumeSourceDate = volumeSource === "PREVIOUS_WEEK" ? previousWeekDate : null;
+    const previousWeekVolume = finiteOrNull(previousWeek?.volume);
+    const volume = realVolume ?? previousWeekVolume ?? latestSameWeekday?.volume ?? null;
+    const volumeSource = realVolume !== null ? "REAL" : previousWeekVolume !== null ? "PREVIOUS_WEEK" : latestSameWeekday ? "SAME_WEEKDAY" : "MISSING";
+    const volumeSourceDate = volumeSource === "PREVIOUS_WEEK" ? previousWeekDate : volumeSource === "SAME_WEEKDAY" ? latestSameWeekday?.date ?? null : null;
 
     if (volumeSource === "PREVIOUS_WEEK") {
       warnings.push(`Volumen sustituido por ${formatSpanishDateKey(previousWeekDate)}.`);
     }
+    if (volumeSource === "SAME_WEEKDAY" && volumeSourceDate) {
+      warnings.push(`Volumen sustituido por ultimo ${weekdayName(date).toLowerCase()} disponible: ${formatSpanishDateKey(volumeSourceDate)}.`);
+    }
     if (volumeSource === "MISSING") {
-      warnings.push("Sin volumen real ni volumen de la semana anterior.");
+      warnings.push("Sin volumen real ni volumen historico del mismo dia de la semana.");
     }
 
     const omiePrice = realCost !== null && realVolume !== null && realVolume !== 0 ? roundPrice(realCost / realVolume) : null;
@@ -109,12 +111,30 @@ export function buildGuaranteeRows(params: {
       totalVolume: roundEnergy(sum(rows.map((row) => row.volume ?? 0))),
       totalInvoicing: roundEuro(sum(rows.map((row) => row.invoicingAmount ?? 0))),
       daysWithRealVolume: rows.filter((row) => row.volumeSource === "REAL").length,
-      daysWithSubstitutedVolume: rows.filter((row) => row.volumeSource === "PREVIOUS_WEEK").length,
+      daysWithSubstitutedVolume: rows.filter((row) => row.volumeSource === "PREVIOUS_WEEK" || row.volumeSource === "SAME_WEEKDAY").length,
       daysWithOmiePrice: rows.filter((row) => row.priceSource === "OMIE").length,
       daysWithMeffPrice: rows.filter((row) => row.priceSource === "MEFF").length,
       daysWithMissingData: rows.filter((row) => row.volumeSource === "MISSING" || row.priceSource === "MISSING" || row.invoicingSource === "MISSING").length
     }
   };
+}
+
+function findLatestSameWeekdayVolume(omieDays: Map<string, OmieGuaranteeDayData>, date: string, excludeDate: string) {
+  const target = parseDateKey(date);
+  let latest: { date: string; volume: number } | null = null;
+  for (const [candidateDate, candidateDay] of omieDays) {
+    if (candidateDate === excludeDate || candidateDate >= date) {
+      continue;
+    }
+    const candidateVolume = finiteOrNull(candidateDay.volume);
+    if (candidateVolume === null || parseDateKey(candidateDate).getUTCDay() !== target.getUTCDay()) {
+      continue;
+    }
+    if (!latest || candidateDate > latest.date) {
+      latest = { date: candidateDate, volume: candidateVolume };
+    }
+  }
+  return latest;
 }
 
 export function enumerateDateKeys(startDate: string, endDate: string) {

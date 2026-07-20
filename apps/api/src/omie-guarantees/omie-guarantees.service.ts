@@ -23,8 +23,9 @@ export class OmieGuaranteesService {
 
   async calculate(referenceDate: string): Promise<GuaranteeCalculatorResponse> {
     const range = calculateGuaranteeDateRange(referenceDate);
+    const omieHistoryStart = await this.findOmieHistoryStart(addDays(parseDateKey(range.startDate), -7));
     const [omieDays, meffPrices, guaranteeAdjustments] = await Promise.all([
-      this.loadOmieDays(addDays(parseDateKey(range.startDate), -7), parseDateKey(range.endDate)),
+      this.loadOmieDays(omieHistoryStart, parseDateKey(range.endDate)),
       this.loadMeffPrices(range.startDate, range.endDate),
       this.loadGuaranteeAdjustments(range.startDate, range.endDate)
     ]);
@@ -150,6 +151,23 @@ export class OmieGuaranteesService {
       }
     }
     return map;
+  }
+
+  private async findOmieHistoryStart(fallback: Date) {
+    const [programs, transactions] = await Promise.all([
+      this.prisma.omiePrograma.aggregate({
+        _min: {
+          fechaPrograma: true
+        }
+      }),
+      this.prisma.omieTransactionStaging.aggregate({
+        _min: {
+          diaContrato: true
+        }
+      })
+    ]);
+    const dates = [programs._min.fechaPrograma, transactions._min.diaContrato].filter((date): date is Date => date instanceof Date);
+    return dates.length === 0 ? fallback : new Date(Math.min(...dates.map((date) => date.getTime())));
   }
 
   private async loadGuaranteeAdjustments(startDate: string, endDate: string) {

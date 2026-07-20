@@ -499,7 +499,7 @@ export type GuaranteeCalculatorRow = {
   displayDate: string;
   weekday: string;
   volume: number | null;
-  volumeSource: "REAL" | "PREVIOUS_WEEK" | "MISSING";
+  volumeSource: "REAL" | "PREVIOUS_WEEK" | "SAME_WEEKDAY" | "MISSING";
   volumeSourceDate: string | null;
   price: number | null;
   priceSource: "OMIE" | "MEFF" | "MISSING";

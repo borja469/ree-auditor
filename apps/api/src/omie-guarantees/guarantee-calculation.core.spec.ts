@@ -96,6 +96,24 @@ void describe("buildGuaranteeRows", () => {
     assert.equal(row.invoicingAmount, 1452);
   });
 
+  void it("usa el ultimo volumen disponible del mismo dia de la semana si no hay real ni semana anterior", () => {
+    const row = buildGuaranteeRows({
+      referenceDate: "2026-07-15",
+      omieDays: days([
+        { date: "2026-06-22", volume: 11, costWithoutTax: 550 },
+        { date: "2026-06-29", volume: 22, costWithoutTax: 1100 },
+        { date: "2026-07-01", volume: 99, costWithoutTax: 4950 },
+        { date: "2026-07-06", volume: null, costWithoutTax: null }
+      ]),
+      meffPrices: meff([{ date: "2026-07-13", price: 60, publicationDate: "2026-07-10", code: "Jul-26" }])
+    }).rows[0];
+    assert.equal(row.volumeSource, "SAME_WEEKDAY");
+    assert.equal(row.volumeSourceDate, "2026-06-29");
+    assert.equal(row.volume, 22);
+    assert.equal(row.invoicingSource, "ESTIMATED");
+    assert.equal(row.invoicingAmount, 1597.2);
+  });
+
   void it("marca ausencia de volumen real y sustitutivo", () => {
     const row = buildGuaranteeRows({
       referenceDate: "2026-07-15",

@@ -1,4 +1,4 @@
-export type GuaranteeVolumeSource = "REAL" | "PREVIOUS_WEEK" | "MISSING";
+export type GuaranteeVolumeSource = "REAL" | "PREVIOUS_WEEK" | "SAME_WEEKDAY" | "MISSING";
 export type GuaranteePriceSource = "OMIE" | "MEFF" | "MISSING";
 export type GuaranteeInvoicingSource = "REAL" | "ESTIMATED" | "MISSING";
 
