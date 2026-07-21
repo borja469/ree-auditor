@@ -271,11 +271,7 @@ export class OmieDescargasService {
     }
     if (codigo === OMIE_REER_PUBLIC_CODIGO) {
       const response = await this.omieReerService.sincronizarPublico(requireFecha(fecha), options);
-      return {
-        message: response.message,
-        download: serializeReerPublicDownload(response.download),
-        result: response
-      };
+      return this.buildExecutionResponse(response.message, response.download.id, response);
     }
 
     const fechaDesde = requireFecha(request.fechaDesde ?? request.fecha);
