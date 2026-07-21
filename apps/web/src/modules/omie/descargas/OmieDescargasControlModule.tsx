@@ -677,7 +677,7 @@ export function normalizeOmieDownloadRequest(draft: any) {
   }
 
   const codigoOmie = typeof draft.codigoOmie === "string" ? draft.codigoOmie.trim() : "";
-  if (!["5302", "5608", "5202", "5603", "4125", "4121"].includes(codigoOmie)) {
+  if (!["5302", "5608", "5202", "5603", "4125", "4121", "INT_REER_CONSUM_EV_H"].includes(codigoOmie)) {
     return null;
   }
 
