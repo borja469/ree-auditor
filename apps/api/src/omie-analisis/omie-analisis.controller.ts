@@ -1,9 +1,15 @@
-import { BadRequestException, Body, Controller, Get, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Post, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { FileInterceptor } from "@nestjs/platform-express";
+import { attachUploadedFileBuffer, cleanupUploadedFile, uploadDiskStorage, uploadLimits } from "../common/upload-storage";
+import { OmieReerService } from "../omie-reer/omie-reer.service";
 import { OmieAnalisisService } from "./omie-analisis.service";
 
 @Controller("omie/analisis")
 export class OmieAnalisisController {
-  constructor(private readonly omieAnalisisService: OmieAnalisisService) {}
+  constructor(
+    private readonly omieAnalisisService: OmieAnalisisService,
+    private readonly omieReerService: OmieReerService
+  ) {}
 
   @Get("mensual")
   async obtenerAnalisisMensual(@Query("year") year?: string, @Query("month") month?: string) {
@@ -19,6 +25,51 @@ export class OmieAnalisisController {
   async guardarFacturaLiquidacion(@Body() body: unknown) {
     const parsed = parseInvoiceBody(body);
     return this.omieAnalisisService.guardarFacturaLiquidacion(parsed.fecha, parsed.facturaCompra, parsed.facturaVenta);
+  }
+
+  @Post("comprobacion-liquidaciones/reer/publico/importar")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: uploadDiskStorage,
+      limits: uploadLimits({ fileSizeMb: 20 })
+    })
+  )
+  async importarReerPublico(@UploadedFile() file?: Express.Multer.File, @Query("urlOrigen") urlOrigen?: string) {
+    if (!file) {
+      throw new BadRequestException("Debe adjuntarse un fichero TXT o XLS en el campo file.");
+    }
+    try {
+      await attachUploadedFileBuffer(file);
+      return await this.omieReerService.importarPublicoDesdeBuffer({
+        fileName: file.originalname,
+        buffer: file.buffer,
+        urlOrigen
+      });
+    } finally {
+      await cleanupUploadedFile(file);
+    }
+  }
+
+  @Post("comprobacion-liquidaciones/reer/oficial-9230/importar")
+  @UseInterceptors(
+    FileInterceptor("file", {
+      storage: uploadDiskStorage,
+      limits: uploadLimits({ fileSizeMb: 50 })
+    })
+  )
+  async importarReerOficial9230(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException("Debe adjuntarse un XML 9230 en el campo file.");
+    }
+    try {
+      await attachUploadedFileBuffer(file);
+      return await this.omieReerService.importarOficial9230DesdeBuffer({
+        fileName: file.originalname,
+        buffer: file.buffer
+      });
+    } finally {
+      await cleanupUploadedFile(file);
+    }
   }
 }
 

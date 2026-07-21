@@ -146,7 +146,7 @@ export class OmieGuaranteesService {
         map.set(day.fechaIso, {
           date: day.fechaIso,
           volume,
-          costWithoutTax: day.costeTotalOmie
+          costWithoutTax: day.netoFactura
         });
       }
     }

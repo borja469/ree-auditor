@@ -159,7 +159,10 @@ function parseModulo(value: string | undefined): OmieControlModulo | undefined {
   if (normalized === "transacciones") {
     return "Transacciones";
   }
-  throw new BadRequestException("modulo debe ser Programas, Precios o Transacciones.");
+  if (normalized === "reer publico" || normalized === "reer") {
+    return "REER Publico";
+  }
+  throw new BadRequestException("modulo debe ser Programas, Precios, Transacciones o REER Publico.");
 }
 
 function parseCodigo(value: string | undefined): OmieControlCodigo | undefined {
@@ -168,10 +171,10 @@ function parseCodigo(value: string | undefined): OmieControlCodigo | undefined {
 
 function parseRequiredCodigo(value: string | undefined): OmieControlCodigo {
   const normalized = value?.trim();
-  if (normalized === "5302" || normalized === "5608" || normalized === "5202" || normalized === "5603" || normalized === "4125" || normalized === "4121") {
+  if (normalized === "5302" || normalized === "5608" || normalized === "5202" || normalized === "5603" || normalized === "4125" || normalized === "4121" || normalized === "INT_REER_CONSUM_EV_H") {
     return normalized;
   }
-  throw new BadRequestException("codigoOmie debe ser 5302, 5608, 5202, 5603, 4125 o 4121.");
+  throw new BadRequestException("codigoOmie debe ser 5302, 5608, 5202, 5603, 4125, 4121 o INT_REER_CONSUM_EV_H.");
 }
 
 function parseTipoDocumento(value: string | undefined): OmieControlTipo | undefined {
@@ -185,9 +188,10 @@ function parseTipoDocumento(value: string | undefined): OmieControlTipo | undefi
     normalized !== OmieTipoPrecio.MD &&
     normalized !== OmieTipoPrecio.MI &&
     normalized !== OmieTipoPrecio.XBID &&
-    normalized !== "TRANSACCIONES"
+    normalized !== "TRANSACCIONES" &&
+    normalized !== "REER_PUBLICO"
   ) {
-    throw new BadRequestException("tipoDocumento debe ser PVD, PHF, MD, MI, XBID o TRANSACCIONES.");
+    throw new BadRequestException("tipoDocumento debe ser PVD, PHF, MD, MI, XBID, TRANSACCIONES o REER_PUBLICO.");
   }
   return normalized as OmieControlTipo;
 }

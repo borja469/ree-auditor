@@ -27,7 +27,9 @@ const OMIE_LIQUIDATION_MONTH_LEVELS = [
 
 const OMIE_LIQUIDATION_MONTH_AGGREGATES: Array<TechnicalAggregateColumnDefinition<OmieLiquidationHierarchyRow>> = [
   { id: "rowCount", aggregate: "count" },
-  { id: "costeTotalOmie", aggregate: { kind: "custom", calculate: (currentRows) => sumDefinedValues(currentRows.map((row) => row.costeTotalOmie)) } },
+  { id: "compraFactura", aggregate: { kind: "custom", calculate: (currentRows) => sumDefinedValues(currentRows.map((row) => row.compraFactura)) } },
+  { id: "ventaFactura", aggregate: { kind: "custom", calculate: (currentRows) => sumDefinedValues(currentRows.map((row) => row.ventaFactura)) } },
+  { id: "netoFactura", aggregate: { kind: "custom", calculate: (currentRows) => sumDefinedValues(currentRows.map((row) => row.netoFactura)) } },
   { id: "facturaCompra", aggregate: { kind: "custom", calculate: (currentRows) => sumDefinedValues(currentRows.map((row) => row.facturaCompra)) } },
   { id: "facturaVenta", aggregate: { kind: "custom", calculate: (currentRows) => sumDefinedValues(currentRows.map((row) => row.facturaVenta)) } }
 ];
@@ -185,14 +187,14 @@ function buildOmieLiquidationValidationRow(
 ): OmieLiquidationValidationRow {
   const facturaCompra = parseEuroInputValue(draft?.facturaCompra);
   const facturaVenta = parseEuroInputValue(draft?.facturaVenta);
-  const breakdown = calculateOmieMismatch(row.costeTotalOmie, facturaCompra, facturaVenta);
+  const breakdown = calculateOmieMismatch(row.compraFactura, row.ventaFactura, facturaCompra, facturaVenta);
 
   return {
     ...row,
     facturaCompra,
     facturaVenta,
-    iva: breakdown.iva,
-    omieConIva: breakdown.omieConIva,
+    facturaCompraCalculada: row.compraFactura,
+    facturaVentaCalculada: row.ventaFactura,
     descuadre: breakdown.descuadre,
     descuadreTone: mismatchTone(breakdown.descuadre),
     weekKey: weekInfo.key,
@@ -203,22 +205,44 @@ function buildOmieLiquidationValidationRow(
 function buildOmieWeeklySummary(rows: OmieLiquidationValidationRow[]) {
   const startRow = rows[0];
   const endRow = rows[rows.length - 1];
-  const costeTotalOmie = sumDefinedValues(rows.map((row) => row.costeTotalOmie));
+  const compraMercados = sumDefinedValues(rows.map((row) => row.compraMercados));
+  const ventaMercados = sumDefinedValues(rows.map((row) => row.ventaMercados));
+  const conceptosCompra = sumDefinedValues(rows.map((row) => row.conceptosCompra));
+  const conceptosVenta = sumDefinedValues(rows.map((row) => row.conceptosVenta));
+  const compraBaseImponible = sumDefinedValues(rows.map((row) => row.compraBaseImponible));
+  const ventaBaseImponible = sumDefinedValues(rows.map((row) => row.ventaBaseImponible));
+  const ivaCompra = sumDefinedValues(rows.map((row) => row.ivaCompra));
+  const ivaVenta = sumDefinedValues(rows.map((row) => row.ivaVenta));
+  const compraFactura = sumDefinedValues(rows.map((row) => row.compraFactura));
+  const ventaFactura = sumDefinedValues(rows.map((row) => row.ventaFactura));
+  const netoFactura = sumDefinedValues(rows.map((row) => row.netoFactura));
+  const netoBaseImponible = sumDefinedValues(rows.map((row) => row.netoBaseImponible));
+  const netoAnalitico = sumDefinedValues(rows.map((row) => row.netoAnalitico));
   const facturaCompra = sumDefinedValues(rows.map((row) => row.facturaCompra));
   const facturaVenta = sumDefinedValues(rows.map((row) => row.facturaVenta));
-  const isCompleteWeek = rows.every((row) => row.facturaCompra !== null && row.facturaVenta !== null && row.costeTotalOmie !== null);
-  const breakdown = isCompleteWeek ? calculateOmieMismatch(costeTotalOmie, facturaCompra, facturaVenta) : { iva: costeTotalOmie === null ? null : roundCurrencyAmount(costeTotalOmie * 0.21), omieConIva: costeTotalOmie === null ? null : roundCurrencyAmount(costeTotalOmie * 1.21), descuadre: null };
+  const isCompleteWeek = rows.every((row) => row.facturaCompra !== null && row.facturaVenta !== null && row.compraFactura !== null && row.ventaFactura !== null);
+  const breakdown = isCompleteWeek ? calculateOmieMismatch(compraFactura, ventaFactura, facturaCompra, facturaVenta) : { descuadre: null };
 
   return {
     key: rows[0]?.weekKey ?? "",
     weekLabel: rows[0]?.weekLabel ?? "SEMANA",
     startDateLabel: startRow?.fecha ?? "-",
     endDateLabel: endRow?.fecha ?? "-",
-    costeTotalOmie,
+    compraMercados,
+    ventaMercados,
+    conceptosCompra,
+    conceptosVenta,
+    compraBaseImponible,
+    ventaBaseImponible,
+    ivaCompra,
+    ivaVenta,
+    compraFactura,
+    ventaFactura,
+    netoFactura,
+    netoBaseImponible,
+    netoAnalitico,
     facturaCompra,
     facturaVenta,
-    iva: breakdown.iva,
-    omieConIva: breakdown.omieConIva,
     descuadre: breakdown.descuadre,
     descuadreTone: mismatchTone(breakdown.descuadre),
     rowCount: rows.length
@@ -249,12 +273,17 @@ function buildOmieLiquidationExportSections(
     {
       title: "Validación semanal",
       rows: [
-        ["Semana", "Periodo", "Coste OMIE", "Coste OMIE con IVA", "Factura Compra", "Factura Venta", "Descuadre"],
+        ["Semana", "Periodo", "Base compra", "IVA compra", "Compra factura", "Base venta", "IVA venta", "Venta factura", "Neto factura", "Factura Compra", "Factura Venta", "Descuadre"],
         ...weeklyGroups.map((group) => [
           group.summary.weekLabel,
           `${group.summary.startDateLabel} - ${group.summary.endDateLabel}`,
-          formatEuroAmount(group.summary.costeTotalOmie),
-          formatEuroAmount(group.summary.omieConIva),
+          formatEuroAmount(group.summary.compraBaseImponible),
+          formatEuroAmount(group.summary.ivaCompra),
+          formatEuroAmount(group.summary.compraFactura),
+          formatEuroAmount(group.summary.ventaBaseImponible),
+          formatEuroAmount(group.summary.ivaVenta),
+          formatEuroAmount(group.summary.ventaFactura),
+          formatEuroAmount(group.summary.netoFactura),
           formatEuroAmount(group.summary.facturaCompra),
           formatEuroAmount(group.summary.facturaVenta),
           formatEuroAmount(group.summary.descuadre)
@@ -309,17 +338,13 @@ function buildOmieLiquidationExportSections(
   ];
 }
 
-function calculateOmieMismatch(costeTotalOmie: number | null, facturaCompra: number | null, facturaVenta: number | null) {
-  const iva = costeTotalOmie === null ? null : roundCurrencyAmount(costeTotalOmie * 0.21);
-  const omieConIva = costeTotalOmie === null ? null : roundCurrencyAmount(costeTotalOmie + (iva ?? 0));
-  if (omieConIva === null || facturaCompra === null || facturaVenta === null) {
-    return { iva, omieConIva, descuadre: null };
+function calculateOmieMismatch(compraFactura: number | null, ventaFactura: number | null, facturaCompra: number | null, facturaVenta: number | null) {
+  if (compraFactura === null || ventaFactura === null || facturaCompra === null || facturaVenta === null) {
+    return { descuadre: null };
   }
 
   return {
-    iva,
-    omieConIva,
-    descuadre: roundCurrencyAmount(omieConIva - facturaCompra + facturaVenta)
+    descuadre: roundCurrencyAmount(compraFactura - ventaFactura - facturaCompra + facturaVenta)
   };
 }
 

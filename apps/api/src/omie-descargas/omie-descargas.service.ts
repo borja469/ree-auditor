@@ -2,16 +2,17 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { OmieDownloadEstado, OmieTipoDocumento, OmieTipoPrecio, Prisma } from "@prisma/client";
 import { OmiePreciosService } from "../omie-precios/omie-precios.service";
 import { OmieProgramasService } from "../omie-programas/omie-programas.service";
+import { OMIE_REER_PUBLIC_CODIGO, OmieReerService } from "../omie-reer/omie-reer.service";
 import { OMIE_ENERGIA_UMEDIDA, normalizeOmieEnergiaSesion } from "../omie-siom2/omie-energia";
 import { OmieTransaccionesService } from "../omie-transacciones/omie-transacciones.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 const MAX_CONTROL_ROWS = 500;
 
-export type OmieControlModulo = "Programas" | "Precios" | "Transacciones";
-export type OmieControlOrigen = "programas" | "precios" | "transacciones";
-export type OmieControlTipo = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES";
-export type OmieControlCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4121";
+export type OmieControlModulo = "Programas" | "Precios" | "Transacciones" | "REER Publico";
+export type OmieControlOrigen = "programas" | "precios" | "transacciones" | "reer-publico";
+export type OmieControlTipo = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES" | "REER_PUBLICO";
+export type OmieControlCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4121" | "INT_REER_CONSUM_EV_H";
 
 export type OmieDownloadControlFilters = {
   fechaDesde?: string;
@@ -135,15 +136,17 @@ export class OmieDescargasService {
     private readonly prisma: PrismaService,
     private readonly omieProgramasService: OmieProgramasService,
     private readonly omiePreciosService: OmiePreciosService,
-    private readonly omieTransaccionesService: OmieTransaccionesService
+    private readonly omieTransaccionesService: OmieTransaccionesService,
+    private readonly omieReerService: OmieReerService
   ) {}
 
   async obtenerControlDescargas(filters: OmieDownloadControlFilters = {}): Promise<OmieDownloadControlRow[]> {
     const shouldQueryProgramas = this.shouldQuery("Programas", filters);
     const shouldQueryPrecios = this.shouldQuery("Precios", filters);
     const shouldQueryTransacciones = this.shouldQuery("Transacciones", filters);
+    const shouldQueryReer = this.shouldQuery("REER Publico", filters);
 
-    const [programas, precios, transacciones] = await Promise.all([
+    const [programas, precios, transacciones, reerPublico] = await Promise.all([
       shouldQueryProgramas
         ? this.prisma.omieDownload.findMany({
             where: buildProgramaWhere(filters),
@@ -164,13 +167,15 @@ export class OmieDescargasService {
             orderBy: [{ fechaDescarga: "desc" }, { updatedAt: "desc" }],
             take: MAX_CONTROL_ROWS
           })
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      shouldQueryReer ? this.omieReerService.getPublicControlRows(filters) : Promise.resolve([])
     ]);
 
     return [
       ...programas.map(serializeProgramaDownload),
       ...precios.map(serializePrecioDownload),
-      ...transacciones.map(serializeTransaccionDownload)
+      ...transacciones.map(serializeTransaccionDownload),
+      ...reerPublico.map(serializeReerPublicDownload)
     ]
       .filter((row) => matchesControlFilters(row, filters))
       .sort(sortControlRows)
@@ -178,6 +183,23 @@ export class OmieDescargasService {
   }
 
   async obtenerDetalle(id: string): Promise<OmieDownloadDetail> {
+    if (id.startsWith("reer-public:")) {
+      const [, fecha] = id.split(":");
+      const rows = await this.omieReerService.getPublicControlRows({ fechaDesde: fecha, fechaHasta: fecha });
+      const match = rows.find((row) => row.id === id) ?? rows[0];
+      if (match) {
+        const row = serializeReerPublicDownload(match);
+        return buildDetail(row, {
+          rawJson: {
+            descarga: row,
+            urlOrigen: match.urlOrigen,
+            hashFichero: match.hashFichero,
+            nota: "Fichero publico REER persistido en omie_reer_consum_results."
+          }
+        });
+      }
+    }
+
     const programa = await this.prisma.omieDownload.findUnique({ where: { id } });
     if (programa) {
       const row = serializeProgramaDownload(programa);
@@ -246,6 +268,14 @@ export class OmieDescargasService {
     if (codigo === "4125") {
       const response = await this.omiePreciosService.sincronizarXbid(requireFecha(fecha), options);
       return this.buildExecutionResponse(response.message, response.download.id, response);
+    }
+    if (codigo === OMIE_REER_PUBLIC_CODIGO) {
+      const response = await this.omieReerService.sincronizarPublico(requireFecha(fecha), options);
+      return {
+        message: response.message,
+        download: serializeReerPublicDownload(response.download),
+        result: response
+      };
     }
 
     const fechaDesde = requireFecha(request.fechaDesde ?? request.fecha);
@@ -538,7 +568,13 @@ function formatMadridDateTime(date: Date) {
   return `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}:${value("second")}`;
 }
 
-function buildDailyBulkTasks(fecha: string) {
+function buildDailyBulkTasks(fecha: string): Array<{
+  codigoOmie: OmieControlCodigo;
+  modulo: OmieControlModulo;
+  consulta: string;
+  sesion: string | null;
+  request: OmieDownloadExecuteRequest;
+}> {
   const sessions = ["01", "02", "03", "04", "05", "06", "07"];
   return [
     {
@@ -582,6 +618,13 @@ function buildDailyBulkTasks(fecha: string) {
       consulta: "Historico",
       sesion: null,
       request: { codigoOmie: "4121" as const, fechaDesde: fecha, fechaHasta: fecha }
+    },
+    {
+      codigoOmie: OMIE_REER_PUBLIC_CODIGO as OmieControlCodigo,
+      modulo: "REER Publico" as const,
+      consulta: "REER publico",
+      sesion: null,
+      request: { codigoOmie: OMIE_REER_PUBLIC_CODIGO as OmieControlCodigo, fecha }
     }
   ];
 }
@@ -817,6 +860,53 @@ function serializeTransaccionDownload(download: {
   };
 }
 
+function serializeReerPublicDownload(download: {
+  id: string;
+  fecha: string;
+  versionCarga: number;
+  estado: OmieDownloadEstado;
+  registros: number;
+  ficheroOrigen: string;
+  urlOrigen: string;
+  hashFichero: string;
+  fechaPublicacion: string | null;
+  fechaCarga: string;
+  mensajeError: string | null;
+}): OmieDownloadControlRow {
+  return {
+    id: download.id,
+    origen: "reer-publico",
+    modulo: "REER Publico",
+    consulta: "REER publico",
+    codigoOmie: OMIE_REER_PUBLIC_CODIGO,
+    descripcion: "Excedente/Deficit y precio repercutido a unidades de adquisicion por REER",
+    tipoDocumento: "REER_PUBLICO",
+    fechaPrograma: download.fecha,
+    fechaHasta: null,
+    sesion: null,
+    version: download.versionCarga,
+    uOfertante: null,
+    fechaDescarga: download.fechaCarga,
+    estado: download.estado,
+    registros: download.registros,
+    hashContenido: download.hashFichero,
+    nombreFichero: download.ficheroOrigen,
+    mensajeError: download.mensajeError,
+    parametrosUtilizados: {
+      Fecha: download.fecha,
+      fichero: download.ficheroOrigen,
+      url: download.urlOrigen,
+      fechaPublicacion: download.fechaPublicacion
+    },
+    tiempoEjecucionMs: null,
+    rawXmlDisponible: false,
+    rawJsonDisponible: true,
+    logDisponible: true,
+    createdAt: download.fechaCarga,
+    updatedAt: download.fechaCarga
+  };
+}
+
 function precioMeta(tipoPrecio: OmieTipoPrecio) {
   if (tipoPrecio === OmieTipoPrecio.MD) {
     return {
@@ -911,7 +1001,10 @@ function codigoToModulo(codigo: OmieControlCodigo): OmieControlModulo {
   if (codigo === "5202" || codigo === "5603" || codigo === "4125") {
     return "Precios";
   }
-  return "Transacciones";
+  if (codigo === "4121") {
+    return "Transacciones";
+  }
+  return "REER Publico";
 }
 
 function tipoToModulo(tipo: OmieControlTipo): OmieControlModulo {
@@ -921,14 +1014,17 @@ function tipoToModulo(tipo: OmieControlTipo): OmieControlModulo {
   if (tipo === OmieTipoPrecio.MD || tipo === OmieTipoPrecio.MI || tipo === OmieTipoPrecio.XBID) {
     return "Precios";
   }
-  return "Transacciones";
+  if (tipo === "TRANSACCIONES") {
+    return "Transacciones";
+  }
+  return "REER Publico";
 }
 
 function parseCodigo(value: string) {
-  if (value === "5302" || value === "5608" || value === "5202" || value === "5603" || value === "4125" || value === "4121") {
+  if (value === "5302" || value === "5608" || value === "5202" || value === "5603" || value === "4125" || value === "4121" || value === OMIE_REER_PUBLIC_CODIGO) {
     return value;
   }
-  throw new BadRequestException("codigoOmie debe ser 5302, 5608, 5202, 5603, 4125 o 4121.");
+  throw new BadRequestException("codigoOmie debe ser 5302, 5608, 5202, 5603, 4125, 4121 o INT_REER_CONSUM_EV_H.");
 }
 
 function requireFecha(value: string | undefined) {

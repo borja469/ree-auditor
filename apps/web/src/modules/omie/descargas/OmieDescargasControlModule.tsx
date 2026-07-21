@@ -94,7 +94,7 @@ export function OmieDescargasControlModule({
     <div className="omie-layout omie-layout-c">
       <div className="omie-command-grid omie-download-command-grid">
         <div className="panel omie-control-panel">
-          <PanelTitle icon={<BarChart3 size={18} />} title="OMIE Descargas" subtitle="Control 5302 / 5608 / 5202 / 5603 / 4125 / 4121" />
+          <PanelTitle icon={<BarChart3 size={18} />} title="OMIE Descargas" subtitle="Control 5302 / 5608 / 5202 / 5603 / 4125 / 4121 / REER" />
           <div className="omie-toolbar">
             <label className="filter-field">
               <span>Fecha desde</span>
@@ -111,6 +111,7 @@ export function OmieDescargasControlModule({
                 <option value="Programas">Programas</option>
                 <option value="Precios">Precios</option>
                 <option value="Transacciones">Transacciones</option>
+                <option value="REER Publico">REER Publico</option>
               </select>
             </label>
             <label className="filter-field">
@@ -123,6 +124,7 @@ export function OmieDescargasControlModule({
                 <option value="5603">5603</option>
                 <option value="4125">4125</option>
                 <option value="4121">4121</option>
+                <option value="INT_REER_CONSUM_EV_H">INT_REER_CONSUM_EV_H</option>
               </select>
             </label>
             <label className="filter-field">
@@ -135,6 +137,7 @@ export function OmieDescargasControlModule({
                 <option value="MI">MI</option>
                 <option value="XBID">XBID</option>
                 <option value="TRANSACCIONES">TRANSACCIONES</option>
+                <option value="REER_PUBLICO">REER_PUBLICO</option>
               </select>
             </label>
             <label className="filter-field">
@@ -170,6 +173,7 @@ export function OmieDescargasControlModule({
                 <option value="5603">5603 - Intradiario</option>
                 <option value="4125">4125 - XBID</option>
                 <option value="4121">4121 - Transacciones</option>
+                <option value="INT_REER_CONSUM_EV_H">INT_REER_CONSUM_EV_H - REER publico</option>
               </select>
             </label>
             {!requiresRange && (

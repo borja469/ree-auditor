@@ -571,6 +571,60 @@ model OmieLiquidationInvoice {
   @@map("omie_liquidation_invoices")
 }
 
+model OmieReerConsumResult {
+  id                         String   @id @default(uuid()) @db.Uuid
+  fecha                      DateTime @db.Date
+  periodo                    Int
+  periodoEtiqueta            String   @map("periodo_etiqueta") @db.VarChar(10)
+  precioPublicadoEurMwh      Decimal  @map("precio_publicado_eur_mwh") @db.Decimal(20, 12)
+  volumenEconomicoEur        Decimal  @map("volumen_economico_eur") @db.Decimal(20, 6)
+  energiaNacionalMwh         Decimal  @map("energia_nacional_mwh") @db.Decimal(20, 6)
+  coeficienteDerivadoEurMwh  Decimal  @map("coeficiente_derivado_eur_mwh") @db.Decimal(24, 12)
+  ficheroOrigen              String   @map("fichero_origen") @db.VarChar(180)
+  urlOrigen                  String   @map("url_origen") @db.VarChar(700)
+  hashFichero                String   @map("hash_fichero") @db.VarChar(64)
+  fechaPublicacion           DateTime? @map("fecha_publicacion")
+  fechaCarga                 DateTime @default(now()) @map("fecha_carga")
+  versionCarga               Int      @default(1) @map("version_carga")
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  @@unique([fecha, periodo, versionCarga], map: "ux_omie_reer_consum_fecha_periodo_version")
+  @@index([fecha])
+  @@index([fecha, versionCarga])
+  @@index([hashFichero])
+  @@map("omie_reer_consum_results")
+}
+
+model OmieReerOfficialAnnotation {
+  id              String   @id @default(uuid()) @db.Uuid
+  fecha           DateTime @db.Date
+  periodo         Int
+  version         Int
+  ecreerMwh       Decimal  @map("ecreer_mwh") @db.Decimal(20, 6)
+  epreerEurMwh    Decimal  @map("epreer_eur_mwh") @db.Decimal(20, 12)
+  eopreerEur      Decimal  @map("eopreer_eur") @db.Decimal(20, 6)
+  sImp            Int?     @map("s_imp")
+  sEne            Int?     @map("s_ene")
+  seg             String?  @db.VarChar(30)
+  cta             String?  @db.VarChar(30)
+  cMag            String?  @map("c_mag") @db.VarChar(30)
+  cPrc            String?  @map("c_prc") @db.VarChar(30)
+  cCpto           String?  @map("c_cpto") @db.VarChar(30)
+  ses             String?  @db.VarChar(20)
+  ficheroOrigen   String   @map("fichero_origen") @db.VarChar(180)
+  hashFichero     String   @map("hash_fichero") @db.VarChar(64)
+  fechaCarga      DateTime @default(now()) @map("fecha_carga")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([fecha, periodo, version, ficheroOrigen], map: "ux_omie_reer_official_fecha_periodo_version_file")
+  @@index([fecha])
+  @@index([fecha, version])
+  @@index([hashFichero])
+  @@map("omie_reer_official_annotations")
+}
+
 model OmieGuaranteeDeposited {
   id             String   @id @default(uuid()) @db.Uuid
   date           DateTime @unique @db.Date

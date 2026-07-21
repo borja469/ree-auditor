@@ -8,6 +8,7 @@ const STROM_AGENT = "STROM";
 const OMIE_TRANSACCIONES_CODIGO = "4121";
 const PERIODS_PER_DAY = 96;
 const QUARTER_HOUR_MWH_FACTOR = 0.25;
+const OMIE_IVA_RATE = 0.21;
 
 export type OmieAnalisisMensualPeriodo = {
   fecha: string;
@@ -92,6 +93,55 @@ export type OmieComprobacionLiquidacionHoraria = {
   costeXbid: number | null;
 };
 
+export type OmieReerEstado = "SIN_DATOS_REER" | "ESTIMADO_PUBLICO" | "ESTIMADO_CON_DIFERENCIA" | "CONCILIADO_OFICIAL" | "DIFERENCIA_OFICIAL";
+
+export type OmieComprobacionReerPeriodo = {
+  periodo: number;
+  periodoEtiqueta: string;
+  energiaNetaAgente: number | null;
+  energiaReerCalculada: number | null;
+  energiaReerOficial: number | null;
+  precioPublico: number | null;
+  coeficienteDerivado: number | null;
+  precioXml: number | null;
+  importeEstimadoPublicado: number | null;
+  importeEstimadoDerivado: number | null;
+  importeOficial: number | null;
+  diferencia: number | null;
+  estado: OmieReerEstado;
+};
+
+export type OmieComprobacionReerDiario = {
+  estadoReer: OmieReerEstado;
+  reerEstimadoPublicado: number | null;
+  reerEstimadoDerivado: number | null;
+  reerOficial: number | null;
+  ajusteReerConciliacion: number | null;
+  reerAplicado: number | null;
+  energiaReerCalculada: number | null;
+  energiaReerOficial: number | null;
+  diferenciaEnergia: number | null;
+  diferenciaImporte: number | null;
+  toleranciaPeriodoEur: number;
+  toleranciaDiaEur: number;
+  fuentePublica: string | null;
+  fuenteOficial: string | null;
+  tooltip: string;
+  limitacionExclusiones: string;
+  periodos: OmieComprobacionReerPeriodo[];
+};
+
+export type OmieLiquidacionConceptoAdicional = {
+  codigo: string;
+  descripcion: string;
+  importePrevisto: number | null;
+  importeOficial: number | null;
+  importeAplicado: number | null;
+  estado: OmieReerEstado;
+  fuentePublica: string | null;
+  fuenteOficial: string | null;
+};
+
 export type OmieComprobacionLiquidacionDiaria = {
   fecha: string;
   fechaIso: string;
@@ -107,6 +157,24 @@ export type OmieComprobacionLiquidacionDiaria = {
   energiaXbid: number | null;
   costeXbid: number | null;
   costeTotalOmie: number | null;
+  compraMercados: number | null;
+  ventaMercados: number | null;
+  conceptosCompra: number | null;
+  conceptosVenta: number | null;
+  detalleConceptosCompra: OmieLiquidacionConceptoAdicional[];
+  detalleConceptosVenta: OmieLiquidacionConceptoAdicional[];
+  compraBaseImponible: number | null;
+  ventaBaseImponible: number | null;
+  ivaCompra: number | null;
+  ivaVenta: number | null;
+  compraFactura: number | null;
+  ventaFactura: number | null;
+  netoFactura: number | null;
+  netoBaseImponible: number | null;
+  netoAnalitico: number | null;
+  reer: OmieComprobacionReerDiario;
+  compraTotalPrevista: number | null;
+  compraTotalConciliada: number | null;
   facturaCompra: number | null;
   facturaVenta: number | null;
   horas: OmieComprobacionLiquidacionHoraria[];
@@ -130,6 +198,16 @@ export type OmieComprobacionLiquidacionesResponse = {
   resolucion: "PT15M";
   resumenMensual: OmieComprobacionLiquidacionResumen[];
   detalleDiario: OmieComprobacionLiquidacionDiaria[];
+  totalesReer: {
+    reerEstimadoPublicado: number | null;
+    reerEstimadoDerivado: number | null;
+    reerOficial: number | null;
+    ajusteReerConciliacion: number | null;
+  };
+  modosResultado: {
+    previsionOperativaDisponible: boolean;
+    liquidacionConciliadaDisponible: boolean;
+  };
   cuadroEconomico: OmieComprobacionCuadre;
   cuadroEnergetico: OmieComprobacionCuadre;
 };
@@ -299,18 +377,27 @@ export class OmieAnalisisService {
   }
 
   async obtenerComprobacionLiquidaciones(year: number, month: number): Promise<OmieComprobacionLiquidacionesResponse> {
-    const [analisis, invoices] = await Promise.all([
+    const range = buildMonthRange(year, month);
+    const [analisis, invoices, publicRows, officialRows] = await Promise.all([
       this.obtenerAnalisisMensual(year, month),
       this.prisma.omieLiquidationInvoice.findMany({
         where: {
           fecha: {
-            gte: buildMonthRange(year, month).start,
-            lt: buildMonthRange(year, month).end
+            gte: range.start,
+            lt: range.end
           }
         }
+      }),
+      this.prisma.omieReerConsumResult.findMany({
+        where: { fecha: { gte: range.start, lt: range.end } },
+        orderBy: [{ fecha: "asc" }, { versionCarga: "desc" }, { periodo: "asc" }]
+      }),
+      this.prisma.omieReerOfficialAnnotation.findMany({
+        where: { fecha: { gte: range.start, lt: range.end } },
+        orderBy: [{ fecha: "asc" }, { version: "desc" }, { periodo: "asc" }]
       })
     ]);
-    return buildComprobacionLiquidaciones(analisis, buildInvoiceMap(invoices));
+    return buildComprobacionLiquidaciones(analisis, buildInvoiceMap(invoices), buildLatestReerPublicMap(publicRows), buildLatestReerOfficialMap(officialRows));
   }
 
   async guardarFacturaLiquidacion(fecha: Date, facturaCompra: number | null, facturaVenta: number | null): Promise<OmieLiquidationInvoiceResponse> {
@@ -341,6 +428,8 @@ type LiquidacionMarket = Exclude<OmieComprobacionLiquidacionMercado, "TOTAL">;
 type LiquidacionMarketAccumulator = {
   energia: number;
   importe: number;
+  compra: number;
+  venta: number;
   precioNumerator: number;
   precioDenominator: number;
   precioSum: number;
@@ -357,9 +446,44 @@ type LiquidacionDailyDraft = {
   dia: string;
   mercados: LiquidacionAccumulatorSet;
   horas: Map<number, LiquidacionAccumulatorSet>;
+  periodos: Map<number, LiquidacionAccumulatorSet>;
 };
 
 const LIQUIDACION_MARKETS: LiquidacionMarket[] = ["MD", "IDA1", "IDA2", "IDA3", "XBID"];
+type AdditionalLiquidationConceptDefinition = {
+  codigo: string;
+  descripcion: string;
+  ladoEconomico: "compra" | "venta" | "ambos";
+  fuenteEnergia: string;
+  fuentePrecio: string;
+  formula: string;
+  reglaSigno: string;
+  reglaRedondeo: string;
+  fuentePublica: string;
+  fuenteOficial: string;
+};
+
+const ADDITIONAL_LIQUIDATION_CONCEPTS: Record<"REER", AdditionalLiquidationConceptDefinition> = {
+  REER: {
+    codigo: "REER",
+    descripcion: "Reparto del excedente o deficit REER a unidades de adquisicion nacionales",
+    ladoEconomico: "compra",
+    fuenteEnergia: "MD + incrementales IDA1/IDA2/IDA3 + XBID repartible; energiaReerAgente = -energiaNetaAdquisicionRepartibleUltimoPHF",
+    fuentePrecio: "Coeficiente derivado desde INT_REER_CONSUM_EV_H: abs(volumenEconomicoEur) / energiaNacionalMwh",
+    formula: "abs(energiaReerAgente) * coeficienteDerivadoEurMwh",
+    reglaSigno: "Volumen publico negativo implica obligacion de pago para compradores; volumen positivo implica derecho de cobro",
+    reglaRedondeo: "Estimacion por periodo a centimos, sin ajuste artificial de residuos; conciliacion compara contra EOPREER oficial",
+    fuentePublica: "INT_REER_CONSUM_EV_H_DD_MM_YYYY_DD_MM_YYYY.TXT",
+    fuenteOficial: "9230 - Fichero de Anotaciones de liquidaciones por version"
+  }
+};
+
+const REER_TOLERANCIA_PERIODO_EUR = Number(process.env.OMIE_REER_TOLERANCIA_PERIODO_EUR ?? "0.01");
+const REER_TOLERANCIA_DIA_EUR = Number(process.env.OMIE_REER_TOLERANCIA_DIA_EUR ?? "0.05");
+const REER_TOOLTIP =
+  `El REER estimado se calcula utilizando la energia neta de adquisicion del agente y el coeficiente publico publicado por OMIE. ${ADDITIONAL_LIQUIDATION_CONCEPTS.REER.fuentePrecio}. El importe oficial puede incluir precision interna o ajustes de centimos no publicados.`;
+const REER_EXCLUSIONS_LIMITATION =
+  "Regla preparada para adquisicion nacional repartible. Actualmente el calculo usa la unidad convencional configurada y no dispone de metadatos suficientes para excluir bombeo, almacenamiento, unidades genericas, exportacion, porfolios de generacion de compra o servicios auxiliares fuera de esa unidad.";
 
 type OmieLiquidationInvoiceRecord = {
   fecha: Date;
@@ -368,7 +492,12 @@ type OmieLiquidationInvoiceRecord = {
   updatedAt: Date;
 };
 
-function buildComprobacionLiquidaciones(analisis: OmieAnalisisMensualResponse, invoices: Map<string, OmieLiquidationInvoiceRecord>): OmieComprobacionLiquidacionesResponse {
+function buildComprobacionLiquidaciones(
+  analisis: OmieAnalisisMensualResponse,
+  invoices: Map<string, OmieLiquidationInvoiceRecord>,
+  reerPublicRows: Map<string, ReerPublicRow[]>,
+  reerOfficialRows: Map<string, ReerOfficialRow[]>
+): OmieComprobacionLiquidacionesResponse {
   const monthly = createLiquidacionAccumulatorSet();
   const daily = new Map<string, LiquidacionDailyDraft>();
 
@@ -381,10 +510,16 @@ function buildComprobacionLiquidaciones(analisis: OmieAnalisisMensualResponse, i
       hourly = createLiquidacionAccumulatorSet();
       day.horas.set(hour, hourly);
     }
+    let period = day.periodos.get(row.periodo);
+    if (!period) {
+      period = createLiquidacionAccumulatorSet();
+      day.periodos.set(row.periodo, period);
+    }
 
     addLiquidacionRow(monthly, row);
     addLiquidacionRow(day.mercados, row);
     addLiquidacionRow(hourly, row);
+    addLiquidacionRow(period, row);
   }
 
   const resumenMensual = [
@@ -397,9 +532,10 @@ function buildComprobacionLiquidaciones(analisis: OmieAnalisisMensualResponse, i
   ];
   const detalleDiario = [...daily.values()]
     .sort((left, right) => left.fechaIso.localeCompare(right.fechaIso))
-    .map((day) => buildLiquidacionDailyRow(day, invoices.get(day.fechaIso)));
-  const importeCalculado = totalLiquidacionImporte(monthly);
+    .map((day) => buildLiquidacionDailyRow(day, invoices.get(day.fechaIso), reerPublicRows.get(day.fechaIso) ?? [], reerOfficialRows.get(day.fechaIso) ?? []));
   const energiaCalculada = totalLiquidacionEnergia(monthly);
+  const totalesReer = buildTotalesReer(detalleDiario);
+  const netoFacturaCalculado = nullableEuroSum(detalleDiario.map((row) => row.netoFactura));
 
   return {
     mes: analisis.mes,
@@ -410,7 +546,12 @@ function buildComprobacionLiquidaciones(analisis: OmieAnalisisMensualResponse, i
     resolucion: analisis.resolucion,
     resumenMensual,
     detalleDiario,
-    cuadroEconomico: buildCuadre(importeCalculado, null),
+    totalesReer,
+    modosResultado: {
+      previsionOperativaDisponible: detalleDiario.some((row) => row.reer.reerEstimadoDerivado !== null),
+      liquidacionConciliadaDisponible: detalleDiario.some((row) => row.reer.reerOficial !== null)
+    },
+    cuadroEconomico: buildCuadre(netoFacturaCalculado, null),
     cuadroEnergetico: buildCuadre(energiaCalculada, null)
   };
 }
@@ -425,7 +566,8 @@ function getOrCreateDailyLiquidacion(daily: Map<string, LiquidacionDailyDraft>, 
     fechaIso,
     dia: weekdayName(fechaIso),
     mercados: createLiquidacionAccumulatorSet(),
-    horas: new Map<number, LiquidacionAccumulatorSet>()
+    horas: new Map<number, LiquidacionAccumulatorSet>(),
+    periodos: new Map<number, LiquidacionAccumulatorSet>()
   };
   daily.set(fechaIso, next);
   return next;
@@ -445,6 +587,8 @@ function createLiquidacionMarketAccumulator(): LiquidacionMarketAccumulator {
   return {
     energia: 0,
     importe: 0,
+    compra: 0,
+    venta: 0,
     precioNumerator: 0,
     precioDenominator: 0,
     precioSum: 0,
@@ -479,6 +623,11 @@ function addLiquidacionMarket(accumulator: LiquidacionMarketAccumulator, energia
 
   accumulator.importe += energia * precio;
   accumulator.hasImporte = true;
+  if (energia * precio >= 0) {
+    accumulator.compra += energia * precio;
+  } else {
+    accumulator.venta += Math.abs(energia * precio);
+  }
   accumulator.precioNumerator += precio * Math.abs(energia);
   accumulator.precioDenominator += Math.abs(energia);
 }
@@ -491,7 +640,28 @@ function buildLiquidacionResumenRow(mercado: LiquidacionMarket, accumulator: Liq
   };
 }
 
-function buildLiquidacionDailyRow(day: LiquidacionDailyDraft, invoice?: OmieLiquidationInvoiceRecord): OmieComprobacionLiquidacionDiaria {
+function buildLiquidacionDailyRow(
+  day: LiquidacionDailyDraft,
+  invoice: OmieLiquidationInvoiceRecord | undefined,
+  publicRows: ReerPublicRow[],
+  officialRows: ReerOfficialRow[]
+): OmieComprobacionLiquidacionDiaria {
+  const compraMercados = totalLiquidacionCompra(day.mercados);
+  const ventaMercados = totalLiquidacionVenta(day.mercados);
+  const netoAnalitico = totalLiquidacionImporte(day.mercados);
+  const reer = buildReerDiario(day, publicRows, officialRows);
+  const detalleConceptosCompra = buildConceptosCompra(reer);
+  const detalleConceptosVenta: OmieLiquidacionConceptoAdicional[] = [];
+  const conceptosCompra = nullableEuroSum(detalleConceptosCompra.map((concepto) => concepto.importeAplicado));
+  const conceptosVenta = nullableEuroSum(detalleConceptosVenta.map((concepto) => concepto.importeAplicado));
+  const compraBaseImponible = nullableEuroSum([compraMercados, conceptosCompra]);
+  const ventaBaseImponible = nullableEuroSum([ventaMercados, conceptosVenta]);
+  const ivaCompra = calculateIva(compraBaseImponible);
+  const ivaVenta = calculateIva(ventaBaseImponible);
+  const compraFactura = nullableEuroSum([compraBaseImponible, ivaCompra]);
+  const ventaFactura = nullableEuroSum([ventaBaseImponible, ivaVenta]);
+  const netoFactura = compraFactura === null || ventaFactura === null ? null : roundEuroCent(compraFactura - ventaFactura);
+  const netoBaseImponible = compraBaseImponible === null || ventaBaseImponible === null ? null : roundEuroCent(compraBaseImponible - ventaBaseImponible);
   return {
     fecha: day.fecha,
     fechaIso: day.fechaIso,
@@ -506,13 +676,53 @@ function buildLiquidacionDailyRow(day: LiquidacionDailyDraft, invoice?: OmieLiqu
     costeIda3: liquidacionImporte(day.mercados.IDA3),
     energiaXbid: liquidacionEnergia(day.mercados.XBID),
     costeXbid: liquidacionImporte(day.mercados.XBID),
-    costeTotalOmie: totalLiquidacionImporte(day.mercados),
+    costeTotalOmie: netoAnalitico,
+    compraMercados,
+    ventaMercados,
+    conceptosCompra,
+    conceptosVenta,
+    detalleConceptosCompra,
+    detalleConceptosVenta,
+    compraBaseImponible,
+    ventaBaseImponible,
+    ivaCompra,
+    ivaVenta,
+    compraFactura,
+    ventaFactura,
+    netoFactura,
+    netoBaseImponible,
+    netoAnalitico,
+    reer,
+    compraTotalPrevista: nullableEuroSum([compraMercados, reer.reerEstimadoDerivado]),
+    compraTotalConciliada: reer.reerOficial === null ? null : nullableEuroSum([compraMercados, reer.reerOficial]),
     facturaCompra: decimalToNullableNumber(invoice?.facturaCompra),
     facturaVenta: decimalToNullableNumber(invoice?.facturaVenta),
     horas: [...day.horas.entries()]
       .sort(([left], [right]) => left - right)
       .map(([hora, mercados]) => buildLiquidacionHourlyRow(day, hora, mercados))
   };
+}
+
+function calculateIva(baseImponible: number | null) {
+  return baseImponible === null ? null : roundEuroCent(baseImponible * OMIE_IVA_RATE);
+}
+
+function buildConceptosCompra(reer: OmieComprobacionReerDiario): OmieLiquidacionConceptoAdicional[] {
+  if (reer.reerEstimadoDerivado === null && reer.reerOficial === null) {
+    return [];
+  }
+  return [
+    {
+      codigo: "REER",
+      descripcion: ADDITIONAL_LIQUIDATION_CONCEPTS.REER.descripcion,
+      importePrevisto: reer.reerEstimadoDerivado,
+      importeOficial: reer.reerOficial,
+      importeAplicado: reer.reerOficial ?? reer.reerEstimadoDerivado,
+      estado: reer.estadoReer,
+      fuentePublica: reer.fuentePublica,
+      fuenteOficial: reer.fuenteOficial
+    }
+  ];
 }
 
 function buildLiquidacionHourlyRow(
@@ -542,6 +752,191 @@ function buildLiquidacionHourlyRow(
   };
 }
 
+type ReerPublicRow = {
+  fecha: Date;
+  periodo: number;
+  periodoEtiqueta: string;
+  precioPublicadoEurMwh: Prisma.Decimal;
+  volumenEconomicoEur: Prisma.Decimal;
+  energiaNacionalMwh: Prisma.Decimal;
+  coeficienteDerivadoEurMwh: Prisma.Decimal;
+  ficheroOrigen: string;
+  urlOrigen: string;
+  versionCarga: number;
+};
+
+type ReerOfficialRow = {
+  fecha: Date;
+  periodo: number;
+  version: number;
+  ecreerMwh: Prisma.Decimal;
+  epreerEurMwh: Prisma.Decimal;
+  eopreerEur: Prisma.Decimal;
+  sImp: number | null;
+  ficheroOrigen: string;
+};
+
+function buildReerDiario(day: LiquidacionDailyDraft, publicRows: ReerPublicRow[], officialRows: ReerOfficialRow[]): OmieComprobacionReerDiario {
+  const publicMap = new Map(publicRows.map((row) => [row.periodo, row]));
+  const officialMap = new Map(officialRows.map((row) => [row.periodo, row]));
+  const periodNumbers = new Set<number>([...day.periodos.keys(), ...publicMap.keys(), ...officialMap.keys()]);
+  const periodos = [...periodNumbers].sort((left, right) => left - right).map((periodo) => buildReerPeriodo(periodo, day.periodos.get(periodo), publicMap.get(periodo), officialMap.get(periodo)));
+  const reerEstimadoPublicado = nullableEuroSum(periodos.map((row) => row.importeEstimadoPublicado));
+  const reerEstimadoDerivado = nullableEuroSum(periodos.map((row) => row.importeEstimadoDerivado));
+  const reerOficial = nullableEuroSum(periodos.map((row) => row.importeOficial));
+  const ajusteReerConciliacion = reerOficial === null || reerEstimadoDerivado === null ? null : roundEuroCent(reerOficial - reerEstimadoDerivado);
+  const energiaReerCalculada = nullableEnergySum(periodos.map((row) => row.energiaReerCalculada));
+  const energiaReerOficial = nullableEnergySum(periodos.map((row) => row.energiaReerOficial));
+  const diferenciaEnergia = energiaReerCalculada === null || energiaReerOficial === null ? null : roundEnergy(energiaReerCalculada - energiaReerOficial);
+  const diferenciaImporte = ajusteReerConciliacion;
+  const estadoReer = estadoReerDiario(publicRows.length > 0, officialRows.length > 0, periodos, diferenciaImporte, diferenciaEnergia);
+
+  return {
+    estadoReer,
+    reerEstimadoPublicado,
+    reerEstimadoDerivado,
+    reerOficial,
+    ajusteReerConciliacion,
+    reerAplicado: reerOficial ?? reerEstimadoDerivado,
+    energiaReerCalculada,
+    energiaReerOficial,
+    diferenciaEnergia,
+    diferenciaImporte,
+    toleranciaPeriodoEur: REER_TOLERANCIA_PERIODO_EUR,
+    toleranciaDiaEur: REER_TOLERANCIA_DIA_EUR,
+    fuentePublica: publicRows[0]?.ficheroOrigen ?? null,
+    fuenteOficial: officialRows[0]?.ficheroOrigen ?? null,
+    tooltip: REER_TOOLTIP,
+    limitacionExclusiones: REER_EXCLUSIONS_LIMITATION,
+    periodos
+  };
+}
+
+function buildReerPeriodo(periodo: number, mercados: LiquidacionAccumulatorSet | undefined, publicRow: ReerPublicRow | undefined, officialRow: ReerOfficialRow | undefined): OmieComprobacionReerPeriodo {
+  const energiaNetaAgente = mercados ? totalLiquidacionEnergia(mercados) : null;
+  const energiaReerCalculada = energiaNetaAgente === null ? null : roundEnergy(-energiaNetaAgente);
+  const energiaReerOficial = decimalToNullableNumber(officialRow?.ecreerMwh);
+  const precioPublico = decimalToNullableNumber(publicRow?.precioPublicadoEurMwh);
+  const coeficienteDerivado = decimalToNullableNumber(publicRow?.coeficienteDerivadoEurMwh);
+  const precioXml = decimalToNullableNumber(officialRow?.epreerEurMwh);
+  const publicSign = publicRow ? (publicRow.volumenEconomicoEur.isNegative() ? 1 : -1) : 1;
+  const importeEstimadoPublicado =
+    energiaReerCalculada === null || !publicRow ? null : decimalToRoundedEuroNumber(new Prisma.Decimal(energiaReerCalculada).abs().mul(publicRow.precioPublicadoEurMwh).mul(publicSign));
+  const importeEstimadoDerivado =
+    energiaReerCalculada === null || !publicRow ? null : decimalToRoundedEuroNumber(new Prisma.Decimal(energiaReerCalculada).abs().mul(publicRow.coeficienteDerivadoEurMwh).mul(publicSign));
+  const importeOficial = officialRow ? decimalToRoundedEuroNumber(officialRow.eopreerEur.mul(officialSign(officialRow.sImp))) : null;
+  const diferencia = importeEstimadoDerivado === null || importeOficial === null ? null : roundEuroCent(importeOficial - importeEstimadoDerivado);
+
+  return {
+    periodo,
+    periodoEtiqueta: publicRow?.periodoEtiqueta ?? quarterPeriodLabel(periodo),
+    energiaNetaAgente,
+    energiaReerCalculada,
+    energiaReerOficial,
+    precioPublico,
+    coeficienteDerivado,
+    precioXml,
+    importeEstimadoPublicado,
+    importeEstimadoDerivado,
+    importeOficial,
+    diferencia,
+    estado: estadoReerPeriodo(publicRow !== undefined, officialRow !== undefined, diferencia, energiaReerCalculada, energiaReerOficial)
+  };
+}
+
+function estadoReerPeriodo(hasPublic: boolean, hasOfficial: boolean, diferencia: number | null, energiaCalculada: number | null, energiaOficial: number | null): OmieReerEstado {
+  if (!hasPublic && !hasOfficial) {
+    return "SIN_DATOS_REER";
+  }
+  if (hasPublic && !hasOfficial) {
+    return "ESTIMADO_PUBLICO";
+  }
+  const energyMismatch = energiaCalculada !== null && energiaOficial !== null && Math.abs(energiaCalculada - energiaOficial) > 0.000001;
+  if (energyMismatch) {
+    return "DIFERENCIA_OFICIAL";
+  }
+  if (diferencia === null || Math.abs(diferencia) <= REER_TOLERANCIA_PERIODO_EUR) {
+    return "CONCILIADO_OFICIAL";
+  }
+  return "ESTIMADO_CON_DIFERENCIA";
+}
+
+function estadoReerDiario(hasPublic: boolean, hasOfficial: boolean, periodos: OmieComprobacionReerPeriodo[], diferenciaImporte: number | null, diferenciaEnergia: number | null): OmieReerEstado {
+  if (!hasPublic && !hasOfficial) {
+    return "SIN_DATOS_REER";
+  }
+  if (hasPublic && !hasOfficial) {
+    return "ESTIMADO_PUBLICO";
+  }
+  if (diferenciaEnergia !== null && Math.abs(diferenciaEnergia) > 0.000001) {
+    return "DIFERENCIA_OFICIAL";
+  }
+  if (diferenciaImporte !== null && Math.abs(diferenciaImporte) <= REER_TOLERANCIA_DIA_EUR && periodos.every((row) => row.diferencia === null || Math.abs(row.diferencia) <= REER_TOLERANCIA_PERIODO_EUR)) {
+    return "CONCILIADO_OFICIAL";
+  }
+  return diferenciaImporte === null ? "DIFERENCIA_OFICIAL" : "ESTIMADO_CON_DIFERENCIA";
+}
+
+function buildTotalesReer(rows: OmieComprobacionLiquidacionDiaria[]) {
+  const reerEstimadoPublicado = nullableEuroSum(rows.map((row) => row.reer.reerEstimadoPublicado));
+  const reerEstimadoDerivado = nullableEuroSum(rows.map((row) => row.reer.reerEstimadoDerivado));
+  const reerOficial = nullableEuroSum(rows.map((row) => row.reer.reerOficial));
+  return {
+    reerEstimadoPublicado,
+    reerEstimadoDerivado,
+    reerOficial,
+    ajusteReerConciliacion: reerOficial === null || reerEstimadoDerivado === null ? null : roundEuroCent(reerOficial - reerEstimadoDerivado)
+  };
+}
+
+function buildLatestReerPublicMap(rows: ReerPublicRow[]) {
+  const latestVersionByDate = new Map<string, number>();
+  for (const row of rows) {
+    const key = formatDateOnly(row.fecha);
+    latestVersionByDate.set(key, Math.max(latestVersionByDate.get(key) ?? row.versionCarga, row.versionCarga));
+  }
+  const map = new Map<string, ReerPublicRow[]>();
+  for (const row of rows) {
+    const key = formatDateOnly(row.fecha);
+    if (row.versionCarga !== latestVersionByDate.get(key)) {
+      continue;
+    }
+    const current = map.get(key) ?? [];
+    current.push(row);
+    map.set(key, current);
+  }
+  return map;
+}
+
+function buildLatestReerOfficialMap(rows: ReerOfficialRow[]) {
+  const latestVersionByDate = new Map<string, number>();
+  for (const row of rows) {
+    const key = formatDateOnly(row.fecha);
+    latestVersionByDate.set(key, Math.max(latestVersionByDate.get(key) ?? row.version, row.version));
+  }
+  const map = new Map<string, ReerOfficialRow[]>();
+  for (const row of rows) {
+    const key = formatDateOnly(row.fecha);
+    if (row.version !== latestVersionByDate.get(key)) {
+      continue;
+    }
+    const current = map.get(key) ?? [];
+    current.push(row);
+    map.set(key, current);
+  }
+  return map;
+}
+
+function quarterPeriodLabel(periodo: number) {
+  const hour = Math.floor((periodo - 1) / 4) + 1;
+  const quarter = ((periodo - 1) % 4) + 1;
+  return `H${String(hour).padStart(2, "0")}Q${quarter}`;
+}
+
+function officialSign(sImp: number | null) {
+  return sImp === null || sImp < 0 ? 1 : -1;
+}
+
 function liquidacionEnergia(accumulator: LiquidacionMarketAccumulator) {
   return accumulator.hasEnergia ? roundEnergy(accumulator.energia) : null;
 }
@@ -563,6 +958,22 @@ function totalLiquidacionEnergia(accumulators: LiquidacionAccumulatorSet) {
 
 function totalLiquidacionImporte(accumulators: LiquidacionAccumulatorSet) {
   return nullableEuroSum(LIQUIDACION_MARKETS.map((market) => liquidacionImporte(accumulators[market])));
+}
+
+function liquidacionCompra(accumulator: LiquidacionMarketAccumulator) {
+  return accumulator.hasImporte ? roundEuro(accumulator.compra) : null;
+}
+
+function liquidacionVenta(accumulator: LiquidacionMarketAccumulator) {
+  return accumulator.hasImporte ? roundEuro(accumulator.venta) : null;
+}
+
+function totalLiquidacionCompra(accumulators: LiquidacionAccumulatorSet) {
+  return nullableEuroSum(LIQUIDACION_MARKETS.map((market) => liquidacionCompra(accumulators[market])));
+}
+
+function totalLiquidacionVenta(accumulators: LiquidacionAccumulatorSet) {
+  return nullableEuroSum(LIQUIDACION_MARKETS.map((market) => liquidacionVenta(accumulators[market])));
 }
 
 function buildCuadre(calculado: number | null, liquidado: number | null): OmieComprobacionCuadre {
@@ -867,6 +1278,10 @@ function decimalToNullableNumber(value: Prisma.Decimal | null | undefined) {
   return value === null || value === undefined ? null : Number(value.toString());
 }
 
+function decimalToRoundedEuroNumber(value: Prisma.Decimal) {
+  return Number(value.toDecimalPlaces(2).toString());
+}
+
 function buildInvoiceMap(invoices: OmieLiquidationInvoiceRecord[]) {
   return new Map(invoices.map((invoice) => [formatDateOnly(invoice.fecha), invoice]));
 }
@@ -905,6 +1320,10 @@ function roundEnergy(value: number) {
 
 function roundEuro(value: number) {
   return Number(value.toFixed(3));
+}
+
+function roundEuroCent(value: number) {
+  return Number(value.toFixed(2));
 }
 
 function buildClave(fecha: string, periodo: number) {

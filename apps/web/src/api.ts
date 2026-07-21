@@ -6,9 +6,9 @@ export type MedperFileType = "MEDPERQH";
 export type ReeKFactorFileType = "KESTIMQH" | "KREALQH";
 export type OmieTipoDocumento = "PVD" | "PHF";
 export type OmieTipoPrecio = "MD" | "MI" | "XBID";
-export type OmieDownloadModulo = "Programas" | "Precios" | "Transacciones";
-export type OmieDownloadCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4121";
-export type OmieDownloadDocumentType = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES";
+export type OmieDownloadModulo = "Programas" | "Precios" | "Transacciones" | "REER Publico";
+export type OmieDownloadCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4121" | "INT_REER_CONSUM_EV_H";
+export type OmieDownloadDocumentType = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES" | "REER_PUBLICO";
 export type OmieDownloadEstado = "PENDIENTE" | "DESCARGANDO" | "DESCARGADO" | "PROCESADO" | "ERROR";
 
 export type ReeFile = {
@@ -239,7 +239,7 @@ export type OmieProgramaEvolucionResponse = {
 
 export type OmieDownloadControlRow = {
   id: string;
-  origen: "programas" | "precios" | "transacciones";
+  origen: "programas" | "precios" | "transacciones" | "reer-publico";
   modulo: OmieDownloadModulo;
   consulta: string;
   codigoOmie: OmieDownloadCodigo;
@@ -426,6 +426,54 @@ export type OmieAnalisisMensualResponse = {
 };
 
 export type OmieComprobacionLiquidacionMercado = "MD" | "IDA1" | "IDA2" | "IDA3" | "XBID" | "TOTAL";
+export type OmieReerEstado = "SIN_DATOS_REER" | "ESTIMADO_PUBLICO" | "ESTIMADO_CON_DIFERENCIA" | "CONCILIADO_OFICIAL" | "DIFERENCIA_OFICIAL";
+
+export type OmieComprobacionReerPeriodo = {
+  periodo: number;
+  periodoEtiqueta: string;
+  energiaNetaAgente: number | null;
+  energiaReerCalculada: number | null;
+  energiaReerOficial: number | null;
+  precioPublico: number | null;
+  coeficienteDerivado: number | null;
+  precioXml: number | null;
+  importeEstimadoPublicado: number | null;
+  importeEstimadoDerivado: number | null;
+  importeOficial: number | null;
+  diferencia: number | null;
+  estado: OmieReerEstado;
+};
+
+export type OmieComprobacionReerDiario = {
+  estadoReer: OmieReerEstado;
+  reerEstimadoPublicado: number | null;
+  reerEstimadoDerivado: number | null;
+  reerOficial: number | null;
+  ajusteReerConciliacion: number | null;
+  reerAplicado: number | null;
+  energiaReerCalculada: number | null;
+  energiaReerOficial: number | null;
+  diferenciaEnergia: number | null;
+  diferenciaImporte: number | null;
+  toleranciaPeriodoEur: number;
+  toleranciaDiaEur: number;
+  fuentePublica: string | null;
+  fuenteOficial: string | null;
+  tooltip: string;
+  limitacionExclusiones: string;
+  periodos: OmieComprobacionReerPeriodo[];
+};
+
+export type OmieLiquidacionConceptoAdicional = {
+  codigo: string;
+  descripcion: string;
+  importePrevisto: number | null;
+  importeOficial: number | null;
+  importeAplicado: number | null;
+  estado: OmieReerEstado;
+  fuentePublica: string | null;
+  fuenteOficial: string | null;
+};
 
 export type OmieComprobacionLiquidacionResumen = {
   mercado: OmieComprobacionLiquidacionMercado;
@@ -469,6 +517,24 @@ export type OmieComprobacionLiquidacionDiaria = {
   energiaXbid: number | null;
   costeXbid: number | null;
   costeTotalOmie: number | null;
+  compraMercados: number | null;
+  ventaMercados: number | null;
+  conceptosCompra: number | null;
+  conceptosVenta: number | null;
+  detalleConceptosCompra: OmieLiquidacionConceptoAdicional[];
+  detalleConceptosVenta: OmieLiquidacionConceptoAdicional[];
+  compraBaseImponible: number | null;
+  ventaBaseImponible: number | null;
+  ivaCompra: number | null;
+  ivaVenta: number | null;
+  compraFactura: number | null;
+  ventaFactura: number | null;
+  netoFactura: number | null;
+  netoBaseImponible: number | null;
+  netoAnalitico: number | null;
+  reer: OmieComprobacionReerDiario;
+  compraTotalPrevista: number | null;
+  compraTotalConciliada: number | null;
   facturaCompra: number | null;
   facturaVenta: number | null;
   horas: OmieComprobacionLiquidacionHoraria[];
@@ -490,6 +556,16 @@ export type OmieComprobacionLiquidacionesResponse = {
   resolucion: "PT15M";
   resumenMensual: OmieComprobacionLiquidacionResumen[];
   detalleDiario: OmieComprobacionLiquidacionDiaria[];
+  totalesReer: {
+    reerEstimadoPublicado: number | null;
+    reerEstimadoDerivado: number | null;
+    reerOficial: number | null;
+    ajusteReerConciliacion: number | null;
+  };
+  modosResultado: {
+    previsionOperativaDisponible: boolean;
+    liquidacionConciliadaDisponible: boolean;
+  };
   cuadroEconomico: OmieComprobacionCuadre;
   cuadroEnergetico: OmieComprobacionCuadre;
 };
