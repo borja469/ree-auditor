@@ -51,6 +51,26 @@ void describe("OMIE REER public parser", () => {
 
     assert.equal(parsed.rows[0].periodo, 1);
   });
+
+  it("accepts public header variants with hora and currency symbols", () => {
+    const parsed = parseOmieReerConsumText(
+      [
+        "Dia;Hora;Precio EUR/MWh;Volumen Economico EUR;Energia MWh",
+        "08/06/2026;H01Q1;0,01;-38,61;6299,23"
+      ].join("\n")
+    );
+
+    assert.equal(parsed.rows.length, 1);
+    assert.equal(parsed.rows[0].periodo, 1);
+    assert.equal(parsed.rows[0].coeficienteDerivadoEurMwh.toDecimalPlaces(12).toString(), "0.006129320568");
+  });
+
+  it("falls back to positional parsing when the public TXT has no detected header", () => {
+    const parsed = parseOmieReerConsumText("08/06/2026;H01Q1;0,01;-38,61;6299,23");
+
+    assert.equal(parsed.rows.length, 1);
+    assert.equal(parsed.rows[0].periodoEtiqueta, "H01Q1");
+  });
 });
 
 void describe("OMIE REER official XML parser", () => {

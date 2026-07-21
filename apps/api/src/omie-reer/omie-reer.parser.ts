@@ -33,12 +33,12 @@ export type OmieReerOfficialParsedRow = {
   ses: string | null;
 };
 
-const REER_CONSUM_HEADERS = {
-  fecha: "fecha",
-  periodo: "periodo",
-  precio: "precioeurmwh",
-  volumen: "volumeneconomicoeur",
-  energia: "energiamwh"
+type ReerConsumColumnMap = {
+  fecha: number;
+  periodo: number;
+  precio: number;
+  volumen: number;
+  energia: number;
 };
 
 export function buildOmieReerConsumFileName(fecha: Date, extension = "TXT") {
@@ -55,14 +55,18 @@ export function buildOmieReerConsumUrl(fecha: Date, extension = "TXT") {
 export function parseOmieReerConsumText(content: string): OmieReerConsumParsedFile {
   const lines = content.replace(/^\uFEFF/, "").split(/\r?\n/);
   const fechaPublicacion = parseFechaPublicacion(lines[0] ?? "");
-  const headerIndex = lines.findIndex((line) => normalizeHeaderLine(line).includes("fecha;periodo;precioeurmwh;volumeneconomicoeur;energiamwh"));
-  if (headerIndex < 0) {
+  const header = findReerConsumHeader(lines.map((line) => line.split(";")));
+  const rows = header
+    ? parseReerConsumRows(lines.slice(header.index + 1).map((line) => line.split(";")), header.columns)
+    : parseReerConsumRows(lines.map((line) => line.split(";")), defaultReerConsumColumns());
+
+  if (rows.length === 0) {
     throw new Error("No se ha encontrado la cabecera esperada del fichero REER publico.");
   }
 
   return {
     fechaPublicacion,
-    rows: parseReerConsumRows(lines.slice(headerIndex + 1).map((line) => line.split(";")))
+    rows
   };
 }
 
@@ -74,13 +78,18 @@ export function parseOmieReerConsumXls(buffer: Buffer): OmieReerConsumParsedFile
   }
   const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], { header: 1, raw: false, blankrows: false });
   const fechaPublicacion = parseFechaPublicacion(String(rows[0]?.join(";") ?? ""));
-  const headerIndex = rows.findIndex((row) => normalizeHeaderLine(row.map((cell) => String(cell ?? "")).join(";")).includes("fecha;periodo;precioeurmwh;volumeneconomicoeur;energiamwh"));
-  if (headerIndex < 0) {
+  const textRows = rows.map((row) => row.map((cell) => String(cell ?? "")));
+  const header = findReerConsumHeader(textRows);
+  const parsedRows = header
+    ? parseReerConsumRows(textRows.slice(header.index + 1), header.columns)
+    : parseReerConsumRows(textRows, defaultReerConsumColumns());
+
+  if (parsedRows.length === 0) {
     throw new Error("No se ha encontrado la cabecera esperada del XLS REER.");
   }
   return {
     fechaPublicacion,
-    rows: parseReerConsumRows(rows.slice(headerIndex + 1).map((row) => row.map((cell) => String(cell ?? ""))))
+    rows: parsedRows
   };
 }
 
@@ -120,22 +129,22 @@ export function parseOmieReerOfficialXml(content: string, fallbackFileName: stri
   return rows;
 }
 
-function parseReerConsumRows(rows: string[][]): OmieReerConsumParsedRow[] {
+function parseReerConsumRows(rows: string[][], columns: ReerConsumColumnMap): OmieReerConsumParsedRow[] {
   const parsed: OmieReerConsumParsedRow[] = [];
-  for (const columns of rows) {
-    const first = (columns[0] ?? "").trim();
+  for (const row of rows) {
+    const first = (row[columns.fecha] ?? "").trim();
     if (!first || !/^\d{2}\/\d{2}\/\d{4}$/.test(first)) {
       continue;
     }
-    const periodoEtiqueta = (columns[1] ?? "").trim().toUpperCase();
+    const periodoEtiqueta = (row[columns.periodo] ?? "").trim().toUpperCase();
     const periodo = parsePeriodoEtiqueta(periodoEtiqueta);
     if (!periodo) {
       continue;
     }
     const fecha = parseSpanishDate(first);
-    const precioPublicadoEurMwh = decimalFromSpanish(columns[2] ?? "0");
-    const volumenEconomicoEur = decimalFromSpanish(columns[3] ?? "0");
-    const energiaNacionalMwh = decimalFromSpanish(columns[4] ?? "0");
+    const precioPublicadoEurMwh = decimalFromSpanish(row[columns.precio] ?? "0");
+    const volumenEconomicoEur = decimalFromSpanish(row[columns.volumen] ?? "0");
+    const energiaNacionalMwh = decimalFromSpanish(row[columns.energia] ?? "0");
     const coeficienteDerivadoEurMwh = energiaNacionalMwh.isZero()
       ? new Prisma.Decimal(0)
       : volumenEconomicoEur.abs().div(energiaNacionalMwh);
@@ -151,6 +160,37 @@ function parseReerConsumRows(rows: string[][]): OmieReerConsumParsedRow[] {
     });
   }
   return parsed;
+}
+
+function findReerConsumHeader(rows: string[][]): { index: number; columns: ReerConsumColumnMap } | null {
+  for (let index = 0; index < rows.length; index += 1) {
+    const normalized = rows[index].map(normalizeHeaderCell);
+    const columns = {
+      fecha: findHeaderIndex(normalized, ["fecha", "dia"]),
+      periodo: findHeaderIndex(normalized, ["periodo", "hora", "periodohorario"]),
+      precio: findHeaderIndex(normalized, ["precioeurmwh", "precio"]),
+      volumen: findHeaderIndex(normalized, ["volumeneconomicoeur", "volumeneconomico", "volumeneur", "volumen"]),
+      energia: findHeaderIndex(normalized, ["energiamwh", "energia"])
+    };
+    if (Object.values(columns).every((value) => value >= 0)) {
+      return { index, columns };
+    }
+  }
+  return null;
+}
+
+function defaultReerConsumColumns(): ReerConsumColumnMap {
+  return {
+    fecha: 0,
+    periodo: 1,
+    precio: 2,
+    volumen: 3,
+    energia: 4
+  };
+}
+
+function findHeaderIndex(cells: string[], aliases: string[]) {
+  return cells.findIndex((cell) => aliases.some((alias) => cell === alias || cell.includes(alias)));
 }
 
 function parsePeriodoEtiqueta(value: string) {
@@ -178,12 +218,11 @@ function parseFechaPublicacion(value: string) {
   return date;
 }
 
-function normalizeHeaderLine(value: string) {
+function normalizeHeaderCell(value: string) {
   return value
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[()/]/g, "")
-    .replace(/\s+/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
     .toLowerCase();
 }
 
