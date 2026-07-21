@@ -45,7 +45,7 @@ export function monthDateRange(monthKey?: string | null) {
 }
 
 export function activeSidebarGroupKeys(section: Section): SidebarGroupKey[] {
-  if (section === "reeDownloads" || section === "reganecu" || section === "medidas" || section === "reeLosses" || section === "liquidationAnalysis") {
+  if (section === "reeDownloads" || section === "reganecu" || section === "reeSeie" || section === "medidas" || section === "reeLosses" || section === "liquidationAnalysis") {
     return ["ree"];
   }
   if (isOmieSection(section)) {
@@ -57,6 +57,9 @@ export function activeSidebarGroupKeys(section: Section): SidebarGroupKey[] {
   if (isPricingSection(section)) {
     return ["pricing"];
   }
+  if (isInformesSection(section)) {
+    return ["informes"];
+  }
   return ["ree"];
 }
 
@@ -66,6 +69,9 @@ export function activeSidebarItemKeys(section: Section): string[] {
   }
   if (section === "reganecu") {
     return ["ree-reganecu-menu"];
+  }
+  if (section === "reeSeie") {
+    return ["ree-seie-menu"];
   }
   if (section === "medidas") {
     return ["ree-medidas-menu"];
@@ -89,6 +95,9 @@ export function activeSidebarItemKeys(section: Section): string[] {
     return ["esios-menu"];
   }
   if (isPricingSection(section)) {
+    return [];
+  }
+  if (isInformesSection(section)) {
     return [];
   }
   return [];
@@ -116,8 +125,13 @@ export function isEsiosSection(section: Section) {
   );
 }
 
+
 export function isPricingSection(section: Section) {
   return section === "pricingBase" || section === "pricingMeff";
+}
+
+export function isInformesSection(section: Section) {
+  return section === "annualReport";
 }
 
 export function selectOmieTransactionDownloadId(

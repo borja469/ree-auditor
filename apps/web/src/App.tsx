@@ -44,6 +44,7 @@ import {
   getLatestLiquidationAnalysisVersionForMonth,
   getTodayInputValue,
   isEsiosSection,
+  isInformesSection,
   isOmieSection,
   isPricingSection,
   hasAnyReeLossesDateFilter,
@@ -60,6 +61,7 @@ import { OmiePreciosModule } from "./modules/omie/precios/OmiePreciosModule";
 import { OmieProgramasModule } from "./modules/omie/programas/OmieProgramasModule";
 import { OmieTransaccionesModule } from "./modules/omie/transacciones/OmieTransaccionesModule";
 import { EsiosModule, type EsiosViewKey } from "./modules/esios/EsiosModule";
+import { AnnualReportModule } from "./modules/annual-report/AnnualReportModule";
 import { PricingBaseModule } from "./modules/pricing/PricingBaseModule";
 import { PricingMeffModule } from "./modules/pricing/PricingMeffModule";
 import { MedperFilterBand, MedperViewPanel } from "./modules/medper/MedperModule";
@@ -75,6 +77,7 @@ import type {
   Message,
   OmieProgramasViewKey,
   ReganecuView,
+  ReeSeieView,
   ReeLossesViewKey,
   Section,
   SidebarGroupConfig,
@@ -144,6 +147,12 @@ import {
   type OmieTransactionStagingRow,
   type ReeFile,
   type ReeDownloadCenterSummaryRow,
+  type ReeSeieFile,
+  type ReeSeieFilterOptions,
+  type ReeSeieFilters,
+  type ReeSeieImportResponse,
+  type ReeSeieRecord,
+  type ReeSeieSummary,
   type ReeLossesFilterOptions,
   type ReeLossesFilters,
   type ReeLossesImportFile,
@@ -181,6 +190,8 @@ import {
   getOmieTransactionStagingRows,
   getOmieTransactionsHistorico,
   getReeDownloadCenterSummary,
+  getReeSeieFilterOptions,
+  getReeSeieSummary,
   getReeLossesFilterOptions,
   getReeLossesReport,
   getSettlementFilterOptions,
@@ -189,6 +200,8 @@ import {
   listReeLossesImports,
   listMedperqh,
   listImports,
+  listReeSeieFiles,
+  listReeSeieRecords,
   listReganecu,
   listReganecuQh,
   login,
@@ -199,6 +212,7 @@ import {
   saveOmieAutomationConfig,
   uploadMedperFiles,
   uploadReeLossesFiles,
+  uploadReeSeieFiles,
   uploadReganecuFiles,
 } from "./api";
 import { useGlobalLoadingState, withGlobalLoading } from "./loading";
@@ -210,7 +224,7 @@ const DEFAULT_PAGE_SIZE = 50;
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 500] as const;
 const EXPORT_PAGE_SIZE = 1000;
 const LIQUIDATION_ANALYSIS_TOLERANCE_MWH = 0.001;
-const OMIE_DOWNLOAD_ESTADOS: OmieDownloadEstado[] = ["PENDIENTE", "DESCARGANDO", "DESCARGADO", "PROCESADO", "ERROR"];
+const OMIE_DOWNLOAD_ESTADOS: OmieDownloadEstado[] = ["PENDIENTE", "DESCARGANDO", "DESCARGADO", "PROCESADO", "SIN_DATOS", "ERROR"];
 const OMIE_SESSION_OPTIONS = ["01", "02", "03", "04", "05", "06", "07"];
 const MONTH_OPTIONS = [
   { value: "01", label: "Enero" },
@@ -280,6 +294,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   const uploadInFlight = useRef(false);
   const [section, setSection] = useState<Section>("reganecu");
   const [reganecuView, setReganecuView] = useState<ReganecuView>("summary");
+  const [reeSeieView, setReeSeieView] = useState<ReeSeieView>("summary");
   const [medidasView, setMedidasView] = useState<MedidasView>("history");
   const [reeLossesView, setReeLossesView] = useState<ReeLossesViewKey>("system");
   const [omieProgramasView, setOmieProgramasView] = useState<OmieProgramasViewKey>("mercadoDiario");
@@ -310,6 +325,12 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   const [reeLossesImports, setReeLossesImports] = useState<ReeLossesImportFile[]>([]);
   const [reeDownloadCenterSummary, setReeDownloadCenterSummary] = useState<ReeDownloadCenterSummaryRow[]>([]);
   const [latestReeLossesImport, setLatestReeLossesImport] = useState<ReeLossesImportResponse>();
+  const [reeSeieFiles, setReeSeieFiles] = useState<ReeSeieFile[]>([]);
+  const [reeSeieRows, setReeSeieRows] = useState<ReeSeieRecord[]>([]);
+  const [reeSeieSummary, setReeSeieSummary] = useState<ReeSeieSummary>();
+  const [reeSeieFilterOptions, setReeSeieFilterOptions] = useState<ReeSeieFilterOptions>();
+  const [reeSeieFilters, setReeSeieFilters] = useState<Filters>({});
+  const [latestReeSeieImport, setLatestReeSeieImport] = useState<ReeSeieImportResponse>();
   const [omieFecha, setOmieFecha] = useState(getTodayInputValue);
   const [omieSesion, setOmieSesion] = useState("01");
   const [omieMercadoDiario, setOmieMercadoDiario] = useState<OmieProgramaResponse>();
@@ -341,7 +362,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     ree: true,
     omie: false,
     esios: false,
-    pricing: true
+    pricing: true,
+    informes: false
   });
   const [openSidebarItems, setOpenSidebarItems] = useState<Record<string, boolean>>({
     "ree-reganecu-menu": true,
@@ -353,12 +375,15 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   const [hourlyPage, setHourlyPage] = useState(0);
   const [qhPage, setQhPage] = useState(0);
   const [medperqhPage, setMedperqhPage] = useState(0);
+  const [reeSeieHourlyPage, setReeSeieHourlyPage] = useState(0);
   const [hourlyPageSize, setHourlyPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [qhPageSize, setQhPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [medperqhPageSize, setMedperqhPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [reeSeieHourlyPageSize, setReeSeieHourlyPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [hourlyHasNext, setHourlyHasNext] = useState(false);
   const [qhHasNext, setQhHasNext] = useState(false);
   const [medperqhHasNext, setMedperqhHasNext] = useState(false);
+  const [reeSeieHourlyHasNext, setReeSeieHourlyHasNext] = useState(false);
   const [medperDefaultMonthApplied, setMedperDefaultMonthApplied] = useState(false);
   const [medperGraphsDefaultMonthApplied, setMedperGraphsDefaultMonthApplied] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -566,20 +591,58 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     }
 
     try {
-      const [nextImports, nextMedperFiles, nextMedperMonthlyConsumption, nextReeLossesImports, nextReeDownloadCenterSummary] = await Promise.all([
+      const [nextImports, nextMedperFiles, nextMedperMonthlyConsumption, nextReeLossesImports, nextReeSeieFiles, nextReeDownloadCenterSummary] = await Promise.all([
         listImports({ take: 200 }),
         listMedperFiles({ take: 200 }),
         getMedperMonthlyConsumption(),
         listReeLossesImports({ take: 200 }),
+        listReeSeieFiles({ take: 200 }),
         getReeDownloadCenterSummary()
       ]);
       setImports(nextImports);
       setMedperFiles(nextMedperFiles);
       setMedperMonthlyConsumption(nextMedperMonthlyConsumption);
       setReeLossesImports(nextReeLossesImports);
+      setReeSeieFiles(nextReeSeieFiles);
       setReeDownloadCenterSummary(nextReeDownloadCenterSummary);
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando Centro de cargas." });
+    } finally {
+      stopLoading();
+    }
+  }
+
+  async function refreshReeSeie(
+    nextView = reeSeieView,
+    nextFilters = reeSeieFilters,
+    page = reeSeieHourlyPage,
+    pageSize = reeSeieHourlyPageSize
+  ) {
+    const stopLoading = beginDataRefresh();
+    if (!stopLoading) {
+      return;
+    }
+
+    try {
+      const [nextFilterOptions, nextFiles] = await Promise.all([getReeSeieFilterOptions(), listReeSeieFiles({ take: 200 })]);
+      setReeSeieFilterOptions(nextFilterOptions);
+      setReeSeieFiles(nextFiles);
+      const hasDateFilter = Boolean(nextFilters.fecha || nextFilters.fechaInicio || nextFilters.fechaFin);
+      const resolvedFilters = !hasDateFilter && nextFilterOptions.latestMonth ? { ...nextFilters, fecha: nextFilterOptions.latestMonth } : nextFilters;
+      if (!hasDateFilter && nextFilterOptions.latestMonth) {
+        setReeSeieFilters(resolvedFilters);
+      }
+      const apiFilters = toReeSeieApiFilters(resolvedFilters);
+      if (nextView === "summary") {
+        setReeSeieSummary(await getReeSeieSummary(apiFilters));
+      }
+      if (nextView === "hourly") {
+        const pageResult = await loadRecordPage(listReeSeieRecords, apiFilters, page, pageSize);
+        setReeSeieRows(pageResult.rows);
+        setReeSeieHourlyHasNext(pageResult.hasNext);
+      }
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando SEIE." });
     } finally {
       stopLoading();
     }
@@ -970,9 +1033,11 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     setProgress(0);
     setMessage(undefined);
     const runUpload = async (overwrite: boolean) => {
-      const medperUploadFiles = importMode === "medper" ? files : [];
-      const reganecuUploadFiles = importMode === "reganecu" ? files : [];
-      const reeLossesUploadFiles = importMode === "reeLosses" ? files : [];
+      const effectiveImportMode = inferImportMode(files, importMode);
+      const medperUploadFiles = effectiveImportMode === "medper" ? files : [];
+      const reganecuUploadFiles = effectiveImportMode === "reganecu" ? files : [];
+      const reeLossesUploadFiles = effectiveImportMode === "reeLosses" ? files : [];
+      const reeSeieUploadFiles = effectiveImportMode === "reeSeie" ? files : [];
       const responses: UploadResponse[] = [];
       let importedRecords = 0;
       let duplicatedFiles = 0;
@@ -1009,10 +1074,25 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
         failedFiles += response.summary.failedFiles;
       }
 
-      return { medperUploadFiles, responses, importedRecords, duplicatedFiles, invalidRecords, failedFiles, overwrite };
+      if (reeSeieUploadFiles.length > 0) {
+        const response = await uploadReeSeieFiles(reeSeieUploadFiles, setProgress, { overwrite });
+        setLatestReeSeieImport(response);
+        responses.push(response);
+        importedRecords += response.summary.recordsImported;
+        duplicatedFiles += response.summary.duplicatedFiles;
+        invalidRecords += response.summary.invalidRecords;
+        failedFiles += response.summary.failedFiles;
+      }
+
+      if (responses.length === 0) {
+        throw new Error("No se ha podido determinar el tipo de carga para los ficheros seleccionados.");
+      }
+
+      return { medperUploadFiles, reeSeieUploadFiles, responses, importedRecords, duplicatedFiles, invalidRecords, failedFiles, overwrite };
     };
     const finishUpload = async ({
       medperUploadFiles,
+      reeSeieUploadFiles,
       responses,
       importedRecords,
       duplicatedFiles,
@@ -1034,6 +1114,10 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       } else if (importMode === "reeLosses") {
         await refreshReeLosses(reeLossesFilters);
         setSection("reeLosses");
+      } else if (reeSeieUploadFiles.length > 0) {
+        setReeSeieView("summary");
+        await refreshReeSeie("summary", reeSeieFilters);
+        setSection("reeSeie");
       } else {
         await refreshReganecu("summary", filters);
         setReganecuView("summary");
@@ -1065,7 +1149,14 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       return;
     }
     const incomingFiles = Array.from(fileList).filter((file) => file.size > 0);
-    if (incomingFiles.some(isLikelyReeLossesFileName)) {
+    if (incomingFiles.length === 0) {
+      setMessage({ tone: "error", text: "No se ha detectado ningun fichero valido. Selecciona los ficheros, no la carpeta." });
+      return;
+    }
+    if (incomingFiles.some(isLikelySeieFileName)) {
+      setImportMode("reeSeie");
+      setMessage({ tone: "info", text: `${incomingFiles.length} fichero(s) preparados para SEIE.` });
+    } else if (incomingFiles.some(isLikelyReeLossesFileName)) {
       setImportMode("reeLosses");
     } else if (incomingFiles.some(isLikelyMedperFileName)) {
       setImportMode("medper");
@@ -1088,6 +1179,28 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     setFilters(next);
     setHourlyPage(0);
     setQhPage(0);
+  }
+
+  function updateReeSeieFilter(key: keyof Filters, value: string) {
+    const next = { ...reeSeieFilters, [key]: value || undefined, skip: 0 };
+    if (key === "brp") {
+      next.brps = undefined;
+    }
+    if (key === "fecha") {
+      next.fechaInicio = undefined;
+      next.fechaFin = undefined;
+    }
+    setReeSeieFilters(next);
+    setReeSeieHourlyPage(0);
+  }
+
+  function updateReeSeieMultiFilter(key: keyof Filters, value: string[]) {
+    const next = { ...reeSeieFilters, [key]: value.length > 0 ? value : undefined, skip: 0 };
+    if (key === "brps") {
+      next.brp = undefined;
+    }
+    setReeSeieFilters(next);
+    setReeSeieHourlyPage(0);
   }
 
   function updateMedperFilter(key: keyof MedperFilters, value: string) {
@@ -1177,6 +1290,28 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     };
   }
 
+  function sanitizeReeSeieFiltersForView(view: ReeSeieView, value: Filters) {
+    const next: Filters = {
+      fecha: value.fecha,
+      brp: value.brp,
+      brps: value.brps,
+      sujeto: value.sujeto
+    };
+
+    if (view === "summary") {
+      return next;
+    }
+
+    return {
+      ...next,
+      version: value.version,
+      segmento: value.segmento,
+      codigoApunte: value.codigoApunte,
+      codigoPrecio: value.codigoPrecio,
+      eicUpr: value.eicUpr
+    };
+  }
+
   function applyFilters() {
     if (isBusy) {
       return;
@@ -1193,6 +1328,13 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 
     if (section === "reeLosses") {
       void refreshReeLosses(reeLossesFilters);
+      return;
+    }
+
+    if (section === "reeSeie") {
+      const sanitized = sanitizeReeSeieFiltersForView(reeSeieView, reeSeieFilters);
+      setReeSeieFilters(sanitized);
+      void refreshReeSeie(reeSeieView, sanitized, 0);
       return;
     }
 
@@ -1271,7 +1413,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     }
 
     setSection(nextSection);
-    setImportMode(nextSection === "medidas" ? "medper" : nextSection === "reeLosses" ? "reeLosses" : "reganecu");
+    setImportMode(nextSection === "medidas" ? "medper" : nextSection === "reeLosses" ? "reeLosses" : nextSection === "reeSeie" ? "reeSeie" : "reganecu");
     if (nextSection === "reeDownloads") {
       void refreshReeDownloadCenter();
       return;
@@ -1321,6 +1463,12 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     if (isEsiosSection(nextSection)) {
       return;
     }
+    if (nextSection === "reeSeie") {
+      const sanitized = sanitizeReeSeieFiltersForView(reeSeieView, reeSeieFilters);
+      setReeSeieFilters(sanitized);
+      void refreshReeSeie(reeSeieView, sanitized);
+      return;
+    }
     const sanitized = sanitizeReganecuFiltersForView(reganecuView, filters);
     setFilters(sanitized);
     void refreshReganecu(reganecuView, sanitized);
@@ -1335,6 +1483,18 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     const sanitized = sanitizeReganecuFiltersForView(nextReganecuView, filters);
     setFilters(sanitized);
     void refreshReganecu(nextReganecuView, sanitized);
+  }
+
+  function changeReeSeieView(nextReeSeieView: ReeSeieView) {
+    if (isBusy) {
+      return;
+    }
+
+    setReeSeieView(nextReeSeieView);
+    const sanitized = sanitizeReeSeieFiltersForView(nextReeSeieView, reeSeieFilters);
+    setReeSeieFilters(sanitized);
+    setReeSeieHourlyPage(0);
+    void refreshReeSeie(nextReeSeieView, sanitized, 0);
   }
 
   function changeMedidasView(nextMedidasView: MedidasView) {
@@ -1456,6 +1616,26 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     void refreshMedidas("qh", medperFilters, { qh: 0 }, { qh: nextPageSize });
   }
 
+  function changeReeSeieHourlyPage(nextPage: number) {
+    if (isBusy) {
+      return;
+    }
+
+    const page = Math.max(nextPage, 0);
+    setReeSeieHourlyPage(page);
+    void refreshReeSeie("hourly", reeSeieFilters, page);
+  }
+
+  function changeReeSeieHourlyPageSize(nextPageSize: number) {
+    if (isBusy) {
+      return;
+    }
+
+    setReeSeieHourlyPageSize(nextPageSize);
+    setReeSeieHourlyPage(0);
+    void refreshReeSeie("hourly", reeSeieFilters, 0, nextPageSize);
+  }
+
   useEffect(() => {
     void refreshReganecu("summary", filters);
   }, []);
@@ -1491,6 +1671,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       ? "Centro de cargas"
       : section === "reganecu"
         ? "Auditoria de liquidaciones REGANECU"
+      : section === "reeSeie"
+        ? "Liquidaciones REE SEIE"
       : section === "liquidationAnalysis"
         ? "Análisis de liquidaciones"
         : section === "reeLosses"
@@ -1508,11 +1690,13 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                   : section === "omieTransacciones"
                     ? "OMIE Transacciones"
                   : section === "omieDescargas"
-                      ? "OMIE Control de descargas"
+                    ? "OMIE Control de descargas"
+                    : section === "annualReport"
+                      ? "Informe Anual"
                     : section === "pricingBase"
-                      ? "Pricing base"
-                    : section === "pricingMeff"
-                      ? "Pricing MEFF"
+                      ? "Pricing base apuntamientos"
+                      : section === "pricingMeff"
+                        ? "Pricing MEFF"
                     : section === "esiosIndicadores"
                       ? "ESIOS Indicadores"
                     : section === "esiosPerfiles"
@@ -1529,16 +1713,23 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       return;
     }
 
-      if (section === "reganecu") {
-        const sanitized = sanitizeReganecuFiltersForView(reganecuView, filters);
-        setFilters(sanitized);
-        void refreshReganecu(reganecuView, sanitized);
-        return;
-      }
+    if (section === "reganecu") {
+      const sanitized = sanitizeReganecuFiltersForView(reganecuView, filters);
+      setFilters(sanitized);
+      void refreshReganecu(reganecuView, sanitized);
+      return;
+    }
 
-      if (section === "reeDownloads") {
-        void refreshReeDownloadCenter();
-        return;
+    if (section === "reeSeie") {
+      const sanitized = sanitizeReeSeieFiltersForView(reeSeieView, reeSeieFilters);
+      setReeSeieFilters(sanitized);
+      void refreshReeSeie(reeSeieView, sanitized);
+      return;
+    }
+
+    if (section === "reeDownloads") {
+      void refreshReeDownloadCenter();
+      return;
       }
   
       if (section === "liquidationAnalysis") {
@@ -1571,10 +1762,6 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       return;
     }
 
-    if (section === "omieGarantias") {
-      return;
-    }
-
     if (section === "omieTransacciones") {
       void refreshOmieTransacciones();
       return;
@@ -1604,7 +1791,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     {
       key: "ree",
       title: "Liquidaciones REE",
-      active: section === "reeDownloads" || section === "reganecu" || section === "medidas" || section === "reeLosses",
+      active: section === "reeDownloads" || section === "reganecu" || section === "reeSeie" || section === "medidas" || section === "reeLosses",
       items: [
         {
           key: "ree-download-center",
@@ -1669,6 +1856,36 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
               description: "cuadre económico y energético",
               active: section === "liquidationAnalysis",
               onSelect: () => changeSection("liquidationAnalysis")
+            }
+          ]
+        },
+        {
+          key: "ree-seie-menu",
+          label: "SEIE",
+          description: "segmentos horarios",
+          active: section === "reeSeie",
+          children: [
+            {
+              key: "ree-seie-summary",
+              label: "Resumen",
+              description: "liquidacion y validaciones",
+              active: section === "reeSeie" && reeSeieView === "summary",
+              onSelect: () => {
+                setSection("reeSeie");
+                setImportMode("reeSeie");
+                changeReeSeieView("summary");
+              }
+            },
+            {
+              key: "ree-seie-hourly",
+              label: "Horario",
+              description: "detalle horario",
+              active: section === "reeSeie" && reeSeieView === "hourly",
+              onSelect: () => {
+                setSection("reeSeie");
+                setImportMode("reeSeie");
+                changeReeSeieView("hourly");
+              }
             }
           ]
         },
@@ -1919,6 +2136,20 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           onSelect: () => changeSection("pricingMeff")
         }
       ]
+    },
+    {
+      key: "informes",
+      title: "Informes",
+      active: isInformesSection(section),
+      items: [
+        {
+          key: "informes-informe-anual",
+          label: "Informe Anual",
+          description: "resumen mensual consolidado",
+          active: section === "annualReport",
+          onSelect: () => changeSection("annualReport")
+        }
+      ]
     }
   ];
   const showGlobalUploadBand = false;
@@ -2049,6 +2280,18 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
               disabled={isBusy}
             />
           )}
+          {section === "reeSeie" && (
+            <ReganecuFilterBand
+              view={reeSeieView === "summary" ? "summary" : "hourly"}
+              filters={reeSeieFilters}
+              options={buildReeSeieSettlementFilterOptions(reeSeieFilterOptions)}
+              onChange={updateReeSeieFilter}
+              onMultiChange={updateReeSeieMultiFilter}
+              onApply={applyFilters}
+              disabled={isBusy}
+              multiBrp={reeSeieView === "summary"}
+            />
+          )}
           {section === "medidas" && medidasView !== "graphs" && (
             <MedperFilterBand
               view={medidasView}
@@ -2170,13 +2413,14 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           )}
 
           {isEsiosSection(section) && <EsiosModule key={`${section}-${esiosRefreshKey}`} view={esiosViewFromSection(section)} />}
-
+          {section === "annualReport" && <AnnualReportModule />}
           {section === "pricingBase" && <PricingBaseModule />}
           {section === "pricingMeff" && <PricingMeffModule />}
 
           {section === "reeDownloads" && (
             <ReeDownloadCenterModule
               reganecuFiles={imports}
+              seieFiles={reeSeieFiles}
               coverageSummary={reeDownloadCenterSummary}
               medperFiles={medperFiles}
               medperMonthlyConsumption={medperMonthlyConsumption}
@@ -2227,6 +2471,24 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
               onPageSizeChange={changeQhPageSize}
               loadExportRows={() => loadAllRecordRows(listReganecuQh, sanitizeReganecuFiltersForView("qh", filters))}
             />
+          )}
+          {section === "reeSeie" && (
+            reeSeieView === "summary" ? (
+              <SummaryView groups={buildReeSeieSettlementGroups(reeSeieSummary)} segments={buildDynamicSummarySegments(buildReeSeieSettlementGroups(reeSeieSummary))} invertChartAmount={false} />
+            ) : (
+              <DetailView
+                rows={reeSeieRows.map(toSeieA1Record)}
+                title="Detalle horario SEIE"
+                timeColumnLabel="Hora"
+                page={reeSeieHourlyPage}
+                pageSize={reeSeieHourlyPageSize}
+                hasNext={reeSeieHourlyHasNext}
+                loading={loading}
+                onPageChange={changeReeSeieHourlyPage}
+                onPageSizeChange={changeReeSeieHourlyPageSize}
+                loadExportRows={() => loadAllReeSeieA1Rows(toReeSeieApiFilters(sanitizeReeSeieFiltersForView("hourly", reeSeieFilters)))}
+              />
+            )
           )}
           {section === "medidas" && (
             <MedperViewPanel
@@ -2322,9 +2584,9 @@ function LoginView({ onLogin }: { onLogin: (session: AuthSession) => void }) {
   );
 }
 
-async function loadRecordPage(
-  loader: (filters: Filters) => Promise<A1Record[]>,
-  filters: Filters,
+async function loadRecordPage<T, TFilters extends { skip?: number; take?: number }>(
+  loader: (filters: TFilters) => Promise<T[]>,
+  filters: TFilters,
   page: number,
   pageSize: number
 ) {
@@ -2337,6 +2599,114 @@ async function loadRecordPage(
 
 async function loadAllRecordRows(loader: (filters: Filters) => Promise<A1Record[]>, filters: Filters) {
   return loadAllPagedRows(loader, filters);
+}
+
+async function loadAllReeSeieA1Rows(filters: ReeSeieFilters) {
+  const rows = await loadAllPagedRows(listReeSeieRecords, filters);
+  return rows.map(toSeieA1Record);
+}
+
+function buildReeSeieSettlementFilterOptions(options?: ReeSeieFilterOptions): SettlementFilterOptions | undefined {
+  if (!options) {
+    return undefined;
+  }
+
+  return {
+    versions: options.versions as ReeVersion[],
+    months: options.months,
+    brps: options.unidades,
+    subjects: [],
+    segments: options.segmentos,
+    priceCodes: options.tipos,
+    settlementCodes: options.codigos,
+    eicUprs: options.unidades,
+    latestMonth: options.latestMonth
+  };
+}
+
+function buildReeSeieSettlementGroups(summary?: ReeSeieSummary): SettlementGroup[] {
+  return (summary?.groups ?? []).map((group) => ({
+    fechaLiquidacion: group.fechaLiquidacion,
+    version: (group.version || "C1") as ReeVersion,
+    segmento: group.segmento,
+    records: group.records,
+    sums: {
+      energiaMwh: group.magnitud,
+      importeEur: group.energia,
+      importeCalculadoEur: group.energia
+    }
+  }));
+}
+
+function buildDynamicSummarySegments(groups: SettlementGroup[]): SummarySegment[] {
+  const segments = [...new Set(groups.map((group) => normalizeSegment(group.segmento)).filter(Boolean))].sort();
+  return segments.length > 0 ? segments.map((code) => ({ code, label: code })) : [...SUMMARY_SEGMENTS];
+}
+
+function toReeSeieApiFilters(filters: Filters): ReeSeieFilters {
+  const selectedBrps = filters.brps?.filter(Boolean);
+  return {
+    fecha: filters.fecha,
+    fechaInicio: filters.fechaInicio,
+    fechaFin: filters.fechaFin,
+    version: filters.version,
+    unidad: filters.eicUpr ?? (selectedBrps && selectedBrps.length > 0 ? selectedBrps.join(",") : filters.brp),
+    codigo: filters.codigoApunte,
+    tipo: filters.codigoPrecio,
+    segmento: filters.segmento,
+    skip: filters.skip,
+    take: filters.take
+  };
+}
+
+function toSeieA1Record(row: ReeSeieRecord): A1Record {
+  const raw = row.rawPayloadJson ?? {};
+  return {
+    id: row.id,
+    fileId: row.fileId,
+    tipoArchivo: "SEIE",
+    version: (row.version || "A1") as ReeVersion,
+    fechaLiquidacion: row.fechaLiquidacion,
+    sujetoEic: row.sujetoEic ?? "",
+    brp: raw.campo10Reservado4 ?? row.unidad,
+    fecha: row.fecha,
+    hora: row.hora,
+    codigoUpr: raw.campo03Codigo ?? row.codigo,
+    energiaMwh: row.magnitud,
+    precioEurMwh: row.precio,
+    importeEur: row.energia,
+    codigoAgenteVendedor: raw.campo10Reservado4,
+    segmento: row.segmento,
+    facturacion: raw.campo12Sentido,
+    eicUpr: row.unidad,
+    cuenta: row.sentido,
+    signoImporte: raw.campo15SignoImporte,
+    signoMagnitud: raw.campo16SignoMagnitud,
+    eicTitular: raw.campo17SujetoEic,
+    codigoMagnitud: raw.campo18CodigoPrecio,
+    codigoPrecio: row.tipo,
+    codigoApunte: row.codigo,
+    tipoOferta: raw.campo21Clase,
+    tipoUpr: raw.campo22Valor1,
+    energiaContratoBilateralMwh: raw.campo23Valor2,
+    sesion: raw.campo24Valor3,
+    campoHora25: null,
+    importeCalculadoEur: row.energia,
+    importeDiferenciaEur: null,
+    importeConsistente: true,
+    precioAnomalo: false,
+    validationErrors: row.validationErrors,
+    rawPayloadJson: row.rawPayloadJson,
+    sourceLineNumber: row.sourceLineNumber,
+    file: row.file
+      ? {
+          ...row.file,
+          tipoArchivo: "SEIE",
+          version: (row.file.version || "A1") as ReeVersion,
+          sujetoEic: row.file.sujetoEic ?? ""
+        }
+      : undefined
+  };
 }
 
 async function loadAllPagedRows<T, TFilters extends { skip?: number; take?: number }>(
@@ -2520,6 +2890,144 @@ function FilterSelect({
   );
 }
 
+function MultiFilterSelect({
+  label,
+  value,
+  options,
+  onChange,
+  placeholder = "Todos",
+  disabled = false,
+  loading = false
+}: {
+  label: string;
+  value: string[];
+  options: string[];
+  onChange: (value: string[]) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  loading?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const normalizedOptions = useMemo(() => {
+    const seen = new Set<string>();
+    return [...options, ...value]
+      .map((option) => option.trim())
+      .filter((option) => {
+        if (!option || seen.has(option)) {
+          return false;
+        }
+        seen.add(option);
+        return true;
+      });
+  }, [options, value]);
+  const filteredOptions = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+    return normalizedSearch
+      ? normalizedOptions.filter((option) => option.toLowerCase().includes(normalizedSearch)).slice(0, 200)
+      : normalizedOptions.slice(0, 200);
+  }, [normalizedOptions, search]);
+  const selected = new Set(value);
+  const controlDisabled = disabled || loading;
+  const displayValue = loading
+    ? "Cargando..."
+    : value.length === 0
+      ? placeholder
+      : value.length === 1
+        ? value[0]
+        : `${value.length} seleccionados`;
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    return () => document.removeEventListener("mousedown", closeOnOutsideClick);
+  }, [open]);
+
+  useEffect(() => {
+    if (controlDisabled) {
+      setOpen(false);
+    }
+  }, [controlDisabled]);
+
+  function toggleOption(option: string) {
+    if (selected.has(option)) {
+      onChange(value.filter((item) => item !== option));
+      return;
+    }
+    onChange([...value, option]);
+  }
+
+  return (
+    <div className={`filter-field filter-select-field ${open ? "open" : ""}`} ref={containerRef}>
+      <span>{label}</span>
+      <button
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        className="searchable-select-trigger"
+        disabled={controlDisabled}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            setOpen(false);
+          }
+          if (event.key === "ArrowDown") {
+            setOpen(true);
+          }
+        }}
+        type="button"
+      >
+        <span className={value.length > 0 ? "" : "placeholder"}>{displayValue}</span>
+        <ChevronDown size={15} />
+      </button>
+      {open && (
+        <div className="searchable-select-popover">
+          <input
+            autoFocus
+            className="searchable-select-search"
+            onChange={(event) => setSearch(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setOpen(false);
+              }
+            }}
+            placeholder={`Buscar ${label.toLowerCase()}`}
+            value={search}
+          />
+          <div className="searchable-select-options" role="listbox">
+            <button className={`searchable-select-option ${value.length === 0 ? "active" : ""}`} onClick={() => onChange([])} role="option" type="button">
+              {placeholder}
+            </button>
+            {filteredOptions.map((option) => (
+              <button
+                aria-selected={selected.has(option)}
+                className={`searchable-select-option multi-select-option ${selected.has(option) ? "active" : ""}`}
+                key={option}
+                onClick={() => toggleOption(option)}
+                role="option"
+                type="button"
+              >
+                <input checked={selected.has(option)} readOnly tabIndex={-1} type="checkbox" />
+                <span>{option}</span>
+              </button>
+            ))}
+            {filteredOptions.length === 0 && <div className="searchable-select-empty">Sin resultados</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DateFilterField({
   label,
   value,
@@ -2544,15 +3052,19 @@ function ReganecuFilterBand({
   filters,
   options,
   onChange,
+  onMultiChange,
   onApply,
-  disabled = false
+  disabled = false,
+  multiBrp = false
 }: {
   view: ReganecuView;
   filters: Filters;
   options?: SettlementFilterOptions;
   onChange: (key: keyof Filters, value: string) => void;
+  onMultiChange?: (key: keyof Filters, value: string[]) => void;
   onApply: () => void;
   disabled?: boolean;
+  multiBrp?: boolean;
 }) {
   if (view === "history") {
     return null;
@@ -2565,7 +3077,11 @@ function ReganecuFilterBand({
     <section className="filter-band">
       {view !== "summary" && <FilterSelect disabled={disabled} loading={loadingOptions} label="Versión" value={filters.version ?? ""} options={options?.versions ?? []} onChange={(value) => onChange("version", value)} />}
       <FilterSelect disabled={disabled} loading={loadingOptions} label="Mes" value={filters.fecha ?? ""} options={months} onChange={(value) => onChange("fecha", value)} />
-      <FilterSelect disabled={disabled} loading={loadingOptions} label="BRP" value={filters.brp ?? ""} options={options?.brps ?? []} onChange={(value) => onChange("brp", value)} />
+      {multiBrp ? (
+        <MultiFilterSelect disabled={disabled} loading={loadingOptions} label="BRP" value={filters.brps ?? []} options={options?.brps ?? []} onChange={(value) => onMultiChange?.("brps", value)} />
+      ) : (
+        <FilterSelect disabled={disabled} loading={loadingOptions} label="BRP" value={filters.brp ?? ""} options={options?.brps ?? []} onChange={(value) => onChange("brp", value)} />
+      )}
       <FilterSelect disabled={disabled} loading={loadingOptions} label="Sujeto" value={filters.sujeto ?? ""} options={options?.subjects ?? []} onChange={(value) => onChange("sujeto", value)} />
       {view !== "summary" && (
         <>
@@ -3477,7 +3993,20 @@ function formatFixedDecimalNumber(value: number, decimals = 2) {
   return decimals > 0 ? `${sign}${groupedInteger},${decimalPart}` : `${sign}${groupedInteger}`;
 }
 
-function SummaryView({ groups }: { groups: SettlementGroup[] }) {
+type SummarySegment = {
+  code: string;
+  label: string;
+};
+
+function SummaryView({
+  groups,
+  segments = SUMMARY_SEGMENTS,
+  invertChartAmount = true
+}: {
+  groups: SettlementGroup[];
+  segments?: readonly SummarySegment[];
+  invertChartAmount?: boolean;
+}) {
   const latestVersion = getLatestSettlementVersion(groups);
   return (
     <section className="content-grid">
@@ -3487,23 +4016,23 @@ function SummaryView({ groups }: { groups: SettlementGroup[] }) {
           title="Costes horarios clave"
           subtitle={latestVersion ? `${latestVersion} € ${describeSettlementVersion(latestVersion)}` : "Sin versión disponible"}
         />
-        <KeyCostSegments groups={groups} version={latestVersion} />
+        <KeyCostSegments groups={groups} version={latestVersion} segments={segments} />
       </div>
       <div className="panel wide">
         <PanelTitle icon={<BarChart3 size={18} />} title="Energia e importe por version" />
-        <EnergyChart groups={groups} />
+        <EnergyChart groups={groups} invertAmount={invertChartAmount} />
       </div>
       <div className="panel wide">
         <PanelTitle icon={<BarChart3 size={18} />} title="Segmentos clave por version" />
-        <SegmentSummaryTable groups={groups} />
+        <SegmentSummaryTable groups={groups} segments={segments} />
       </div>
     </section>
   );
 }
 
-function KeyCostSegments({ groups, version }: { groups: SettlementGroup[]; version: ReeVersion | null }) {
+function KeyCostSegments({ groups, version, segments }: { groups: SettlementGroup[]; version: ReeVersion | null; segments: readonly SummarySegment[] }) {
   const versionGroups = version ? groups.filter((group) => group.version === version) : [];
-  const rows = SUMMARY_SEGMENTS.map((segment) => ({
+  const rows = segments.map((segment) => ({
     ...segment,
     totals: summarizeGroups(versionGroups.filter((group) => normalizeSegment(group.segmento) === segment.code))
   }));
@@ -3658,13 +4187,14 @@ function VirtualGrid({
   );
 }
 
-function EnergyChart({ groups }: { groups: SettlementGroup[] }) {
+function EnergyChart({ groups, invertAmount = true }: { groups: SettlementGroup[]; invertAmount?: boolean }) {
   const byVersion = VERSIONS.map((version) => {
     const versionGroups = groups.filter((group) => group.version === version);
+    const amount = versionGroups.reduce((sum, group) => sum + Number(group.sums.importeEur ?? 0), 0);
     return {
       version,
       energy: versionGroups.reduce((sum, group) => sum + Number(group.sums.energiaMwh ?? 0), 0),
-      amount: -versionGroups.reduce((sum, group) => sum + Number(group.sums.importeEur ?? 0), 0)
+      amount: invertAmount ? -amount : amount
     };
   });
   const max = Math.max(...byVersion.map((item) => Math.abs(item.amount)), 1);
@@ -3684,12 +4214,12 @@ function EnergyChart({ groups }: { groups: SettlementGroup[] }) {
   );
 }
 
-function SegmentSummaryTable({ groups }: { groups: SettlementGroup[] }) {
+function SegmentSummaryTable({ groups, segments }: { groups: SettlementGroup[]; segments: readonly SummarySegment[] }) {
   const rows = VERSIONS.map((version) => {
     const versionGroups = groups.filter((group) => group.version === version);
     return {
       version,
-      segments: SUMMARY_SEGMENTS.map((segment) => ({
+      segments: segments.map((segment) => ({
         ...segment,
         totals: summarizeGroups(versionGroups.filter((group) => normalizeSegment(group.segmento) === segment.code))
       })),
@@ -3703,7 +4233,7 @@ function SegmentSummaryTable({ groups }: { groups: SettlementGroup[] }) {
         <thead>
           <tr>
             <th>Version</th>
-            {SUMMARY_SEGMENTS.map((segment) => (
+            {segments.map((segment) => (
               <th key={segment.code}>
                 <span>{segment.label}</span>
                 <small>{segment.code}</small>
@@ -3822,6 +4352,23 @@ function formatUploadConflictConfirmation(conflicts: UploadConflict[]) {
 
 function isLikelyReeLossesFileName(file: File) {
   return /k(?:estim|real)qh/i.test(file.name);
+}
+
+function isLikelySeieFileName(file: File) {
+  return /seie/i.test(file.name);
+}
+
+function inferImportMode(files: File[], currentMode: ImportMode): ImportMode {
+  if (files.some(isLikelySeieFileName)) {
+    return "reeSeie";
+  }
+  if (files.some(isLikelyReeLossesFileName)) {
+    return "reeLosses";
+  }
+  if (files.some(isLikelyMedperFileName)) {
+    return "medper";
+  }
+  return currentMode;
 }
 
 function dedupeFiles(files: File[]) {

@@ -102,7 +102,7 @@ export function formatWeekdayLabel(value: number | null) {
 }
 
 export function LoadStatusBadge({ status }: { status: OmieDownloadEstado }) {
-  const label = status === "PROCESADO" ? "Procesado" : status === "DESCARGADO" ? "Descargado" : status === "DESCARGANDO" ? "Descargando" : status === "PENDIENTE" ? "Pendiente" : "Error";
+  const label = status === "PROCESADO" ? "Procesado" : status === "DESCARGADO" ? "Descargado" : status === "DESCARGANDO" ? "Descargando" : status === "PENDIENTE" ? "Pendiente" : status === "SIN_DATOS" ? "Sin datos" : "Error";
   return <span className={`ops-status-badge ${status === "ERROR" ? "error" : status === "PROCESADO" ? "valid" : "partial"}`}>{label}</span>;
 }
 

@@ -204,7 +204,7 @@ export function PricingBaseModule() {
           {profileTab === "omie" && (
             <ProfiledTariffMatrixPanel
               title="OMIE perfilado por tarifa"
-              subtitle="(suma perfil x OMIE / suma perfil) / media OMIE por mes y periodo"
+              subtitle="(suma perfil x OMIE / suma perfil) / media OMIE mensual"
               matrices={omiePeriodMatrices}
               priceLabel="OMIE"
               valueMode="ratio"
@@ -814,6 +814,19 @@ function buildProfiledPeriodMatrices<Row extends PricingBaseRow | PricingBaseMef
   monthKey: (row: Row) => string
 ): ProfiledPeriodMatrix[] {
   return configs.map((config) => {
+    const monthPriceGroups = new Map<string, { sumPrice: number; priceCount: number }>();
+    for (const row of rows) {
+      const price = numericOrNull(row[config.price]);
+      if (price === null) {
+        continue;
+      }
+      const month = monthKey(row);
+      const current = monthPriceGroups.get(month) ?? { sumPrice: 0, priceCount: 0 };
+      current.sumPrice += price;
+      current.priceCount += 1;
+      monthPriceGroups.set(month, current);
+    }
+
     const groups = new Map<string, { sumProduct: number; sumProfile: number; sumPrice: number; priceCount: number; sourceLabel?: string }>();
     for (const row of rows) {
       const profile = numericOrNull(row[config.profile]);
@@ -834,8 +847,10 @@ function buildProfiledPeriodMatrices<Row extends PricingBaseRow | PricingBaseMef
 
     const cells = new Map<string, ProfiledPeriodMatrixCell>();
     for (const [key, group] of groups.entries()) {
+      const month = key.split("|")[0];
+      const monthPriceGroup = monthPriceGroups.get(month);
       const weightedPrice = group.sumProfile === 0 ? null : group.sumProduct / group.sumProfile;
-      const averagePrice = group.priceCount === 0 ? null : group.sumPrice / group.priceCount;
+      const averagePrice = !monthPriceGroup || monthPriceGroup.priceCount === 0 ? null : monthPriceGroup.sumPrice / monthPriceGroup.priceCount;
       const value = weightedPrice === null || averagePrice === null || averagePrice === 0 ? null : weightedPrice / averagePrice;
       cells.set(key, {
         value,

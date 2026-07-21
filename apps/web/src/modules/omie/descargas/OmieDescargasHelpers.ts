@@ -38,6 +38,7 @@ export function buildOmieDailyExpectedDownloads(): OmieExpectedDailyDownload[] {
     expectedItem("5202", null),
     expectedItem("4125", null),
     expectedItem("4121", null),
+    expectedItem("9230", null),
     ...OMIE_DAILY_SESSIONS.map((sesion) => expectedItem("5608", sesion)),
     ...OMIE_DAILY_SESSIONS.map((sesion) => expectedItem("5603", sesion))
   ];
@@ -81,7 +82,7 @@ export function calculateOmieDailyCoverage(
       };
     }
     if (row) {
-      const status = row.estado === "ERROR" ? "ERROR" : row.estado === "PROCESADO" && row.registros === 0 ? "SIN_DATOS" : row.estado === "PROCESADO" ? "PROCESADO" : "PENDIENTE";
+      const status = row.estado === "ERROR" ? "ERROR" : row.estado === "SIN_DATOS" || (row.estado === "PROCESADO" && row.registros === 0) ? "SIN_DATOS" : row.estado === "PROCESADO" ? "PROCESADO" : "PENDIENTE";
       return {
         ...item,
         status,

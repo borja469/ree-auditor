@@ -2,17 +2,22 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { OmieDownloadEstado, OmieTipoDocumento, OmieTipoPrecio, Prisma } from "@prisma/client";
 import { OmiePreciosService } from "../omie-precios/omie-precios.service";
 import { OmieProgramasService } from "../omie-programas/omie-programas.service";
-import { OMIE_REER_PUBLIC_CODIGO, OmieReerService } from "../omie-reer/omie-reer.service";
+import {
+  OMIE_REER_OFFICIAL_CODIGO,
+  OMIE_REER_OFFICIAL_DEFAULT_AGENT,
+  OMIE_REER_OFFICIAL_DEFAULT_VERSION,
+  OmieReerService
+} from "../omie-reer/omie-reer.service";
 import { OMIE_ENERGIA_UMEDIDA, normalizeOmieEnergiaSesion } from "../omie-siom2/omie-energia";
 import { OmieTransaccionesService } from "../omie-transacciones/omie-transacciones.service";
 import { PrismaService } from "../prisma/prisma.service";
 
 const MAX_CONTROL_ROWS = 500;
 
-export type OmieControlModulo = "Programas" | "Precios" | "Transacciones" | "REER Publico";
-export type OmieControlOrigen = "programas" | "precios" | "transacciones" | "reer-publico";
-export type OmieControlTipo = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES" | "REER_PUBLICO";
-export type OmieControlCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4121" | "INT_REER_CONSUM_EV_H";
+export type OmieControlModulo = "Programas" | "Precios" | "Transacciones" | "REER Oficial";
+export type OmieControlOrigen = "programas" | "precios" | "transacciones" | "reer-oficial";
+export type OmieControlTipo = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES" | "REER_OFICIAL_9230";
+export type OmieControlCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4121" | "9230";
 
 export type OmieDownloadControlFilters = {
   fechaDesde?: string;
@@ -64,6 +69,8 @@ export type OmieDownloadExecuteRequest = {
   fechaDesde?: string;
   fechaHasta?: string;
   sesion?: string;
+  version?: number;
+  agente?: string;
 };
 
 export type OmieDownloadDailyBulkRequest = {
@@ -144,9 +151,9 @@ export class OmieDescargasService {
     const shouldQueryProgramas = this.shouldQuery("Programas", filters);
     const shouldQueryPrecios = this.shouldQuery("Precios", filters);
     const shouldQueryTransacciones = this.shouldQuery("Transacciones", filters);
-    const shouldQueryReer = this.shouldQuery("REER Publico", filters);
+    const shouldQueryReerOfficial = this.shouldQuery("REER Oficial", filters);
 
-    const [programas, precios, transacciones, reerPublico] = await Promise.all([
+    const [programas, precios, transacciones, reerOficial] = await Promise.all([
       shouldQueryProgramas
         ? this.prisma.omieDownload.findMany({
             where: buildProgramaWhere(filters),
@@ -168,14 +175,14 @@ export class OmieDescargasService {
             take: MAX_CONTROL_ROWS
           })
         : Promise.resolve([]),
-      shouldQueryReer ? this.omieReerService.getPublicControlRows(filters) : Promise.resolve([])
+      shouldQueryReerOfficial ? this.omieReerService.getOfficialControlRows(filters) : Promise.resolve([])
     ]);
 
     return [
       ...programas.map(serializeProgramaDownload),
       ...precios.map(serializePrecioDownload),
       ...transacciones.map(serializeTransaccionDownload),
-      ...reerPublico.map(serializeReerPublicDownload)
+      ...reerOficial.map(serializeReerOfficialDownload)
     ]
       .filter((row) => matchesControlFilters(row, filters))
       .sort(sortControlRows)
@@ -183,18 +190,18 @@ export class OmieDescargasService {
   }
 
   async obtenerDetalle(id: string): Promise<OmieDownloadDetail> {
-    if (id.startsWith("reer-public:")) {
+    if (id.startsWith("reer-official:")) {
       const [, fecha] = id.split(":");
-      const rows = await this.omieReerService.getPublicControlRows({ fechaDesde: fecha, fechaHasta: fecha });
+      const rows = await this.omieReerService.getOfficialControlRows({ fechaDesde: fecha, fechaHasta: fecha });
       const match = rows.find((row) => row.id === id) ?? rows[0];
       if (match) {
-        const row = serializeReerPublicDownload(match);
+        const row = serializeReerOfficialDownload(match);
         return buildDetail(row, {
+          rawXml: match.contenidoXml,
           rawJson: {
             descarga: row,
-            urlOrigen: match.urlOrigen,
             hashFichero: match.hashFichero,
-            nota: "Fichero publico REER persistido en omie_reer_consum_results."
+            nota: "Anotacion oficial REER 9230 persistida en omie_reer_official_annotations."
           }
         });
       }
@@ -269,8 +276,12 @@ export class OmieDescargasService {
       const response = await this.omiePreciosService.sincronizarXbid(requireFecha(fecha), options);
       return this.buildExecutionResponse(response.message, response.download.id, response);
     }
-    if (codigo === OMIE_REER_PUBLIC_CODIGO) {
-      const response = await this.omieReerService.sincronizarPublico(requireFecha(fecha), options);
+    if (codigo === OMIE_REER_OFFICIAL_CODIGO) {
+      const response = await this.omieReerService.sincronizarOficial9230(requireFecha(fecha), {
+        ...options,
+        version: request.version,
+        agente: request.agente
+      });
       return this.buildExecutionResponse(response.message, response.download.id, response);
     }
 
@@ -295,7 +306,7 @@ export class OmieDescargasService {
           modulo: task.modulo,
           consulta: task.consulta,
           sesion: task.sesion,
-          estado: skipped ? "OMITIDO" : response.download.registros === 0 ? "SIN_DATOS" : "PROCESADO",
+          estado: skipped ? "OMITIDO" : response.download.estado === OmieDownloadEstado.ERROR ? "ERROR" : response.download.registros === 0 ? "SIN_DATOS" : "PROCESADO",
           registros: response.download.registros,
           mensaje: skipped ? "Ya existe descarga procesada" : response.message,
           downloadId: response.download.id
@@ -616,11 +627,16 @@ function buildDailyBulkTasks(fecha: string): Array<{
       request: { codigoOmie: "4121" as const, fechaDesde: fecha, fechaHasta: fecha }
     },
     {
-      codigoOmie: OMIE_REER_PUBLIC_CODIGO as OmieControlCodigo,
-      modulo: "REER Publico" as const,
-      consulta: "REER publico",
+      codigoOmie: OMIE_REER_OFFICIAL_CODIGO as OmieControlCodigo,
+      modulo: "REER Oficial" as const,
+      consulta: "REER oficial 9230",
       sesion: null,
-      request: { codigoOmie: OMIE_REER_PUBLIC_CODIGO as OmieControlCodigo, fecha }
+      request: {
+        codigoOmie: OMIE_REER_OFFICIAL_CODIGO as OmieControlCodigo,
+        fecha,
+        version: OMIE_REER_OFFICIAL_DEFAULT_VERSION,
+        agente: OMIE_REER_OFFICIAL_DEFAULT_AGENT
+      }
     }
   ];
 }
@@ -856,33 +872,35 @@ function serializeTransaccionDownload(download: {
   };
 }
 
-function serializeReerPublicDownload(download: {
+function serializeReerOfficialDownload(download: {
   id: string;
   fecha: string;
-  versionCarga: number;
+  version: number;
+  agente: string;
+  codigoDocumento: string;
   estado: OmieDownloadEstado;
   registros: number;
   ficheroOrigen: string;
-  urlOrigen: string;
   hashFichero: string;
-  fechaPublicacion: string | null;
+  fechaDescarga: string;
   fechaCarga: string;
   mensajeError: string | null;
+  contenidoXml: string | null;
 }): OmieDownloadControlRow {
   return {
     id: download.id,
-    origen: "reer-publico",
-    modulo: "REER Publico",
-    consulta: "REER publico",
-    codigoOmie: OMIE_REER_PUBLIC_CODIGO,
-    descripcion: "Excedente/Deficit y precio repercutido a unidades de adquisicion por REER",
-    tipoDocumento: "REER_PUBLICO",
+    origen: "reer-oficial",
+    modulo: "REER Oficial",
+    consulta: "REER oficial 9230",
+    codigoOmie: OMIE_REER_OFFICIAL_CODIGO,
+    descripcion: "Anotaciones oficiales de liquidacion REER desde SIOM2",
+    tipoDocumento: "REER_OFICIAL_9230",
     fechaPrograma: download.fecha,
     fechaHasta: null,
     sesion: null,
-    version: download.versionCarga,
-    uOfertante: null,
-    fechaDescarga: download.fechaCarga,
+    version: download.version,
+    uOfertante: download.agente,
+    fechaDescarga: download.fechaDescarga,
     estado: download.estado,
     registros: download.registros,
     hashContenido: download.hashFichero,
@@ -890,12 +908,12 @@ function serializeReerPublicDownload(download: {
     mensajeError: download.mensajeError,
     parametrosUtilizados: {
       Fecha: download.fecha,
-      fichero: download.ficheroOrigen,
-      url: download.urlOrigen,
-      fechaPublicacion: download.fechaPublicacion
+      Version: download.version,
+      Agente: download.agente,
+      codigoDocumento: download.codigoDocumento
     },
     tiempoEjecucionMs: null,
-    rawXmlDisponible: false,
+    rawXmlDisponible: Boolean(download.contenidoXml),
     rawJsonDisponible: true,
     logDisponible: true,
     createdAt: download.fechaCarga,
@@ -960,10 +978,10 @@ function sortControlRows(left: OmieDownloadControlRow, right: OmieDownloadContro
   return right.updatedAt.localeCompare(left.updatedAt);
 }
 
-function buildDetail(row: OmieDownloadControlRow, options: { rawJson: Prisma.JsonValue | null }): OmieDownloadDetail {
+function buildDetail(row: OmieDownloadControlRow, options: { rawJson: Prisma.JsonValue | null; rawXml?: string | null }): OmieDownloadDetail {
   return {
     ...row,
-    rawXml: null,
+    rawXml: options.rawXml ?? null,
     rawJson: options.rawJson,
     log: buildLog(row)
   };
@@ -986,7 +1004,9 @@ function buildRequestFromRow(row: OmieDownloadControlRow): OmieDownloadExecuteRe
     fecha: row.fechaPrograma,
     fechaDesde: row.fechaPrograma,
     fechaHasta: row.fechaHasta ?? row.fechaPrograma,
-    sesion: row.sesion ?? undefined
+    sesion: row.sesion ?? undefined,
+    version: row.version ?? undefined,
+    agente: row.codigoOmie === OMIE_REER_OFFICIAL_CODIGO ? row.uOfertante ?? undefined : undefined
   };
 }
 
@@ -1000,7 +1020,10 @@ function codigoToModulo(codigo: OmieControlCodigo): OmieControlModulo {
   if (codigo === "4121") {
     return "Transacciones";
   }
-  return "REER Publico";
+  if (codigo === OMIE_REER_OFFICIAL_CODIGO) {
+    return "REER Oficial";
+  }
+  throw new BadRequestException("codigoOmie no reconocido.");
 }
 
 function tipoToModulo(tipo: OmieControlTipo): OmieControlModulo {
@@ -1013,14 +1036,17 @@ function tipoToModulo(tipo: OmieControlTipo): OmieControlModulo {
   if (tipo === "TRANSACCIONES") {
     return "Transacciones";
   }
-  return "REER Publico";
+  if (tipo === "REER_OFICIAL_9230") {
+    return "REER Oficial";
+  }
+  throw new BadRequestException("tipoDocumento no reconocido.");
 }
 
 function parseCodigo(value: string) {
-  if (value === "5302" || value === "5608" || value === "5202" || value === "5603" || value === "4125" || value === "4121" || value === OMIE_REER_PUBLIC_CODIGO) {
+  if (value === "5302" || value === "5608" || value === "5202" || value === "5603" || value === "4125" || value === "4121" || value === OMIE_REER_OFFICIAL_CODIGO) {
     return value;
   }
-  throw new BadRequestException("codigoOmie debe ser 5302, 5608, 5202, 5603, 4125, 4121 o INT_REER_CONSUM_EV_H.");
+  throw new BadRequestException("codigoOmie debe ser 5302, 5608, 5202, 5603, 4125, 4121 o 9230.");
 }
 
 function requireFecha(value: string | undefined) {

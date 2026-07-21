@@ -24,16 +24,16 @@ export type MeffForwardCurve = {
   months: MeffForwardCurveMonth[];
 };
 
-type ProductKind = "monthly" | "quarterly" | "annual";
+export type ProductKind = "monthly" | "quarterly" | "annual";
 
-type ParsedProduct = {
+export type ParsedProduct = {
   kind: ProductKind;
   year: number;
   month?: number;
   quarter?: number;
 };
 
-type CurveProduct = ParsedProduct & {
+export type CurveProduct = ParsedProduct & {
   code: string;
   price: number;
   productClass: "BASE";

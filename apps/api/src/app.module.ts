@@ -1,4 +1,5 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
+import { AnnualReportModule } from "./annual-report/annual-report.module";
 import { AuthMiddleware } from "./auth/auth.middleware";
 import { AuthModule } from "./auth/auth.module";
 import { EsiosModule } from "./esios/esios.module";
@@ -15,12 +16,14 @@ import { PrismaModule } from "./prisma/prisma.module";
 import { PricingBaseModule } from "./pricing-base/pricing-base.module";
 import { PricingMeffModule } from "./pricing-meff/pricing-meff.module";
 import { ReeLossesModule } from "./ree-losses/ree-losses.module";
+import { ReeSeieModule } from "./ree-seie/ree-seie.module";
 
 @Module({
   imports: [
     AuthModule,
     PrismaModule,
     HealthModule,
+    AnnualReportModule,
     ImportsModule,
     ReeLossesModule,
     OmieSiom2Module,
@@ -32,7 +35,8 @@ import { ReeLossesModule } from "./ree-losses/ree-losses.module";
     OmieDescargasModule,
     PricingBaseModule,
     PricingMeffModule,
-    EsiosModule
+    EsiosModule,
+    ReeSeieModule
   ]
 })
 export class AppModule implements NestModule {

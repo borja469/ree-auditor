@@ -64,37 +64,13 @@ export function OmieLiquidacionesModule({
   const [openMismatchInfoDate, setOpenMismatchInfoDate] = useState<string | null>(null);
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => new Set());
   const [columnsOpen, setColumnsOpen] = useState(false);
-  const [resultMode, setResultMode] = useState<"prevision" | "conciliada">("prevision");
   const facturaHydrationKey = useMemo(() => `${year}-${month}`, [month, year]);
   const hydratedFacturaKey = useRef<string | null>(null);
   const savedFacturaValues = useRef<Record<string, { facturaCompra: number | null; facturaVenta: number | null }>>({});
   const initializedColumnsPreset = useRef(false);
   const columnsMenuRef = useRef<HTMLDivElement | null>(null);
   const detalleDiarioBase = useMemo(() => [...(comprobacion?.detalleDiario ?? [])].sort((left, right) => left.fechaIso.localeCompare(right.fechaIso)), [comprobacion]);
-  const detalleDiario = useMemo(
-    () =>
-      detalleDiarioBase.map((row) => {
-        const conceptosCompra =
-          resultMode === "conciliada"
-            ? row.reer.reerOficial ?? row.reer.reerEstimadoDerivado ?? row.conceptosCompra
-            : row.reer.reerEstimadoDerivado ?? row.conceptosCompra;
-        const compraBaseImponible =
-          resultMode === "conciliada"
-            ? row.compraTotalConciliada ?? row.compraTotalPrevista ?? row.compraBaseImponible
-            : row.compraTotalPrevista ?? row.compraBaseImponible;
-        const ivaCompra = calculateDisplayIva(compraBaseImponible);
-        const compraFactura = nullableEuroSum([compraBaseImponible, ivaCompra]);
-        return {
-          ...row,
-          conceptosCompra,
-          compraBaseImponible,
-          ivaCompra,
-          compraFactura,
-          netoFactura: calculateDisplayNetoFactura(compraFactura, row.ventaFactura)
-        };
-      }),
-    [detalleDiarioBase, resultMode]
-  );
+  const detalleDiario = detalleDiarioBase;
   const weeklyGroups = useMemo(() => buildOmieLiquidationWeeklyGroups(detalleDiario, facturaDrafts), [detalleDiario, facturaDrafts]);
   const orderedGroups = useMemo(
     () => (sortDirection === "asc" ? weeklyGroups : [...weeklyGroups].reverse().map((group) => ({ ...group, rows: [...group.rows].reverse() }))),
@@ -139,9 +115,7 @@ export function OmieLiquidacionesModule({
       { id: "costeXbid", label: "Coste XBID", width: 120, align: "right", type: "number", visibility: "basic", value: (row) => row.costeXbid, render: (row) => formatEuroAmount(row.costeXbid) },
       { id: "compraMercados", label: "Compra mercados", width: 144, align: "right", type: "number", visibility: "basic", value: (row) => row.compraMercados, render: (row) => formatEuroAmount(row.compraMercados) },
       { id: "ventaMercados", label: "Venta mercados", width: 140, align: "right", type: "number", visibility: "basic", value: (row) => row.ventaMercados, render: (row) => formatEuroAmount(row.ventaMercados) },
-      { id: "reerEstimado", label: "REER estimado", width: 134, align: "right", type: "number", visibility: "basic", value: (row) => row.reer.reerEstimadoDerivado, render: (row) => formatEuroAmount(row.reer.reerEstimadoDerivado) },
       { id: "reerOficial", label: "REER oficial", width: 128, align: "right", type: "number", visibility: "basic", value: (row) => row.reer.reerOficial, render: (row) => formatEuroAmount(row.reer.reerOficial) },
-      { id: "ajusteReer", label: "Ajuste REER", width: 126, align: "right", type: "number", visibility: "basic", value: (row) => row.reer.ajusteReerConciliacion, render: (row) => formatEuroAmount(row.reer.ajusteReerConciliacion) },
       { id: "conceptosCompra", label: "Conceptos compra", width: 154, align: "right", type: "number", visibility: "basic", value: (row) => row.conceptosCompra, render: (row) => formatEuroAmount(row.conceptosCompra) },
       { id: "conceptosVenta", label: "Conceptos venta", width: 146, align: "right", type: "number", visibility: "basic", value: (row) => row.conceptosVenta, render: (row) => formatEuroAmount(row.conceptosVenta) },
       { id: "compraBaseImponible", label: "Base compra", width: 132, align: "right", type: "number", visibility: "basic", value: (row) => row.compraBaseImponible, render: (row) => formatEuroAmount(row.compraBaseImponible) },
@@ -355,13 +329,6 @@ export function OmieLiquidacionesModule({
               <Search size={16} />
               Consultar
             </button>
-            <label className="filter-field">
-              <span>Modo</span>
-              <select disabled={loading} value={resultMode} onChange={(event) => setResultMode(event.target.value as "prevision" | "conciliada")}>
-                <option value="prevision">Prevision operativa</option>
-                <option value="conciliada">Liquidacion conciliada</option>
-              </select>
-            </label>
           </div>
         </div>
       </div>
@@ -465,19 +432,14 @@ export function OmieLiquidacionesModule({
 
             <div className="technical-kpis">
               <div className="technical-kpi neutral">
-                <span>Modo seleccionado</span>
-                <strong>{resultMode === "conciliada" ? "Liquidacion conciliada" : "Prevision operativa"}</strong>
-                <small>{resultMode === "conciliada" ? "Usa REER oficial si existe" : "Usa coeficiente publico derivado"}</small>
-              </div>
-              <div className="technical-kpi neutral">
-                <span>REER estimado</span>
-                <strong>{formatEuroAmount(comprobacion.totalesReer.reerEstimadoDerivado)}</strong>
-                <small>Coeficiente derivado publico</small>
+                <span>Modo</span>
+                <strong>Liquidacion conciliada</strong>
+                <small>Usa exclusivamente conceptos oficiales cargados</small>
               </div>
               <div className="technical-kpi neutral">
                 <span>REER oficial</span>
                 <strong>{formatEuroAmount(comprobacion.totalesReer.reerOficial)}</strong>
-                <small>Ajuste: {formatEuroAmount(comprobacion.totalesReer.ajusteReerConciliacion)}</small>
+                <small>SIOM2 9230</small>
               </div>
               {validationKpis.map((kpi) => (
                 <div className={`technical-kpi ${kpi.tone ?? "neutral"}`} key={kpi.label}>
@@ -695,8 +657,11 @@ function OmieReerPeriodTable({ row }: { row: OmieComprobacionLiquidacionDiaria }
     <div className="table-scroll omie-liquidation-hourly-shell">
       <div className="omie-week-summary-heading" title={`${row.reer.tooltip} ${row.reer.limitacionExclusiones}`}>
         <strong>REER</strong>
+        <small>
+          Origen: {row.reer.origenResultado} · Version {row.reer.versionUtilizada ?? "-"} · Publicacion {formatTraceDate(row.reer.fechaPublicacion)} · Descarga {formatTraceDate(row.reer.fechaDescarga)}
+        </small>
         <span>
-          {formatReerEstado(row.reer.estadoReer)} · Estimado {formatEuroAmount(row.reer.reerEstimadoDerivado)} · Oficial {formatEuroAmount(row.reer.reerOficial)} · Ajuste {formatEuroAmount(row.reer.ajusteReerConciliacion)}
+          {formatReerEstado(row.reer.estadoReer)} · Oficial {formatEuroAmount(row.reer.reerOficial)}
         </span>
       </div>
       <table className="omie-liquidation-hourly-table">
@@ -706,12 +671,8 @@ function OmieReerPeriodTable({ row }: { row: OmieComprobacionLiquidacionDiaria }
             <th>Energía neta</th>
             <th>Energía REER calc.</th>
             <th>Energía REER oficial</th>
-            <th>Precio público</th>
-            <th>Coef. derivado</th>
             <th>Precio XML</th>
-            <th>Importe estimado</th>
             <th>Importe oficial</th>
-            <th>Diferencia</th>
             <th>Estado</th>
           </tr>
         </thead>
@@ -722,12 +683,8 @@ function OmieReerPeriodTable({ row }: { row: OmieComprobacionLiquidacionDiaria }
               <td>{formatOmieEnergy(periodo.energiaNetaAgente)}</td>
               <td>{formatOmieEnergy(periodo.energiaReerCalculada)}</td>
               <td>{formatOmieEnergy(periodo.energiaReerOficial)}</td>
-              <td>{formatOmiePrice(periodo.precioPublico)}</td>
-              <td>{formatCoefficient(periodo.coeficienteDerivado)}</td>
               <td>{formatOmiePrice(periodo.precioXml)}</td>
-              <td>{formatEuroAmount(periodo.importeEstimadoDerivado)}</td>
               <td>{formatEuroAmount(periodo.importeOficial)}</td>
-              <td>{formatEuroAmount(periodo.diferencia)}</td>
               <td>{formatReerEstado(periodo.estado)}</td>
             </tr>
           ))}
@@ -743,9 +700,7 @@ function OmieMismatchTooltip({ row }: { row: OmieLiquidationValidationRow }) {
       <strong>{row.fecha}</strong>
       <span>Compra mercados: {formatEuroAmount(row.compraMercados)}</span>
       <span>Venta mercados: {formatEuroAmount(row.ventaMercados)}</span>
-      <span>REER estimado: {formatEuroAmount(row.reer.reerEstimadoDerivado)}</span>
       <span>REER oficial: {formatEuroAmount(row.reer.reerOficial)}</span>
-      <span>Ajuste REER: {formatEuroAmount(row.reer.ajusteReerConciliacion)}</span>
       <span>Conceptos compra: {formatEuroAmount(row.conceptosCompra)}</span>
       <span>Conceptos venta: {formatEuroAmount(row.conceptosVenta)}</span>
       <span>Base compra: {formatEuroAmount(row.compraBaseImponible)}</span>
@@ -767,43 +722,23 @@ function OmieMismatchTooltip({ row }: { row: OmieLiquidationValidationRow }) {
 function formatReerEstado(value: OmieReerEstado) {
   const labels: Record<OmieReerEstado, string> = {
     SIN_DATOS_REER: "Sin datos REER",
-    ESTIMADO_PUBLICO: "Estimado publico",
-    ESTIMADO_CON_DIFERENCIA: "Estimado con diferencia",
     CONCILIADO_OFICIAL: "Conciliado oficial",
     DIFERENCIA_OFICIAL: "Diferencia oficial"
   };
   return labels[value] ?? value;
 }
 
-function formatCoefficient(value: number | null | undefined) {
-  return value === null || value === undefined || !Number.isFinite(value) ? "-" : formatFixedDecimalNumber(value, 6);
+function formatTraceDate(value: string | null | undefined) {
+  if (!value) {
+    return "-";
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+  return match ? `${match[3]}/${match[2]}/${match[1]} ${match[4]}:${match[5]}` : value;
 }
 
 function formatNumber(value: number | string | null | undefined) {
   const numeric = normalizeNumericValue(value);
   return numeric === undefined ? "-" : formatFixedDecimalNumber(numeric, 2);
-}
-
-function calculateDisplayNetoFactura(compraFactura: number | null, ventaFactura: number | null) {
-  if (compraFactura === null || ventaFactura === null || !Number.isFinite(compraFactura) || !Number.isFinite(ventaFactura)) {
-    return null;
-  }
-  return Math.round((compraFactura - ventaFactura + Number.EPSILON) * 100) / 100;
-}
-
-function calculateDisplayIva(baseImponible: number | null) {
-  if (baseImponible === null || !Number.isFinite(baseImponible)) {
-    return null;
-  }
-  return Math.round((baseImponible * 0.21 + Number.EPSILON) * 100) / 100;
-}
-
-function nullableEuroSum(values: Array<number | null | undefined>) {
-  const present = values.filter((value): value is number => value !== null && value !== undefined && Number.isFinite(value));
-  if (present.length === 0) {
-    return null;
-  }
-  return Math.round((present.reduce((sum, value) => sum + value, 0) + Number.EPSILON) * 100) / 100;
 }
 
 function normalizeNumericValue(value: number | string | null | undefined) {

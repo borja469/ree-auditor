@@ -1,15 +1,49 @@
 import { beginLoading, withGlobalLoading } from "./loading";
 
-export type ReeFileType = "REGANECU" | "REGANECUQH";
+export type ReeFileType = "REGANECU" | "REGANECUQH" | "SEIE";
 export type ReeVersion = "A1" | "C1" | "C2" | "C3" | "C4" | "C5";
 export type MedperFileType = "MEDPERQH";
 export type ReeKFactorFileType = "KESTIMQH" | "KREALQH";
 export type OmieTipoDocumento = "PVD" | "PHF";
 export type OmieTipoPrecio = "MD" | "MI" | "XBID";
-export type OmieDownloadModulo = "Programas" | "Precios" | "Transacciones" | "REER Publico";
-export type OmieDownloadCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4121" | "INT_REER_CONSUM_EV_H";
-export type OmieDownloadDocumentType = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES" | "REER_PUBLICO";
-export type OmieDownloadEstado = "PENDIENTE" | "DESCARGANDO" | "DESCARGADO" | "PROCESADO" | "ERROR";
+export type OmieDownloadModulo = "Programas" | "Precios" | "Transacciones" | "REER Oficial";
+export type OmieDownloadCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4121" | "9230";
+export type OmieDownloadDocumentType = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES" | "REER_OFICIAL_9230";
+export type OmieDownloadEstado = "PENDIENTE" | "DESCARGANDO" | "DESCARGADO" | "PROCESADO" | "SIN_DATOS" | "ERROR";
+
+export type AnnualReportMetricKind = "energy" | "currency" | "price" | "text";
+export type AnnualReportMetricRow = {
+  key: string;
+  label: string;
+  kind: AnnualReportMetricKind;
+  months: Array<number | string | null>;
+  total: number | string | null;
+  editable?: {
+    type: "OS" | "OM" | "REMIT";
+  };
+};
+export type AnnualReportTable = {
+  key: "peninsula" | "seie";
+  title: string;
+  missingMonths: Array<{
+    month: number;
+    label: string;
+    missing: string[];
+  }>;
+  rows: AnnualReportMetricRow[];
+};
+export type AnnualReportResponse = {
+  year: number;
+  availableYears: number[];
+  months: string[];
+  missingMonths: Array<{
+    month: number;
+    label: string;
+    missing: string[];
+  }>;
+  rows: AnnualReportMetricRow[];
+  tables?: AnnualReportTable[];
+};
 
 export type ReeFile = {
   id: string;
@@ -141,7 +175,7 @@ export type ReeLossesImportFile = {
 
 export type ReeDownloadCenterSummaryRow = {
   month: string;
-  module: "REGANECU" | "MEDPER" | "K REE";
+  module: "REGANECU" | "MEDPER" | "K REE" | "SEIE";
   status: "correct" | "error" | "pending" | "incomplete" | "duplicated" | "warning";
   label: string | null;
   loads: number;
@@ -239,7 +273,7 @@ export type OmieProgramaEvolucionResponse = {
 
 export type OmieDownloadControlRow = {
   id: string;
-  origen: "programas" | "precios" | "transacciones" | "reer-publico";
+  origen: "programas" | "precios" | "transacciones" | "reer-oficial";
   modulo: OmieDownloadModulo;
   consulta: string;
   codigoOmie: OmieDownloadCodigo;
@@ -287,6 +321,8 @@ export type OmieDownloadExecuteRequest = {
   fechaDesde?: string;
   fechaHasta?: string;
   sesion?: string;
+  version?: number;
+  agente?: string;
 };
 
 export type OmieDownloadExecuteResponse = {
@@ -426,54 +462,7 @@ export type OmieAnalisisMensualResponse = {
 };
 
 export type OmieComprobacionLiquidacionMercado = "MD" | "IDA1" | "IDA2" | "IDA3" | "XBID" | "TOTAL";
-export type OmieReerEstado = "SIN_DATOS_REER" | "ESTIMADO_PUBLICO" | "ESTIMADO_CON_DIFERENCIA" | "CONCILIADO_OFICIAL" | "DIFERENCIA_OFICIAL";
-
-export type OmieComprobacionReerPeriodo = {
-  periodo: number;
-  periodoEtiqueta: string;
-  energiaNetaAgente: number | null;
-  energiaReerCalculada: number | null;
-  energiaReerOficial: number | null;
-  precioPublico: number | null;
-  coeficienteDerivado: number | null;
-  precioXml: number | null;
-  importeEstimadoPublicado: number | null;
-  importeEstimadoDerivado: number | null;
-  importeOficial: number | null;
-  diferencia: number | null;
-  estado: OmieReerEstado;
-};
-
-export type OmieComprobacionReerDiario = {
-  estadoReer: OmieReerEstado;
-  reerEstimadoPublicado: number | null;
-  reerEstimadoDerivado: number | null;
-  reerOficial: number | null;
-  ajusteReerConciliacion: number | null;
-  reerAplicado: number | null;
-  energiaReerCalculada: number | null;
-  energiaReerOficial: number | null;
-  diferenciaEnergia: number | null;
-  diferenciaImporte: number | null;
-  toleranciaPeriodoEur: number;
-  toleranciaDiaEur: number;
-  fuentePublica: string | null;
-  fuenteOficial: string | null;
-  tooltip: string;
-  limitacionExclusiones: string;
-  periodos: OmieComprobacionReerPeriodo[];
-};
-
-export type OmieLiquidacionConceptoAdicional = {
-  codigo: string;
-  descripcion: string;
-  importePrevisto: number | null;
-  importeOficial: number | null;
-  importeAplicado: number | null;
-  estado: OmieReerEstado;
-  fuentePublica: string | null;
-  fuenteOficial: string | null;
-};
+export type OmieReerEstado = "SIN_DATOS_REER" | "CONCILIADO_OFICIAL" | "DIFERENCIA_OFICIAL";
 
 export type OmieComprobacionLiquidacionResumen = {
   mercado: OmieComprobacionLiquidacionMercado;
@@ -500,6 +489,47 @@ export type OmieComprobacionLiquidacionHoraria = {
   xbidMWh: number | null;
   pxbid: number | null;
   costeXbid: number | null;
+};
+
+export type OmieComprobacionReerPeriodo = {
+  periodo: number;
+  periodoEtiqueta: string;
+  energiaNetaAgente: number | null;
+  energiaReerCalculada: number | null;
+  energiaReerOficial: number | null;
+  precioXml: number | null;
+  importeOficial: number | null;
+  estado: OmieReerEstado;
+};
+
+export type OmieComprobacionReerDiario = {
+  estadoReer: OmieReerEstado;
+  reerOficial: number | null;
+  reerAplicado: number | null;
+  energiaReerCalculada: number | null;
+  energiaReerOficial: number | null;
+  diferenciaEnergia: number | null;
+  diferenciaImporte: number | null;
+  toleranciaPeriodoEur: number;
+  toleranciaDiaEur: number;
+  fuenteOficial: string | null;
+  origenResultado: "Liquidacion oficial SIOM2 (9230)" | "Sin datos REER";
+  versionUtilizada: number | null;
+  fechaPublicacion: string | null;
+  fechaDescarga: string | null;
+  tooltip: string;
+  limitacionExclusiones: string;
+  periodos: OmieComprobacionReerPeriodo[];
+};
+
+export type OmieLiquidacionConceptoAdicional = {
+  codigo: string;
+  descripcion: string;
+  importePrevisto: number | null;
+  importeOficial: number | null;
+  importeAplicado: number | null;
+  estado: OmieReerEstado;
+  fuenteOficial: string | null;
 };
 
 export type OmieComprobacionLiquidacionDiaria = {
@@ -533,7 +563,6 @@ export type OmieComprobacionLiquidacionDiaria = {
   netoBaseImponible: number | null;
   netoAnalitico: number | null;
   reer: OmieComprobacionReerDiario;
-  compraTotalPrevista: number | null;
   compraTotalConciliada: number | null;
   facturaCompra: number | null;
   facturaVenta: number | null;
@@ -557,13 +586,9 @@ export type OmieComprobacionLiquidacionesResponse = {
   resumenMensual: OmieComprobacionLiquidacionResumen[];
   detalleDiario: OmieComprobacionLiquidacionDiaria[];
   totalesReer: {
-    reerEstimadoPublicado: number | null;
-    reerEstimadoDerivado: number | null;
     reerOficial: number | null;
-    ajusteReerConciliacion: number | null;
   };
   modosResultado: {
-    previsionOperativaDisponible: boolean;
     liquidacionConciliadaDisponible: boolean;
   };
   cuadroEconomico: OmieComprobacionCuadre;
@@ -1818,12 +1843,122 @@ export type A1Record = {
   file?: ReeFile;
 };
 
+export type ReeSeieFile = {
+  id: string;
+  fileName: string;
+  containerFileName?: string | null;
+  fileHash: string;
+  tipoArchivo: "SEIE";
+  version: string;
+  fechaLiquidacion: string;
+  sujetoEic?: string | null;
+  encoding: string;
+  delimiter: string;
+  status: "IMPORTED" | "FAILED" | "DUPLICATED";
+  errorMessage?: string | null;
+  importedAt: string;
+  totalRecords: number;
+  validRecords: number;
+  invalidRecords: number;
+  duplicatedRecords: number;
+};
+
+export type ReeSeieRecord = {
+  id: string;
+  fileId: string;
+  uploadId: string;
+  filename: string;
+  hash: string;
+  fechaCarga: string;
+  version: string;
+  fechaLiquidacion: string;
+  sujetoEic?: string | null;
+  fecha?: string | null;
+  hora?: number | null;
+  codigo?: string | null;
+  unidad?: string | null;
+  tipo?: string | null;
+  sentido?: string | null;
+  segmento?: string | null;
+  magnitud?: string | null;
+  precio?: string | null;
+  energia?: string | null;
+  validationErrors?: string[] | null;
+  rawPayloadJson?: Record<string, string | null>;
+  sourceLineNumber: number;
+  file?: ReeSeieFile;
+};
+
+export type ReeSeieFilters = {
+  fecha?: string;
+  fechaInicio?: string;
+  fechaFin?: string;
+  codigo?: string;
+  unidad?: string;
+  tipo?: string;
+  sentido?: string;
+  segmento?: string;
+  hora?: number;
+  archivo?: string;
+  version?: string;
+  skip?: number;
+  take?: number;
+};
+
+export type ReeSeieFilterOptions = {
+  versions: string[];
+  months: string[];
+  codigos: string[];
+  unidades: string[];
+  tipos: string[];
+  sentidos: string[];
+  segmentos: string[];
+  archivos: string[];
+  latestMonth: string | null;
+};
+
+export type ReeSeieSummary = {
+  files: ReeSeieFile[];
+  groups: Array<{
+    fechaLiquidacion: string;
+    version: string;
+    segmento?: string | null;
+    tipo?: string | null;
+    sentido?: string | null;
+    records: number;
+    magnitud?: string | null;
+    energia?: string | null;
+  }>;
+  validation: {
+    invalidRecords: number;
+  };
+};
+
+export type ReeSeieImportResponse = Omit<ImportResponse, "results" | "files"> & {
+  results: Array<{
+    fileName: string;
+    status: "IMPORTED" | "FAILED" | "DUPLICATE";
+    file?: ReeSeieFile;
+    recordsImported: number;
+    validRecords: number;
+    invalidRecords: number;
+    duplicatedRecords: number;
+    errors: Array<{
+      sourceFileName: string;
+      lineNumber: number;
+      message: string;
+    }>;
+  }>;
+  files: ReeSeieFile[];
+};
+
 export type Filters = {
   fecha?: string;
   fechaInicio?: string;
   fechaFin?: string;
   version?: ReeVersion;
   brp?: string;
+  brps?: string[];
   sujeto?: string;
   segmento?: string;
   codigoApunte?: string;
@@ -2196,7 +2331,11 @@ export async function listImports(query: Pick<Filters, "skip" | "take"> = {}): P
 }
 
 export async function getReeDownloadCenterSummary(): Promise<ReeDownloadCenterSummaryRow[]> {
-  return getJson(`/imports/download-center-summary`);
+  const [base, seie] = await Promise.all([
+    getJson<ReeDownloadCenterSummaryRow[]>(`/imports/download-center-summary`),
+    getJson<ReeDownloadCenterSummaryRow[]>(`/ree-seie/download-center-summary`)
+  ]);
+  return [...base, ...seie];
 }
 
 export async function login(username: string, password: string): Promise<AuthSession> {
@@ -2312,12 +2451,52 @@ export async function uploadReeLossesFiles(files: File[], onProgress?: (progress
   return sendMultipart<ReeLossesImportResponse>(`${API_URL}/ree-losses/import`, formData, onProgress);
 }
 
+export async function uploadReeSeieFiles(
+  files: File[],
+  onProgress?: (progress: number) => void,
+  options: UploadOptions = {}
+): Promise<ReeSeieImportResponse> {
+  const formData = new FormData();
+  for (const file of files) {
+    formData.append("files", file, file.name);
+  }
+
+  return sendMultipart<ReeSeieImportResponse>(`${API_URL}/ree-seie/import${toQuery({ overwrite: options.overwrite ? "true" : undefined })}`, formData, onProgress);
+}
+
 export async function listReganecu(filters: Filters): Promise<A1Record[]> {
   return getJson(`/reganecu${toQuery(filters)}`);
 }
 
 export async function listReganecuQh(filters: Filters): Promise<A1Record[]> {
   return getJson(`/reganecu-qh${toQuery(filters)}`);
+}
+
+export async function listReeSeieFiles(query: Pick<ReeSeieFilters, "skip" | "take"> = {}): Promise<ReeSeieFile[]> {
+  return getJson(`/ree-seie/files${toQuery(query)}`);
+}
+
+export async function getReeSeieFilterOptions(): Promise<ReeSeieFilterOptions> {
+  return getJson(`/ree-seie/filters`);
+}
+
+export async function getReeSeieSummary(filters: ReeSeieFilters): Promise<ReeSeieSummary> {
+  return getJson(`/ree-seie/summary${toQuery(filters)}`);
+}
+
+export async function listReeSeieRecords(filters: ReeSeieFilters): Promise<ReeSeieRecord[]> {
+  return getJson(`/ree-seie/records${toQuery(filters)}`);
+}
+
+export async function downloadReeSeieExport(filters: ReeSeieFilters = {}, format: "csv" | "xlsx"): Promise<Blob> {
+  return withGlobalLoading(async () => {
+    const response = await fetch(`${API_URL}/ree-seie/export${toQuery({ ...filters, format })}`, { headers: authHeaders() });
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(await readError(response, "Error exportando SEIE."));
+    }
+    return response.blob();
+  }, { label: "Exportando SEIE" });
 }
 
 export async function getSettlementSummary(filters: Filters): Promise<SettlementSummary> {
@@ -2742,6 +2921,23 @@ export async function predictForecastRange(request: { modeloId: string; fechaDes
 
 export async function getForecastPredictionHistory(filters: { modeloId?: string; fechaDesde?: string; fechaHasta?: string } = {}): Promise<ForecastPredictionRun[]> {
   return getJson(`/mercado/forecast/predictions${toQuery(filters)}`);
+}
+
+export async function getAnnualReport(year: number | string): Promise<AnnualReportResponse> {
+  return getJson(`/annual-report${toQuery({ year })}`);
+}
+
+export async function getAnnualReportYears(): Promise<number[]> {
+  return getJson(`/annual-report/years`);
+}
+
+export async function saveAnnualReportRetributionPrice(request: {
+  year: number;
+  month: number;
+  type: "OS" | "OM" | "REMIT";
+  price: number | null;
+}): Promise<{ year: number; month: number; type: "OS" | "OM" | "REMIT"; price: number | null; updatedAt: string }> {
+  return sendJson(`/annual-report/retribution-price`, "PUT", "Guardando retribucion", REQUEST_TIMEOUT_MS, request);
 }
 
 async function getJson<T>(path: string): Promise<T> {

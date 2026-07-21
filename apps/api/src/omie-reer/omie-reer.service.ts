@@ -1,7 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { OmieDownloadEstado, Prisma } from "@prisma/client";
 import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { request as httpsRequest } from "node:https";
+import { OmieSiom2ClientService } from "../omie-siom2/omie-siom2-client.service";
 import { PrismaService } from "../prisma/prisma.service";
 import {
   buildOmieReerConsumFileName,
@@ -12,6 +14,9 @@ import {
 } from "./omie-reer.parser";
 
 export const OMIE_REER_PUBLIC_CODIGO = "INT_REER_CONSUM_EV_H";
+export const OMIE_REER_OFFICIAL_CODIGO = "9230";
+export const OMIE_REER_OFFICIAL_DEFAULT_AGENT = "STROM";
+export const OMIE_REER_OFFICIAL_DEFAULT_VERSION = 1;
 
 export type OmieReerPublicDownloadRow = {
   id: string;
@@ -32,9 +37,33 @@ export type OmieReerPublicSyncResponse = {
   download: OmieReerPublicDownloadRow;
 };
 
+export type OmieReerOfficialDownloadRow = {
+  id: string;
+  fecha: string;
+  version: number;
+  agente: string;
+  codigoDocumento: string;
+  estado: OmieDownloadEstado;
+  registros: number;
+  ficheroOrigen: string;
+  hashFichero: string;
+  fechaDescarga: string;
+  fechaCarga: string;
+  mensajeError: string | null;
+  contenidoXml: string | null;
+};
+
+export type OmieReerOfficialSyncResponse = {
+  message: string;
+  download: OmieReerOfficialDownloadRow;
+};
+
 @Injectable()
 export class OmieReerService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly omieSiom2Client: OmieSiom2ClientService
+  ) {}
 
   buildPublicUrl(fecha: Date, extension: "TXT" | "XLS" = "TXT") {
     return buildOmieReerConsumUrl(fecha, extension);
@@ -129,15 +158,165 @@ export class OmieReerService {
     const content = decodeText(input.buffer);
     const hash = createHash("sha256").update(input.buffer).digest("hex");
     const rows = parseOmieReerOfficialXml(content, input.fileName);
-    await this.prisma.omieReerOfficialAnnotation.createMany({
-      data: rows.map((row) => ({
-        ...row,
-        ficheroOrigen: input.fileName,
-        hashFichero: hash
-      })),
-      skipDuplicates: true
+    if (rows.length === 0) {
+      throw new BadRequestException("El XML 9230 no contiene anotaciones REER.");
+    }
+    const fecha = rows[0].fecha;
+    const version = rows[0].version;
+    const agente = OMIE_REER_OFFICIAL_DEFAULT_AGENT;
+    const fechaDescarga = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.omieReerOfficialAnnotation.deleteMany({
+        where: { fecha, version, agente, codigoDocumento: OMIE_REER_OFFICIAL_CODIGO }
+      });
+      await tx.omieReerOfficialAnnotation.createMany({
+        data: [
+          buildOfficialHeaderData({
+            fecha,
+            version,
+            agente,
+            estado: OmieDownloadEstado.PROCESADO,
+            registros: rows.length,
+            ficheroOrigen: input.fileName,
+            hashFichero: hash,
+            contenidoXml: content,
+            fechaDescarga,
+            mensajeError: null
+          }),
+          ...rows.map((row) => ({
+            ...row,
+            agente,
+            codigoDocumento: OMIE_REER_OFFICIAL_CODIGO,
+            ficheroOrigen: input.fileName,
+            hashFichero: hash,
+            contenidoXml: content,
+            estado: OmieDownloadEstado.PROCESADO,
+            registros: rows.length,
+            fechaDescarga
+          }))
+        ],
+        skipDuplicates: true
+      });
     });
     return { registros: rows.length, hashFichero: hash };
+  }
+
+  async sincronizarOficial9230(
+    fechaIso: string,
+    options: { force?: boolean; version?: number; agente?: string } = {}
+  ): Promise<OmieReerOfficialSyncResponse> {
+    const fecha = parseDateOnly(fechaIso);
+    const version = normalizeVersion(options.version);
+    const agente = normalizeAgente(options.agente);
+    const latest = await this.getOfficialControlRow(fecha, version, agente);
+    if (latest && latest.estado === OmieDownloadEstado.PROCESADO && !options.force) {
+      return {
+        message: "Ya existe REER oficial 9230 procesado",
+        download: latest
+      };
+    }
+
+    const fechaDescarga = new Date();
+    try {
+      const downloaded = await this.omieSiom2Client.descargarXmlConsulta(OMIE_REER_OFFICIAL_CODIGO, {
+        Fecha: fechaIso,
+        Version: String(version),
+        Agente: agente
+      });
+      const contenidoXml = await readFile(downloaded.outputPath, "utf8");
+      const buffer = Buffer.from(contenidoXml, "utf8");
+      const hash = createHash("sha256").update(buffer).digest("hex");
+      const rows = parseOmieReerOfficialXml(contenidoXml, downloaded.fileName);
+      if (rows.length === 0) {
+        return {
+          message: "REER oficial 9230 sin datos para la fecha/version/agente",
+          download: await this.persistOfficialDownloadHeader({
+            fecha,
+            version,
+            agente,
+            estado: OmieDownloadEstado.SIN_DATOS,
+            registros: 0,
+            ficheroOrigen: downloaded.fileName,
+            hashFichero: hash,
+            contenidoXml,
+            fechaDescarga,
+            mensajeError: "El XML 9230 no contiene anotaciones REER."
+          })
+        };
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        await tx.omieReerOfficialAnnotation.deleteMany({
+          where: { fecha, version, agente, codigoDocumento: OMIE_REER_OFFICIAL_CODIGO }
+        });
+        await tx.omieReerOfficialAnnotation.createMany({
+          data: [
+            buildOfficialHeaderData({
+              fecha,
+              version,
+              agente,
+              estado: OmieDownloadEstado.PROCESADO,
+              registros: rows.length,
+              ficheroOrigen: downloaded.fileName,
+              hashFichero: hash,
+              contenidoXml,
+              fechaDescarga,
+              mensajeError: null
+            }),
+            ...rows.map((row) => ({
+              ...row,
+              agente,
+              codigoDocumento: OMIE_REER_OFFICIAL_CODIGO,
+              ficheroOrigen: downloaded.fileName,
+              hashFichero: hash,
+              contenidoXml,
+              estado: OmieDownloadEstado.PROCESADO,
+              registros: rows.length,
+              fechaDescarga
+            }))
+          ],
+          skipDuplicates: true
+        });
+      });
+
+      return {
+        message: "REER oficial 9230 procesado",
+        download: await this.getOfficialControlRowOrThrow(fecha, version, agente)
+      };
+    } catch (error) {
+      if (isOfficialNoDataError(error)) {
+        return {
+          message: "REER oficial 9230 sin datos para la fecha/version/agente",
+          download: await this.persistOfficialDownloadHeader({
+            fecha,
+            version,
+            agente,
+            estado: OmieDownloadEstado.SIN_DATOS,
+            registros: 0,
+            ficheroOrigen: `9230_${formatDateCompact(fecha)}.${version}.xml`,
+            hashFichero: createHash("sha256").update(`${fechaIso}:${version}:${agente}:SIN_DATOS`).digest("hex"),
+            contenidoXml: null,
+            fechaDescarga,
+            mensajeError: error instanceof Error ? error.message : String(error)
+          })
+        };
+      }
+      return {
+        message: "Error descargando REER oficial 9230",
+        download: await this.persistOfficialDownloadHeader({
+          fecha,
+          version,
+          agente,
+          estado: OmieDownloadEstado.ERROR,
+          registros: 0,
+          ficheroOrigen: `9230_${formatDateCompact(fecha)}.${version}.xml`,
+          hashFichero: createHash("sha256").update(`${fechaIso}:${version}:${agente}:ERROR:${String(error)}`).digest("hex"),
+          contenidoXml: null,
+          fechaDescarga,
+          mensajeError: error instanceof Error ? error.message : String(error)
+        })
+      };
+    }
   }
 
   async getLatestPublicRows(fecha: Date) {
@@ -157,17 +336,51 @@ export class OmieReerService {
 
   async getLatestOfficialRows(fecha: Date) {
     const latest = await this.prisma.omieReerOfficialAnnotation.findFirst({
-      where: { fecha },
+      where: {
+        fecha,
+        periodo: 0,
+        codigoDocumento: OMIE_REER_OFFICIAL_CODIGO,
+        estado: OmieDownloadEstado.PROCESADO
+      },
       orderBy: { version: "desc" },
-      select: { version: true }
+      select: { version: true, agente: true }
     });
     if (!latest) {
       return [];
     }
     return this.prisma.omieReerOfficialAnnotation.findMany({
-      where: { fecha, version: latest.version },
+      where: {
+        fecha,
+        version: latest.version,
+        agente: latest.agente,
+        codigoDocumento: OMIE_REER_OFFICIAL_CODIGO,
+        periodo: { gt: 0 },
+        estado: OmieDownloadEstado.PROCESADO
+      },
       orderBy: { periodo: "asc" }
     });
+  }
+
+  async getOfficialControlRows(filters: { fechaDesde?: string; fechaHasta?: string; estado?: OmieDownloadEstado } = {}) {
+    const where: Prisma.OmieReerOfficialAnnotationWhereInput = {
+      periodo: 0,
+      codigoDocumento: OMIE_REER_OFFICIAL_CODIGO
+    };
+    if (filters.estado) {
+      where.estado = filters.estado;
+    }
+    if (filters.fechaDesde || filters.fechaHasta) {
+      where.fecha = {
+        gte: filters.fechaDesde ? parseDateOnly(filters.fechaDesde) : undefined,
+        lte: filters.fechaHasta ? parseDateOnly(filters.fechaHasta) : undefined
+      };
+    }
+    const rows = await this.prisma.omieReerOfficialAnnotation.findMany({
+      where,
+      orderBy: [{ fecha: "desc" }, { version: "desc" }, { agente: "asc" }, { fechaDescarga: "desc" }],
+      take: 300
+    });
+    return rows.map(serializeOfficialDownload);
   }
 
   async getPublicControlRows(filters: { fechaDesde?: string; fechaHasta?: string; estado?: OmieDownloadEstado } = {}) {
@@ -219,7 +432,59 @@ export class OmieReerService {
     }
     throw new NotFoundException(lastError?.message ?? "No se ha publicado el fichero REER para la fecha indicada.");
   }
+
+  private async getOfficialControlRow(fecha: Date, version: number, agente: string) {
+    const row = await this.prisma.omieReerOfficialAnnotation.findFirst({
+      where: {
+        fecha,
+        version,
+        agente,
+        periodo: 0,
+        codigoDocumento: OMIE_REER_OFFICIAL_CODIGO
+      },
+      orderBy: { fechaDescarga: "desc" }
+    });
+    return row ? serializeOfficialDownload(row) : null;
+  }
+
+  private async getOfficialControlRowOrThrow(fecha: Date, version: number, agente: string) {
+    const row = await this.getOfficialControlRow(fecha, version, agente);
+    if (!row) {
+      throw new NotFoundException("No se ha podido recuperar el registro de control REER oficial 9230.");
+    }
+    return row;
+  }
+
+  private async persistOfficialDownloadHeader(input: OfficialHeaderInput) {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.omieReerOfficialAnnotation.deleteMany({
+        where: {
+          fecha: input.fecha,
+          version: input.version,
+          agente: input.agente,
+          codigoDocumento: OMIE_REER_OFFICIAL_CODIGO
+        }
+      });
+      await tx.omieReerOfficialAnnotation.create({
+        data: buildOfficialHeaderData(input)
+      });
+    });
+    return this.getOfficialControlRowOrThrow(input.fecha, input.version, input.agente);
+  }
 }
+
+type OfficialHeaderInput = {
+  fecha: Date;
+  version: number;
+  agente: string;
+  estado: OmieDownloadEstado;
+  registros: number;
+  ficheroOrigen: string;
+  hashFichero: string;
+  contenidoXml: string | null;
+  fechaDescarga: Date;
+  mensajeError: string | null;
+};
 
 function serializePublicDownload(rows: Array<{ fecha: Date; versionCarga: number; ficheroOrigen: string; urlOrigen: string; hashFichero: string; fechaPublicacion: Date | null; fechaCarga: Date }>): OmieReerPublicDownloadRow {
   const first = rows[0];
@@ -238,6 +503,66 @@ function serializePublicDownload(rows: Array<{ fecha: Date; versionCarga: number
     fechaPublicacion: first.fechaPublicacion?.toISOString() ?? null,
     fechaCarga: first.fechaCarga.toISOString(),
     mensajeError: null
+  };
+}
+
+function serializeOfficialDownload(row: {
+  id: string;
+  fecha: Date;
+  version: number;
+  agente: string;
+  codigoDocumento: string;
+  estado: OmieDownloadEstado;
+  registros: number;
+  ficheroOrigen: string;
+  hashFichero: string;
+  contenidoXml: string | null;
+  fechaDescarga: Date;
+  fechaCarga: Date;
+  mensajeError: string | null;
+}): OmieReerOfficialDownloadRow {
+  return {
+    id: `reer-official:${formatDateOnly(row.fecha)}:${row.version}:${row.agente}`,
+    fecha: formatDateOnly(row.fecha),
+    version: row.version,
+    agente: row.agente,
+    codigoDocumento: row.codigoDocumento,
+    estado: row.estado,
+    registros: row.registros,
+    ficheroOrigen: row.ficheroOrigen,
+    hashFichero: row.hashFichero,
+    fechaDescarga: row.fechaDescarga.toISOString(),
+    fechaCarga: row.fechaCarga.toISOString(),
+    mensajeError: row.mensajeError,
+    contenidoXml: row.contenidoXml
+  };
+}
+
+function buildOfficialHeaderData(input: OfficialHeaderInput): Prisma.OmieReerOfficialAnnotationCreateManyInput {
+  return {
+    fecha: input.fecha,
+    periodo: 0,
+    version: input.version,
+    agente: input.agente,
+    codigoDocumento: OMIE_REER_OFFICIAL_CODIGO,
+    ecreerMwh: new Prisma.Decimal(0),
+    epreerEurMwh: new Prisma.Decimal(0),
+    eopreerEur: new Prisma.Decimal(0),
+    sImp: null,
+    sEne: null,
+    seg: "S.REER",
+    cta: "C.REER",
+    cMag: "ECREER",
+    cPrc: "EPREER",
+    cCpto: "EOPREER",
+    ses: null,
+    ficheroOrigen: input.ficheroOrigen,
+    hashFichero: input.hashFichero,
+    contenidoXml: input.contenidoXml,
+    estado: input.estado,
+    registros: input.registros,
+    mensajeError: input.mensajeError,
+    fechaDescarga: input.fechaDescarga
   };
 }
 
@@ -286,6 +611,42 @@ function parseDateFromPublicFileName(fileName: string) {
     throw new BadRequestException("Nombre de fichero REER publico no valido.");
   }
   return new Date(Date.UTC(Number(match[3]), Number(match[2]) - 1, Number(match[1])));
+}
+
+function normalizeVersion(value: number | undefined) {
+  const version = value ?? OMIE_REER_OFFICIAL_DEFAULT_VERSION;
+  if (!Number.isSafeInteger(version) || version < 1) {
+    throw new BadRequestException("La version REER oficial debe ser un entero positivo.");
+  }
+  return version;
+}
+
+function normalizeAgente(value: string | undefined) {
+  const agente = value?.trim() || OMIE_REER_OFFICIAL_DEFAULT_AGENT;
+  if (!/^[A-Z0-9_-]{2,30}$/i.test(agente)) {
+    throw new BadRequestException("El agente REER oficial no tiene un formato valido.");
+  }
+  return agente.toUpperCase();
+}
+
+function isOfficialNoDataError(error: unknown) {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  if (message.includes("no existe la consulta")) {
+    return false;
+  }
+  return (
+    message.includes("no devolvio un xml descargable") ||
+    message.includes("no devolvió un xml descargable") ||
+    message.includes("sin datos") ||
+    message.includes("no contiene anotaciones") ||
+    message.includes("version inexistente") ||
+    message.includes("versión inexistente") ||
+    message.includes("documento no disponible")
+  );
+}
+
+function formatDateCompact(value: Date) {
+  return `${String(value.getUTCDate()).padStart(2, "0")}${String(value.getUTCMonth() + 1).padStart(2, "0")}${value.getUTCFullYear()}`;
 }
 
 function formatDateOnly(value: Date) {

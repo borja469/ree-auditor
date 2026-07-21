@@ -93,7 +93,7 @@ export type OmieComprobacionLiquidacionHoraria = {
   costeXbid: number | null;
 };
 
-export type OmieReerEstado = "SIN_DATOS_REER" | "ESTIMADO_PUBLICO" | "ESTIMADO_CON_DIFERENCIA" | "CONCILIADO_OFICIAL" | "DIFERENCIA_OFICIAL";
+export type OmieReerEstado = "SIN_DATOS_REER" | "CONCILIADO_OFICIAL" | "DIFERENCIA_OFICIAL";
 
 export type OmieComprobacionReerPeriodo = {
   periodo: number;
@@ -101,22 +101,14 @@ export type OmieComprobacionReerPeriodo = {
   energiaNetaAgente: number | null;
   energiaReerCalculada: number | null;
   energiaReerOficial: number | null;
-  precioPublico: number | null;
-  coeficienteDerivado: number | null;
   precioXml: number | null;
-  importeEstimadoPublicado: number | null;
-  importeEstimadoDerivado: number | null;
   importeOficial: number | null;
-  diferencia: number | null;
   estado: OmieReerEstado;
 };
 
 export type OmieComprobacionReerDiario = {
   estadoReer: OmieReerEstado;
-  reerEstimadoPublicado: number | null;
-  reerEstimadoDerivado: number | null;
   reerOficial: number | null;
-  ajusteReerConciliacion: number | null;
   reerAplicado: number | null;
   energiaReerCalculada: number | null;
   energiaReerOficial: number | null;
@@ -124,8 +116,11 @@ export type OmieComprobacionReerDiario = {
   diferenciaImporte: number | null;
   toleranciaPeriodoEur: number;
   toleranciaDiaEur: number;
-  fuentePublica: string | null;
   fuenteOficial: string | null;
+  origenResultado: "Liquidacion oficial SIOM2 (9230)" | "Sin datos REER";
+  versionUtilizada: number | null;
+  fechaPublicacion: string | null;
+  fechaDescarga: string | null;
   tooltip: string;
   limitacionExclusiones: string;
   periodos: OmieComprobacionReerPeriodo[];
@@ -138,7 +133,6 @@ export type OmieLiquidacionConceptoAdicional = {
   importeOficial: number | null;
   importeAplicado: number | null;
   estado: OmieReerEstado;
-  fuentePublica: string | null;
   fuenteOficial: string | null;
 };
 
@@ -173,7 +167,6 @@ export type OmieComprobacionLiquidacionDiaria = {
   netoBaseImponible: number | null;
   netoAnalitico: number | null;
   reer: OmieComprobacionReerDiario;
-  compraTotalPrevista: number | null;
   compraTotalConciliada: number | null;
   facturaCompra: number | null;
   facturaVenta: number | null;
@@ -199,13 +192,9 @@ export type OmieComprobacionLiquidacionesResponse = {
   resumenMensual: OmieComprobacionLiquidacionResumen[];
   detalleDiario: OmieComprobacionLiquidacionDiaria[];
   totalesReer: {
-    reerEstimadoPublicado: number | null;
-    reerEstimadoDerivado: number | null;
     reerOficial: number | null;
-    ajusteReerConciliacion: number | null;
   };
   modosResultado: {
-    previsionOperativaDisponible: boolean;
     liquidacionConciliadaDisponible: boolean;
   };
   cuadroEconomico: OmieComprobacionCuadre;
@@ -378,7 +367,7 @@ export class OmieAnalisisService {
 
   async obtenerComprobacionLiquidaciones(year: number, month: number): Promise<OmieComprobacionLiquidacionesResponse> {
     const range = buildMonthRange(year, month);
-    const [analisis, invoices, publicRows, officialRows] = await Promise.all([
+  const [analisis, invoices, officialRows] = await Promise.all([
       this.obtenerAnalisisMensual(year, month),
       this.prisma.omieLiquidationInvoice.findMany({
         where: {
@@ -388,16 +377,17 @@ export class OmieAnalisisService {
           }
         }
       }),
-      this.prisma.omieReerConsumResult.findMany({
-        where: { fecha: { gte: range.start, lt: range.end } },
-        orderBy: [{ fecha: "asc" }, { versionCarga: "desc" }, { periodo: "asc" }]
-      }),
       this.prisma.omieReerOfficialAnnotation.findMany({
-        where: { fecha: { gte: range.start, lt: range.end } },
+        where: {
+          fecha: { gte: range.start, lt: range.end },
+          periodo: { gt: 0 },
+          codigoDocumento: "9230",
+          estado: OmieDownloadEstado.PROCESADO
+        },
         orderBy: [{ fecha: "asc" }, { version: "desc" }, { periodo: "asc" }]
       })
     ]);
-    return buildComprobacionLiquidaciones(analisis, buildInvoiceMap(invoices), buildLatestReerPublicMap(publicRows), buildLatestReerOfficialMap(officialRows));
+    return buildComprobacionLiquidaciones(analisis, buildInvoiceMap(invoices), buildLatestReerOfficialMap(officialRows));
   }
 
   async guardarFacturaLiquidacion(fecha: Date, facturaCompra: number | null, facturaVenta: number | null): Promise<OmieLiquidationInvoiceResponse> {
@@ -454,12 +444,6 @@ type AdditionalLiquidationConceptDefinition = {
   codigo: string;
   descripcion: string;
   ladoEconomico: "compra" | "venta" | "ambos";
-  fuenteEnergia: string;
-  fuentePrecio: string;
-  formula: string;
-  reglaSigno: string;
-  reglaRedondeo: string;
-  fuentePublica: string;
   fuenteOficial: string;
 };
 
@@ -468,12 +452,6 @@ const ADDITIONAL_LIQUIDATION_CONCEPTS: Record<"REER", AdditionalLiquidationConce
     codigo: "REER",
     descripcion: "Reparto del excedente o deficit REER a unidades de adquisicion nacionales",
     ladoEconomico: "compra",
-    fuenteEnergia: "MD + incrementales IDA1/IDA2/IDA3 + XBID repartible; energiaReerAgente = -energiaNetaAdquisicionRepartibleUltimoPHF",
-    fuentePrecio: "Coeficiente derivado desde INT_REER_CONSUM_EV_H: abs(volumenEconomicoEur) / energiaNacionalMwh",
-    formula: "abs(energiaReerAgente) * coeficienteDerivadoEurMwh",
-    reglaSigno: "Volumen publico negativo implica obligacion de pago para compradores; volumen positivo implica derecho de cobro",
-    reglaRedondeo: "Estimacion por periodo a centimos, sin ajuste artificial de residuos; conciliacion compara contra EOPREER oficial",
-    fuentePublica: "INT_REER_CONSUM_EV_H_DD_MM_YYYY_DD_MM_YYYY.TXT",
     fuenteOficial: "9230 - Fichero de Anotaciones de liquidaciones por version"
   }
 };
@@ -481,7 +459,7 @@ const ADDITIONAL_LIQUIDATION_CONCEPTS: Record<"REER", AdditionalLiquidationConce
 const REER_TOLERANCIA_PERIODO_EUR = Number(process.env.OMIE_REER_TOLERANCIA_PERIODO_EUR ?? "0.01");
 const REER_TOLERANCIA_DIA_EUR = Number(process.env.OMIE_REER_TOLERANCIA_DIA_EUR ?? "0.05");
 const REER_TOOLTIP =
-  `El REER estimado se calcula utilizando la energia neta de adquisicion del agente y el coeficiente publico publicado por OMIE. ${ADDITIONAL_LIQUIDATION_CONCEPTS.REER.fuentePrecio}. El importe oficial puede incluir precision interna o ajustes de centimos no publicados.`;
+  "El REER de Comprobacion de Liquidaciones se toma exclusivamente de la anotacion oficial SIOM2 9230 cuando esta disponible.";
 const REER_EXCLUSIONS_LIMITATION =
   "Regla preparada para adquisicion nacional repartible. Actualmente el calculo usa la unidad convencional configurada y no dispone de metadatos suficientes para excluir bombeo, almacenamiento, unidades genericas, exportacion, porfolios de generacion de compra o servicios auxiliares fuera de esa unidad.";
 
@@ -495,7 +473,6 @@ type OmieLiquidationInvoiceRecord = {
 function buildComprobacionLiquidaciones(
   analisis: OmieAnalisisMensualResponse,
   invoices: Map<string, OmieLiquidationInvoiceRecord>,
-  reerPublicRows: Map<string, ReerPublicRow[]>,
   reerOfficialRows: Map<string, ReerOfficialRow[]>
 ): OmieComprobacionLiquidacionesResponse {
   const monthly = createLiquidacionAccumulatorSet();
@@ -532,7 +509,7 @@ function buildComprobacionLiquidaciones(
   ];
   const detalleDiario = [...daily.values()]
     .sort((left, right) => left.fechaIso.localeCompare(right.fechaIso))
-    .map((day) => buildLiquidacionDailyRow(day, invoices.get(day.fechaIso), reerPublicRows.get(day.fechaIso) ?? [], reerOfficialRows.get(day.fechaIso) ?? []));
+    .map((day) => buildLiquidacionDailyRow(day, invoices.get(day.fechaIso), reerOfficialRows.get(day.fechaIso) ?? []));
   const energiaCalculada = totalLiquidacionEnergia(monthly);
   const totalesReer = buildTotalesReer(detalleDiario);
   const netoFacturaCalculado = nullableEuroSum(detalleDiario.map((row) => row.netoFactura));
@@ -548,7 +525,6 @@ function buildComprobacionLiquidaciones(
     detalleDiario,
     totalesReer,
     modosResultado: {
-      previsionOperativaDisponible: detalleDiario.some((row) => row.reer.reerEstimadoDerivado !== null),
       liquidacionConciliadaDisponible: detalleDiario.some((row) => row.reer.reerOficial !== null)
     },
     cuadroEconomico: buildCuadre(netoFacturaCalculado, null),
@@ -643,13 +619,12 @@ function buildLiquidacionResumenRow(mercado: LiquidacionMarket, accumulator: Liq
 function buildLiquidacionDailyRow(
   day: LiquidacionDailyDraft,
   invoice: OmieLiquidationInvoiceRecord | undefined,
-  publicRows: ReerPublicRow[],
   officialRows: ReerOfficialRow[]
 ): OmieComprobacionLiquidacionDiaria {
   const compraMercados = totalLiquidacionCompra(day.mercados);
   const ventaMercados = totalLiquidacionVenta(day.mercados);
   const netoAnalitico = totalLiquidacionImporte(day.mercados);
-  const reer = buildReerDiario(day, publicRows, officialRows);
+  const reer = buildReerDiario(day, officialRows);
   const detalleConceptosCompra = buildConceptosCompra(reer);
   const detalleConceptosVenta: OmieLiquidacionConceptoAdicional[] = [];
   const conceptosCompra = nullableEuroSum(detalleConceptosCompra.map((concepto) => concepto.importeAplicado));
@@ -693,7 +668,6 @@ function buildLiquidacionDailyRow(
     netoBaseImponible,
     netoAnalitico,
     reer,
-    compraTotalPrevista: nullableEuroSum([compraMercados, reer.reerEstimadoDerivado]),
     compraTotalConciliada: reer.reerOficial === null ? null : nullableEuroSum([compraMercados, reer.reerOficial]),
     facturaCompra: decimalToNullableNumber(invoice?.facturaCompra),
     facturaVenta: decimalToNullableNumber(invoice?.facturaVenta),
@@ -708,18 +682,17 @@ function calculateIva(baseImponible: number | null) {
 }
 
 function buildConceptosCompra(reer: OmieComprobacionReerDiario): OmieLiquidacionConceptoAdicional[] {
-  if (reer.reerEstimadoDerivado === null && reer.reerOficial === null) {
+  if (reer.reerOficial === null) {
     return [];
   }
   return [
     {
       codigo: "REER",
       descripcion: ADDITIONAL_LIQUIDATION_CONCEPTS.REER.descripcion,
-      importePrevisto: reer.reerEstimadoDerivado,
+      importePrevisto: null,
       importeOficial: reer.reerOficial,
-      importeAplicado: reer.reerOficial ?? reer.reerEstimadoDerivado,
+      importeAplicado: reer.reerOficial,
       estado: reer.estadoReer,
-      fuentePublica: reer.fuentePublica,
       fuenteOficial: reer.fuenteOficial
     }
   ];
@@ -752,172 +725,115 @@ function buildLiquidacionHourlyRow(
   };
 }
 
-type ReerPublicRow = {
-  fecha: Date;
-  periodo: number;
-  periodoEtiqueta: string;
-  precioPublicadoEurMwh: Prisma.Decimal;
-  volumenEconomicoEur: Prisma.Decimal;
-  energiaNacionalMwh: Prisma.Decimal;
-  coeficienteDerivadoEurMwh: Prisma.Decimal;
-  ficheroOrigen: string;
-  urlOrigen: string;
-  versionCarga: number;
-};
-
 type ReerOfficialRow = {
   fecha: Date;
   periodo: number;
   version: number;
+  agente: string;
+  codigoDocumento: string;
   ecreerMwh: Prisma.Decimal;
   epreerEurMwh: Prisma.Decimal;
   eopreerEur: Prisma.Decimal;
   sImp: number | null;
   ficheroOrigen: string;
+  fechaDescarga: Date;
 };
 
-function buildReerDiario(day: LiquidacionDailyDraft, publicRows: ReerPublicRow[], officialRows: ReerOfficialRow[]): OmieComprobacionReerDiario {
-  const publicMap = new Map(publicRows.map((row) => [row.periodo, row]));
+function buildReerDiario(day: LiquidacionDailyDraft, officialRows: ReerOfficialRow[]): OmieComprobacionReerDiario {
   const officialMap = new Map(officialRows.map((row) => [row.periodo, row]));
-  const periodNumbers = new Set<number>([...day.periodos.keys(), ...publicMap.keys(), ...officialMap.keys()]);
-  const periodos = [...periodNumbers].sort((left, right) => left - right).map((periodo) => buildReerPeriodo(periodo, day.periodos.get(periodo), publicMap.get(periodo), officialMap.get(periodo)));
-  const reerEstimadoPublicado = nullableEuroSum(periodos.map((row) => row.importeEstimadoPublicado));
-  const reerEstimadoDerivado = nullableEuroSum(periodos.map((row) => row.importeEstimadoDerivado));
+  const periodNumbers = new Set<number>([...day.periodos.keys(), ...officialMap.keys()]);
+  const periodos = [...periodNumbers].sort((left, right) => left - right).map((periodo) => buildReerPeriodo(periodo, day.periodos.get(periodo), officialMap.get(periodo)));
   const reerOficial = nullableEuroSum(periodos.map((row) => row.importeOficial));
-  const ajusteReerConciliacion = reerOficial === null || reerEstimadoDerivado === null ? null : roundEuroCent(reerOficial - reerEstimadoDerivado);
   const energiaReerCalculada = nullableEnergySum(periodos.map((row) => row.energiaReerCalculada));
   const energiaReerOficial = nullableEnergySum(periodos.map((row) => row.energiaReerOficial));
   const diferenciaEnergia = energiaReerCalculada === null || energiaReerOficial === null ? null : roundEnergy(energiaReerCalculada - energiaReerOficial);
-  const diferenciaImporte = ajusteReerConciliacion;
-  const estadoReer = estadoReerDiario(publicRows.length > 0, officialRows.length > 0, periodos, diferenciaImporte, diferenciaEnergia);
+  const estadoReer = estadoReerDiario(officialRows.length > 0, diferenciaEnergia);
+  const officialMetadata = officialRows[0];
 
   return {
     estadoReer,
-    reerEstimadoPublicado,
-    reerEstimadoDerivado,
     reerOficial,
-    ajusteReerConciliacion,
-    reerAplicado: reerOficial ?? reerEstimadoDerivado,
+    reerAplicado: reerOficial,
     energiaReerCalculada,
     energiaReerOficial,
     diferenciaEnergia,
-    diferenciaImporte,
+    diferenciaImporte: null,
     toleranciaPeriodoEur: REER_TOLERANCIA_PERIODO_EUR,
     toleranciaDiaEur: REER_TOLERANCIA_DIA_EUR,
-    fuentePublica: publicRows[0]?.ficheroOrigen ?? null,
-    fuenteOficial: officialRows[0]?.ficheroOrigen ?? null,
+    fuenteOficial: officialMetadata?.ficheroOrigen ?? null,
+    origenResultado:
+      officialRows.length > 0
+        ? "Liquidacion oficial SIOM2 (9230)"
+        : "Sin datos REER",
+    versionUtilizada: officialMetadata?.version ?? null,
+    fechaPublicacion: null,
+    fechaDescarga: officialMetadata?.fechaDescarga?.toISOString() ?? null,
     tooltip: REER_TOOLTIP,
     limitacionExclusiones: REER_EXCLUSIONS_LIMITATION,
     periodos
   };
 }
 
-function buildReerPeriodo(periodo: number, mercados: LiquidacionAccumulatorSet | undefined, publicRow: ReerPublicRow | undefined, officialRow: ReerOfficialRow | undefined): OmieComprobacionReerPeriodo {
+function buildReerPeriodo(periodo: number, mercados: LiquidacionAccumulatorSet | undefined, officialRow: ReerOfficialRow | undefined): OmieComprobacionReerPeriodo {
   const energiaNetaAgente = mercados ? totalLiquidacionEnergia(mercados) : null;
   const energiaReerCalculada = energiaNetaAgente === null ? null : roundEnergy(-energiaNetaAgente);
   const energiaReerOficial = decimalToNullableNumber(officialRow?.ecreerMwh);
-  const precioPublico = decimalToNullableNumber(publicRow?.precioPublicadoEurMwh);
-  const coeficienteDerivado = decimalToNullableNumber(publicRow?.coeficienteDerivadoEurMwh);
   const precioXml = decimalToNullableNumber(officialRow?.epreerEurMwh);
-  const publicSign = publicRow ? (publicRow.volumenEconomicoEur.isNegative() ? 1 : -1) : 1;
-  const importeEstimadoPublicado =
-    energiaReerCalculada === null || !publicRow ? null : decimalToRoundedEuroNumber(new Prisma.Decimal(energiaReerCalculada).abs().mul(publicRow.precioPublicadoEurMwh).mul(publicSign));
-  const importeEstimadoDerivado =
-    energiaReerCalculada === null || !publicRow ? null : decimalToRoundedEuroNumber(new Prisma.Decimal(energiaReerCalculada).abs().mul(publicRow.coeficienteDerivadoEurMwh).mul(publicSign));
   const importeOficial = officialRow ? decimalToRoundedEuroNumber(officialRow.eopreerEur.mul(officialSign(officialRow.sImp))) : null;
-  const diferencia = importeEstimadoDerivado === null || importeOficial === null ? null : roundEuroCent(importeOficial - importeEstimadoDerivado);
 
   return {
     periodo,
-    periodoEtiqueta: publicRow?.periodoEtiqueta ?? quarterPeriodLabel(periodo),
+    periodoEtiqueta: quarterPeriodLabel(periodo),
     energiaNetaAgente,
     energiaReerCalculada,
     energiaReerOficial,
-    precioPublico,
-    coeficienteDerivado,
     precioXml,
-    importeEstimadoPublicado,
-    importeEstimadoDerivado,
     importeOficial,
-    diferencia,
-    estado: estadoReerPeriodo(publicRow !== undefined, officialRow !== undefined, diferencia, energiaReerCalculada, energiaReerOficial)
+    estado: estadoReerPeriodo(officialRow !== undefined, energiaReerCalculada, energiaReerOficial)
   };
 }
 
-function estadoReerPeriodo(hasPublic: boolean, hasOfficial: boolean, diferencia: number | null, energiaCalculada: number | null, energiaOficial: number | null): OmieReerEstado {
-  if (!hasPublic && !hasOfficial) {
+function estadoReerPeriodo(hasOfficial: boolean, energiaCalculada: number | null, energiaOficial: number | null): OmieReerEstado {
+  if (!hasOfficial) {
     return "SIN_DATOS_REER";
-  }
-  if (hasPublic && !hasOfficial) {
-    return "ESTIMADO_PUBLICO";
   }
   const energyMismatch = energiaCalculada !== null && energiaOficial !== null && Math.abs(energiaCalculada - energiaOficial) > 0.000001;
   if (energyMismatch) {
     return "DIFERENCIA_OFICIAL";
   }
-  if (diferencia === null || Math.abs(diferencia) <= REER_TOLERANCIA_PERIODO_EUR) {
-    return "CONCILIADO_OFICIAL";
-  }
-  return "ESTIMADO_CON_DIFERENCIA";
+  return "CONCILIADO_OFICIAL";
 }
 
-function estadoReerDiario(hasPublic: boolean, hasOfficial: boolean, periodos: OmieComprobacionReerPeriodo[], diferenciaImporte: number | null, diferenciaEnergia: number | null): OmieReerEstado {
-  if (!hasPublic && !hasOfficial) {
+function estadoReerDiario(hasOfficial: boolean, diferenciaEnergia: number | null): OmieReerEstado {
+  if (!hasOfficial) {
     return "SIN_DATOS_REER";
-  }
-  if (hasPublic && !hasOfficial) {
-    return "ESTIMADO_PUBLICO";
   }
   if (diferenciaEnergia !== null && Math.abs(diferenciaEnergia) > 0.000001) {
     return "DIFERENCIA_OFICIAL";
   }
-  if (diferenciaImporte !== null && Math.abs(diferenciaImporte) <= REER_TOLERANCIA_DIA_EUR && periodos.every((row) => row.diferencia === null || Math.abs(row.diferencia) <= REER_TOLERANCIA_PERIODO_EUR)) {
-    return "CONCILIADO_OFICIAL";
-  }
-  return diferenciaImporte === null ? "DIFERENCIA_OFICIAL" : "ESTIMADO_CON_DIFERENCIA";
+  return "CONCILIADO_OFICIAL";
 }
 
 function buildTotalesReer(rows: OmieComprobacionLiquidacionDiaria[]) {
-  const reerEstimadoPublicado = nullableEuroSum(rows.map((row) => row.reer.reerEstimadoPublicado));
-  const reerEstimadoDerivado = nullableEuroSum(rows.map((row) => row.reer.reerEstimadoDerivado));
   const reerOficial = nullableEuroSum(rows.map((row) => row.reer.reerOficial));
   return {
-    reerEstimadoPublicado,
-    reerEstimadoDerivado,
-    reerOficial,
-    ajusteReerConciliacion: reerOficial === null || reerEstimadoDerivado === null ? null : roundEuroCent(reerOficial - reerEstimadoDerivado)
+    reerOficial
   };
-}
-
-function buildLatestReerPublicMap(rows: ReerPublicRow[]) {
-  const latestVersionByDate = new Map<string, number>();
-  for (const row of rows) {
-    const key = formatDateOnly(row.fecha);
-    latestVersionByDate.set(key, Math.max(latestVersionByDate.get(key) ?? row.versionCarga, row.versionCarga));
-  }
-  const map = new Map<string, ReerPublicRow[]>();
-  for (const row of rows) {
-    const key = formatDateOnly(row.fecha);
-    if (row.versionCarga !== latestVersionByDate.get(key)) {
-      continue;
-    }
-    const current = map.get(key) ?? [];
-    current.push(row);
-    map.set(key, current);
-  }
-  return map;
 }
 
 function buildLatestReerOfficialMap(rows: ReerOfficialRow[]) {
   const latestVersionByDate = new Map<string, number>();
   for (const row of rows) {
+    if (row.periodo <= 0 || row.codigoDocumento !== "9230") {
+      continue;
+    }
     const key = formatDateOnly(row.fecha);
     latestVersionByDate.set(key, Math.max(latestVersionByDate.get(key) ?? row.version, row.version));
   }
   const map = new Map<string, ReerOfficialRow[]>();
   for (const row of rows) {
     const key = formatDateOnly(row.fecha);
-    if (row.version !== latestVersionByDate.get(key)) {
+    if (row.periodo <= 0 || row.codigoDocumento !== "9230" || row.version !== latestVersionByDate.get(key)) {
       continue;
     }
     const current = map.get(key) ?? [];

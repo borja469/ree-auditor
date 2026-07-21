@@ -85,7 +85,9 @@ function parseExecuteBody(body: unknown): OmieDownloadExecuteRequest {
     fecha: readOptionalDate(body, "fecha"),
     fechaDesde: readOptionalDate(body, "fechaDesde"),
     fechaHasta: readOptionalDate(body, "fechaHasta"),
-    sesion: readString(body, "sesion")
+    sesion: readString(body, "sesion"),
+    version: body.version === undefined ? undefined : parsePositiveInteger(body.version, "version"),
+    agente: readString(body, "agente")
   };
 }
 
@@ -159,10 +161,10 @@ function parseModulo(value: string | undefined): OmieControlModulo | undefined {
   if (normalized === "transacciones") {
     return "Transacciones";
   }
-  if (normalized === "reer publico" || normalized === "reer") {
-    return "REER Publico";
+  if (normalized === "reer oficial" || normalized === "reer oficial (9230)" || normalized === "9230") {
+    return "REER Oficial";
   }
-  throw new BadRequestException("modulo debe ser Programas, Precios, Transacciones o REER Publico.");
+  throw new BadRequestException("modulo debe ser Programas, Precios, Transacciones o REER Oficial.");
 }
 
 function parseCodigo(value: string | undefined): OmieControlCodigo | undefined {
@@ -171,10 +173,10 @@ function parseCodigo(value: string | undefined): OmieControlCodigo | undefined {
 
 function parseRequiredCodigo(value: string | undefined): OmieControlCodigo {
   const normalized = value?.trim();
-  if (normalized === "5302" || normalized === "5608" || normalized === "5202" || normalized === "5603" || normalized === "4125" || normalized === "4121" || normalized === "INT_REER_CONSUM_EV_H") {
+  if (normalized === "5302" || normalized === "5608" || normalized === "5202" || normalized === "5603" || normalized === "4125" || normalized === "4121" || normalized === "9230") {
     return normalized;
   }
-  throw new BadRequestException("codigoOmie debe ser 5302, 5608, 5202, 5603, 4125, 4121 o INT_REER_CONSUM_EV_H.");
+  throw new BadRequestException("codigoOmie debe ser 5302, 5608, 5202, 5603, 4125, 4121 o 9230.");
 }
 
 function parseTipoDocumento(value: string | undefined): OmieControlTipo | undefined {
@@ -189,9 +191,9 @@ function parseTipoDocumento(value: string | undefined): OmieControlTipo | undefi
     normalized !== OmieTipoPrecio.MI &&
     normalized !== OmieTipoPrecio.XBID &&
     normalized !== "TRANSACCIONES" &&
-    normalized !== "REER_PUBLICO"
+    normalized !== "REER_OFICIAL_9230"
   ) {
-    throw new BadRequestException("tipoDocumento debe ser PVD, PHF, MD, MI, XBID, TRANSACCIONES o REER_PUBLICO.");
+    throw new BadRequestException("tipoDocumento debe ser PVD, PHF, MD, MI, XBID, TRANSACCIONES o REER_OFICIAL_9230.");
   }
   return normalized as OmieControlTipo;
 }

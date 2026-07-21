@@ -10,6 +10,7 @@ datasource db {
 enum ReeFileType {
   REGANECU
   REGANECUQH
+  SEIE
 }
 
 enum ReeSettlementVersion {
@@ -47,6 +48,7 @@ enum OmieDownloadEstado {
   DESCARGANDO
   DESCARGADO
   PROCESADO
+  SIN_DATOS
   ERROR
 }
 
@@ -54,6 +56,12 @@ enum OmieTipoPrecio {
   MD
   MI
   XBID
+}
+
+enum AnnualReportRetributionType {
+  OS
+  OM
+  REMIT
 }
 
 model ReeFile {
@@ -601,6 +609,8 @@ model OmieReerOfficialAnnotation {
   fecha           DateTime @db.Date
   periodo         Int
   version         Int
+  agente          String   @default("STROM") @db.VarChar(30)
+  codigoDocumento String   @default("9230") @map("codigo_documento") @db.VarChar(10)
   ecreerMwh       Decimal  @map("ecreer_mwh") @db.Decimal(20, 6)
   epreerEurMwh    Decimal  @map("epreer_eur_mwh") @db.Decimal(20, 12)
   eopreerEur      Decimal  @map("eopreer_eur") @db.Decimal(20, 6)
@@ -614,6 +624,11 @@ model OmieReerOfficialAnnotation {
   ses             String?  @db.VarChar(20)
   ficheroOrigen   String   @map("fichero_origen") @db.VarChar(180)
   hashFichero     String   @map("hash_fichero") @db.VarChar(64)
+  contenidoXml    String?  @map("contenido_xml") @db.Text
+  estado          OmieDownloadEstado @default(PROCESADO)
+  registros       Int      @default(0)
+  mensajeError    String?  @map("mensaje_error") @db.Text
+  fechaDescarga   DateTime @default(now()) @map("fecha_descarga")
   fechaCarga      DateTime @default(now()) @map("fecha_carga")
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
@@ -621,6 +636,9 @@ model OmieReerOfficialAnnotation {
   @@unique([fecha, periodo, version, ficheroOrigen], map: "ux_omie_reer_official_fecha_periodo_version_file")
   @@index([fecha])
   @@index([fecha, version])
+  @@index([fecha, version, agente])
+  @@index([codigoDocumento])
+  @@index([estado])
   @@index([hashFichero])
   @@map("omie_reer_official_annotations")
 }
@@ -634,6 +652,104 @@ model OmieGuaranteeDeposited {
   updatedAt      DateTime @updatedAt @map("updated_at")
 
   @@map("omie_guarantees_deposited")
+}
+
+model ReeSeieFile {
+  id                 String           @id @default(uuid()) @db.Uuid
+  fileName           String           @map("file_name")
+  containerFileName  String?          @map("container_file_name")
+  fileHash           String           @map("file_hash")
+  tipoArchivo        ReeFileType      @map("tipo_archivo")
+  version            String
+  fechaLiquidacion   DateTime         @map("fecha_liquidacion") @db.Date
+  sujetoEic          String?          @map("sujeto_eic")
+  encoding           String
+  delimiter          String
+  status             ReeImportStatus  @default(IMPORTED)
+  errorMessage       String?          @map("error_message") @db.Text
+  originalContent    Bytes?           @map("original_content")
+  importedAt         DateTime         @default(now()) @map("imported_at")
+  totalRecords       Int              @default(0) @map("total_records")
+  validRecords       Int              @default(0) @map("valid_records")
+  invalidRecords     Int              @default(0) @map("invalid_records")
+  duplicatedRecords  Int              @default(0) @map("duplicated_records")
+  records            ReeSeieRecord[]
+
+  @@unique([fileHash])
+  @@index([tipoArchivo])
+  @@index([version])
+  @@index([fechaLiquidacion])
+  @@index([sujetoEic])
+  @@index([importedAt])
+  @@map("ree_seie_files")
+}
+
+model ReeSeieRecord {
+  id                   String          @id @default(uuid()) @db.Uuid
+  fileId               String          @map("file_id") @db.Uuid
+  file                 ReeSeieFile     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  uploadId             String          @map("upload_id") @db.Uuid
+  filename             String
+  hash                 String
+  fechaCarga           DateTime        @default(now()) @map("fecha_carga")
+  version              String
+  fechaLiquidacion     DateTime        @map("fecha_liquidacion") @db.Date
+  sujetoEic            String?         @map("sujeto_eic")
+  fecha                DateTime?       @db.Date
+  hora                 Int?
+  codigo               String?
+  magnitud             Decimal?        @db.Decimal(20, 6)
+  precio               Decimal?        @db.Decimal(20, 8)
+  energia              Decimal?        @db.Decimal(20, 6)
+  unidad               String?
+  tipo                 String?
+  sentido              String?
+  segmento             String?
+  campo01Fecha         String?         @map("campo_01_fecha")
+  campo02Hora          String?         @map("campo_02_hora")
+  campo03Codigo        String?         @map("campo_03_codigo")
+  campo04Magnitud      String?         @map("campo_04_magnitud")
+  campo05Reservado1    String?         @map("campo_05_reservado_1")
+  campo06Precio        String?         @map("campo_06_precio")
+  campo07Reservado2    String?         @map("campo_07_reservado_2")
+  campo08Energia       String?         @map("campo_08_energia")
+  campo09Reservado3    String?         @map("campo_09_reservado_3")
+  campo10Reservado4    String?         @map("campo_10_reservado_4")
+  campo11Tipo          String?         @map("campo_11_tipo")
+  campo12Sentido       String?         @map("campo_12_sentido")
+  campo13Unidad        String?         @map("campo_13_unidad")
+  campo14Segmento      String?         @map("campo_14_segmento")
+  campo15SignoImporte  String?         @map("campo_15_signo_importe")
+  campo16SignoMagnitud String?         @map("campo_16_signo_magnitud")
+  campo17SujetoEic     String?         @map("campo_17_sujeto_eic")
+  campo18CodigoPrecio  String?         @map("campo_18_codigo_precio")
+  campo19CodigoUnidad2 String?         @map("campo_19_codigo_unidad_2")
+  campo20CodigoUnidad3 String?         @map("campo_20_codigo_unidad_3")
+  campo21Clase         String?         @map("campo_21_clase")
+  campo22Valor1        String?         @map("campo_22_valor_1")
+  campo23Valor2        String?         @map("campo_23_valor_2")
+  campo24Valor3        String?         @map("campo_24_valor_3")
+  validationErrors     Json?           @map("validation_errors")
+  rawPayloadJson       Json            @map("raw_payload_json")
+  rawLine              String          @map("raw_line") @db.Text
+  sourceLineNumber     Int             @map("source_line_number")
+  recordHash           String          @map("record_hash")
+  createdAt            DateTime        @default(now()) @map("created_at")
+  updatedAt            DateTime        @updatedAt @map("updated_at")
+
+  @@unique([recordHash])
+  @@index([uploadId])
+  @@index([hash])
+  @@index([fechaCarga])
+  @@index([fecha])
+  @@index([fechaLiquidacion])
+  @@index([codigo])
+  @@index([unidad])
+  @@index([tipo])
+  @@index([sentido])
+  @@index([segmento])
+  @@index([filename])
+  @@map("ree_seie_records")
 }
 
 model PricingMeffPrice {
@@ -674,6 +790,22 @@ model PricingCalculatorManualValue {
   @@index([periodo])
   @@map("pricing_calculator_manual_values")
 }
+
+model AnnualReportRetributionPrice {
+  id        String                      @id @default(uuid()) @db.Uuid
+  year      Int
+  month     Int
+  type      AnnualReportRetributionType
+  price     Decimal                     @db.Decimal(24, 12)
+  createdAt DateTime                    @default(now()) @map("created_at")
+  updatedAt DateTime                    @updatedAt @map("updated_at")
+
+  @@unique([year, month, type], map: "ux_annual_report_retribution_price_period_type")
+  @@index([year])
+  @@index([type])
+  @@map("annual_report_retribution_prices")
+}
+
 model OmieAutomationConfig {
   id         Int      @id @default(1)
   active     Boolean  @default(false)
