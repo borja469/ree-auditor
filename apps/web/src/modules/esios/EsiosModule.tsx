@@ -64,7 +64,7 @@ import { EChart, PanelTitle, formatDecimalNumber, formatNumber } from "../shared
 export type EsiosViewKey = "indicadores" | "perfiles" | "series" | "descargas" | "configuracion";
 
 const DEFAULT_PAGE_SIZE = 500;
-const DEFAULT_SERIES_SELECTION_SIZE = 4;
+const DEFAULT_SERIES_INDICATOR_IDS = [460, 541, 10034];
 const PROFILE_TARIFFS = ["2.0TD", "3.0TD", "3.0TDVE"] as const;
 type ProfileTariff = (typeof PROFILE_TARIFFS)[number];
 
@@ -189,7 +189,7 @@ export function EsiosModule({ view }: { view: EsiosViewKey }) {
     }
 
     if (selectedIndicatorIds.length === 0) {
-      const nextSelection = indicatorsWithData.slice(0, DEFAULT_SERIES_SELECTION_SIZE).map((indicator) => indicator.indicatorId);
+      const nextSelection = resolveDefaultSeriesSelection(indicatorsWithData);
       setSelectedIndicatorIds(nextSelection);
       void (async () => setSeriesByIndicatorId(await refreshSeries(nextSelection, seriesFilters)))();
     }
@@ -2546,7 +2546,12 @@ function resolveSeriesSelection(selectedIndicatorIds: number[], indicators: Esio
   if (cleaned.length > 0) {
     return cleaned;
   }
-  return indicators.slice(0, DEFAULT_SERIES_SELECTION_SIZE).map((indicator) => indicator.indicatorId);
+  return resolveDefaultSeriesSelection(indicators);
+}
+
+function resolveDefaultSeriesSelection(indicators: EsiosIndicator[]) {
+  const availableIds = new Set(indicators.map((indicator) => indicator.indicatorId));
+  return DEFAULT_SERIES_INDICATOR_IDS.filter((indicatorId) => availableIds.has(indicatorId));
 }
 
 async function loadSelectedSeries(selectedIndicatorIds: number[], filters: EsiosValuesFilters) {
