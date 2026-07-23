@@ -63,6 +63,7 @@ import { OmieTransaccionesModule } from "./modules/omie/transacciones/OmieTransa
 import { EsiosModule, type EsiosViewKey } from "./modules/esios/EsiosModule";
 import { AnnualReportModule } from "./modules/annual-report/AnnualReportModule";
 import { PricingBaseModule } from "./modules/pricing/PricingBaseModule";
+import { MirPortfolioModule } from "./modules/pricing/MirPortfolioModule";
 import { PricingMeffModule } from "./modules/pricing/PricingMeffModule";
 import { MedperFilterBand, MedperViewPanel } from "./modules/medper/MedperModule";
 import { HistoryView } from "./modules/import-history/ImportHistoryModule";
@@ -1695,8 +1696,10 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                       ? "Informe Anual"
                     : section === "pricingBase"
                       ? "Pricing base apuntamientos"
-                      : section === "pricingMeff"
-                        ? "Pricing MEFF"
+	                      : section === "pricingMeff"
+	                        ? "Pricing MEFF"
+	                      : section === "pricingMir"
+	                        ? "Pricing Cartera Fijo"
                     : section === "esiosIndicadores"
                       ? "ESIOS Indicadores"
                     : section === "esiosPerfiles"
@@ -2134,6 +2137,13 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           description: "cierres de derivados",
           active: section === "pricingMeff",
           onSelect: () => changeSection("pricingMeff")
+        },
+        {
+          key: "pricing-mir",
+          label: "Cartera Fijo",
+          description: "pólizas Fijo",
+          active: section === "pricingMir",
+          onSelect: () => changeSection("pricingMir")
         }
       ]
     },
@@ -2413,9 +2423,11 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           )}
 
           {isEsiosSection(section) && <EsiosModule key={`${section}-${esiosRefreshKey}`} view={esiosViewFromSection(section)} />}
+
           {section === "annualReport" && <AnnualReportModule />}
           {section === "pricingBase" && <PricingBaseModule />}
           {section === "pricingMeff" && <PricingMeffModule />}
+          {section === "pricingMir" && <MirPortfolioModule />}
 
           {section === "reeDownloads" && (
             <ReeDownloadCenterModule

@@ -19,6 +19,7 @@ export type Section =
   | "esiosConfiguracion"
   | "pricingBase"
   | "pricingMeff"
+  | "pricingMir"
   | "annualReport";
 
 export type ReganecuView = "history" | "summary" | "hourly" | "qh";

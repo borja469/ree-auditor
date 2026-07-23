@@ -151,7 +151,7 @@ export function exportTechnicalRows<T extends object>(name: string, columns: Arr
       const table = [
         columns.map((column) => column.label),
         ...(totalsRow ? [columns.map((column) => stringifyTotalsCellValue(totalsRow[column.id]))] : []),
-        ...rows.map((row) => columns.map((column) => stringifyCellValue(technicalExportValue(column, row))))
+        ...rows.map((row) => columns.map((column) => stringifyExportCellValue(column, technicalExportValue(column, row))))
       ];
 
       if (format === "xls") {
@@ -164,7 +164,7 @@ export function exportTechnicalRows<T extends object>(name: string, columns: Arr
 
       downloadBlob(name, table.map((line) => line.map(csvCell).join(";")).join("\n"), "text/csv;charset=utf-8");
     },
-    { label: "Preparando exportaci�n" }
+    { label: "Preparando exportación" }
   );
 }
 
@@ -174,7 +174,7 @@ export function copyTechnicalRows<T extends object>(columns: Array<TechnicalColu
       const text = [
         columns.map((column) => column.label).join("\t"),
         ...(totalsRow ? [columns.map((column) => stringifyTotalsCellValue(totalsRow[column.id])).join("\t")] : []),
-        ...rows.map((row) => columns.map((column) => stringifyCellValue(technicalExportValue(column, row))).join("\t"))
+        ...rows.map((row) => columns.map((column) => stringifyExportCellValue(column, technicalExportValue(column, row))).join("\t"))
       ].join("\n");
       await navigator.clipboard?.writeText(text);
     },
@@ -184,6 +184,17 @@ export function copyTechnicalRows<T extends object>(columns: Array<TechnicalColu
 
 export function technicalExportValue<T>(column: TechnicalColumn<T>, row: T) {
   return column.exportValue ? column.exportValue(row) : column.value(row);
+}
+
+function stringifyExportCellValue<T>(column: TechnicalColumn<T>, value: string | number | null | undefined) {
+  if (column.type !== "number") {
+    return stringifyCellValue(value);
+  }
+  const numeric = normalizeNumericValue(value);
+  if (numeric === undefined) {
+    return "";
+  }
+  return numeric.toLocaleString("es-ES", { maximumFractionDigits: 6 });
 }
 
 export function formatCompleteness(value: number) {

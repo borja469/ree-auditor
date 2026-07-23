@@ -1106,6 +1106,264 @@ export type PricingMeffResponse = {
   };
 };
 
+export type MirContract = {
+  id: string;
+  mirContractId: number;
+  policyId: number | null;
+  policyCode: string | null;
+  commercialId: number | null;
+  commercialName: string | null;
+  annualConsumption: number | null;
+  contractEndDate: string | null;
+  tariffId: number | null;
+  tariffName: string | null;
+  priceListId: number | null;
+  priceListName: string | null;
+  priceListYear: number | null;
+  priceListMonth: number | null;
+  priceListPeriod: string | null;
+  priceListParseStatus: "OK" | "NO_MATCH" | "INVALID_MONTH" | "AMBIGUOUS";
+  synchronizedAt: string;
+  syncStatus: "OK" | "INCOMPLETO" | string;
+  validationErrors: string[];
+  totalConsumptionKwh: number | null;
+  totalElevatedConsumptionKwh: number | null;
+  totalEstimatedSaleAmountEur: number | null;
+  totalEstimatedSaleAmountBcEur: number | null;
+  totalEstimatedMeffSaleAmountEur: number | null;
+  meffSpreadEur: number | null;
+  meffSpreadEurMwh: number | null;
+  averageSalePriceEurMwh: number | null;
+  averageMeffPriceEurMwh: number | null;
+  salePriceStatus: string | null;
+  meffValuationStatus: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MirContractFilters = {
+  policy?: string;
+  policies?: string;
+  commercial?: string;
+  commercials?: string;
+  tariff?: string;
+  tariffs?: string;
+  priceList?: string;
+  priceLists?: string;
+  contractEndDateFrom?: string;
+  contractEndDateTo?: string;
+  minAnnualConsumption?: number | string;
+  maxAnnualConsumption?: number | string;
+  referenceDate?: string;
+  skip?: number;
+  take?: number;
+};
+
+export type MirContractsSummary = {
+  totalContracts: number;
+  annualConsumptionTotal: number | null;
+  distinctTariffs: number;
+  distinctPriceLists: number;
+  lastSynchronizedAt: string | null;
+};
+
+export type MirContractsResponse = {
+  rows: MirContract[];
+  total: number;
+  hasNext: boolean;
+  skip: number;
+  take: number;
+  summary: MirContractsSummary;
+};
+
+export type MirSyncResponse = {
+  received: number;
+  created: number;
+  updated: number;
+  errors: number;
+  synchronizedAt: string;
+  errorDetails: Array<{ row: number; message: string }>;
+};
+
+export type MirDeleteContractsResponse = {
+  deleted: number;
+};
+
+export type MirConfig = {
+  apiUrl: string | null;
+  contractsPath: string;
+  username: string | null;
+  passwordConfigured: boolean;
+  timeoutMs: number;
+  retries: number;
+  updatedAt: string | null;
+};
+
+export type MirConfigInput = {
+  apiUrl?: string | null;
+  contractsPath?: string | null;
+  username?: string | null;
+  password?: string | null;
+  timeoutMs?: number | null;
+  retries?: number | null;
+};
+
+export type PricingPortfolioForecastRunResponse = {
+  referenceDate: string;
+  contracts: number;
+  calculated: number;
+  expired: number;
+  errors: number;
+  saleSurchargesEurMwh: Record<string, unknown>;
+  calculatedAt: string;
+};
+
+export type PricingPortfolioForecastRow = {
+  id: string;
+  contractId: string;
+  policyCode: string | null;
+  commercialName: string | null;
+  tariffName: string | null;
+  priceListName: string | null;
+  estimatedSaleAmount: number | null;
+  estimatedSaleAmountBc: number | null;
+  estimatedMeffSaleAmount: number | null;
+  saleSurchargesEurMwh: Record<string, unknown> | null;
+  salePriceStatus: string | null;
+  meffValuationStatus: string | null;
+  referenceDate: string;
+  calculatedUntil: string | null;
+  estimatedConsumption: number | null;
+  calculatedAt: string;
+  status: string;
+};
+
+export type PricingPortfolioForecastResponse = {
+  rows: PricingPortfolioForecastRow[];
+  total: number;
+  hasNext: boolean;
+  skip: number;
+  take: number;
+};
+
+export type PricingPortfolioMonthlySummaryRow = {
+  year: number;
+  month: number;
+  label: string;
+  consumptionKwh: number;
+  elevatedConsumptionKwh: number;
+  lossesKwh: number;
+  estimatedSaleAmountEur: number;
+  estimatedSaleAmountBcEur: number;
+  estimatedMeffSaleEur: number;
+  meffSpreadEur: number;
+  meffSpreadEurMwh: number | null;
+  averageSalePriceEurMwh: number | null;
+  averageMeffPriceEurMwh: number | null;
+  rows: number;
+};
+
+export type PricingPortfolioMonthlySummaryResponse = {
+  referenceDate: string;
+  fechaDesde: string;
+  fechaHasta: string;
+  totalConsumptionKwh: number;
+  totalElevatedConsumptionKwh: number;
+  totalLossesKwh: number;
+  totalEstimatedSaleAmountEur: number;
+  totalEstimatedSaleAmountBcEur: number;
+  totalEstimatedMeffSaleEur: number;
+  totalMeffSpreadEur: number;
+  totalMeffSpreadEurMwh: number | null;
+  averageSalePriceEurMwh: number | null;
+  averageMeffPriceEurMwh: number | null;
+  months: PricingPortfolioMonthlySummaryRow[];
+};
+
+export type PricingPortfolioMonthlyConsumptionRow = {
+  id: string;
+  referenceDate: string;
+  year: number;
+  month: number;
+  tariffPeriod: string;
+  consumptionKwh: number | null;
+  elevatedConsumptionKwh: number | null;
+  lossesKwh: number | null;
+  lossPercentage: number | null;
+  lossVersion: string | null;
+  lossMode: string | null;
+  boeLossPercentage: number | null;
+  kFactor: number | null;
+  kFactorVersion: string | null;
+  kFactorSourceMonth: string | null;
+  salePriceYear: number | null;
+  salePriceMonth: number | null;
+  salePriceEurMwh: number | null;
+  saleSurchargeEurMwh: number | null;
+  appliedSalePriceEurMwh: number | null;
+  estimatedSaleAmountEur: number | null;
+  estimatedSaleAmountBcEur: number | null;
+  salePriceStatus: string | null;
+  profileWeight: number | null;
+  intervals: number;
+  createdAt: string;
+};
+
+export type PricingPortfolioMonthlyConsumptionResponse = {
+  contractId: string;
+  referenceDate: string | null;
+  rows: PricingPortfolioMonthlyConsumptionRow[];
+};
+
+export type PricingPortfolioMonthlyValuationRow = {
+  id: string;
+  referenceDate: string;
+  year: number;
+  month: number;
+  consumptionBcKwh: number | null;
+  meffPriceEurMwh: number | null;
+  estimatedMeffSaleEur: number | null;
+  meffPublicationDate: string | null;
+  meffProductCode: string | null;
+  meffPriceOrigin: string | null;
+  status: string;
+  createdAt: string;
+};
+
+export type PricingPortfolioMonthlyValuationResponse = {
+  contractId: string;
+  referenceDate: string | null;
+  rows: PricingPortfolioMonthlyValuationRow[];
+};
+
+export type PricingPortfolioSalePriceRow = {
+  id: string;
+  year: number;
+  month: number;
+  tariff: string;
+  period: string;
+  priceEurMwh: number | null;
+  source: string;
+  updatedAt: string;
+};
+
+export type PricingPortfolioSalePriceMatrixRow = {
+  year: number;
+  month: number;
+  prices: Record<string, number | null>;
+  surcharges: Record<string, number | null>;
+};
+
+export type PricingPortfolioSalePricesResponse = {
+  rows: PricingPortfolioSalePriceRow[];
+  matrix: PricingPortfolioSalePriceMatrixRow[];
+};
+
+export type PricingPortfolioSalePricesSaveResponse = {
+  updated: number;
+  surchargesUpdated?: number;
+};
+
 export type MercadoIndicatorScoreBreakdown = {
   base: number;
   category: number;
@@ -2885,6 +3143,61 @@ export async function uploadPricingMeffFile(file: File, onProgress?: (progress: 
   const formData = new FormData();
   formData.append("file", file, file.name);
   return sendMultipart<PricingMeffImportResponse>(`${API_URL}/pricing/meff/import`, formData, onProgress);
+}
+
+export async function getMirContracts(filters: MirContractFilters = {}): Promise<MirContractsResponse> {
+  return getJson(`/mir/contracts${toQuery(filters)}`);
+}
+
+export async function getMirContract(id: string): Promise<MirContract> {
+  return getJson(`/mir/contracts/${encodeURIComponent(id)}`);
+}
+
+export async function syncMirContracts(): Promise<MirSyncResponse> {
+  return sendJson(`/mir/sync`, "POST", "Sincronizando cartera Fijo", REQUEST_TIMEOUT_MS * 10);
+}
+
+export async function deleteMirContracts(): Promise<MirDeleteContractsResponse> {
+  return sendJson(`/mir/contracts`, "DELETE", "Eliminando cartera Fijo", REQUEST_TIMEOUT_MS);
+}
+
+export async function getMirConfig(): Promise<MirConfig> {
+  return getJson(`/mir/config`);
+}
+
+export async function saveMirConfig(config: MirConfigInput): Promise<MirConfig> {
+  return sendJson(`/mir/config`, "PUT", "Guardando configuración Fijo", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function calculatePricingPortfolioForecast(referenceDate: string): Promise<PricingPortfolioForecastRunResponse> {
+  return sendJson(`/pricing/portfolio/forecast`, "POST", "Calculando previsión de cartera", REQUEST_TIMEOUT_MS * 20, { referenceDate });
+}
+
+export async function getPricingPortfolioForecast(filters: { referenceDate?: string; status?: string; skip?: number; take?: number } = {}): Promise<PricingPortfolioForecastResponse> {
+  return getJson(`/pricing/portfolio/forecast${toQuery(filters)}`);
+}
+
+export async function getPricingPortfolioMonthlySummary(referenceDate: string, filters: MirContractFilters = {}): Promise<PricingPortfolioMonthlySummaryResponse> {
+  return getJson(`/pricing/portfolio/forecast/monthly-summary${toQuery({ ...filters, referenceDate })}`);
+}
+
+export async function getPricingPortfolioMonthlyConsumption(contractId: string, referenceDate?: string): Promise<PricingPortfolioMonthlyConsumptionResponse> {
+  return getJson(`/pricing/portfolio/${encodeURIComponent(contractId)}/monthly-consumption${toQuery({ referenceDate })}`);
+}
+
+export async function getPricingPortfolioMonthlyValuation(contractId: string, referenceDate?: string): Promise<PricingPortfolioMonthlyValuationResponse> {
+  return getJson(`/pricing/portfolio/${encodeURIComponent(contractId)}/monthly-valuation${toQuery({ referenceDate })}`);
+}
+
+export async function getPricingPortfolioSalePrices(filters: { yearFrom?: number | string; yearTo?: number | string } = {}): Promise<PricingPortfolioSalePricesResponse> {
+  return getJson(`/pricing/portfolio/sale-prices${toQuery(filters)}`);
+}
+
+export async function savePricingPortfolioSalePrices(
+  rows: Array<{ year: number; month: number; tariff: string; period: string; priceEurMwh: number | null }>,
+  surcharges: Array<{ year: number; month: number; tariff: string; surchargeEurMwh: number | null }> = []
+): Promise<PricingPortfolioSalePricesSaveResponse> {
+  return sendJson(`/pricing/portfolio/sale-prices`, "POST", "Guardando precios de venta", REQUEST_TIMEOUT_MS, { rows, surcharges });
 }
 
 export async function getMercadoAnalytics(filters: { fechaDesde: string; fechaHasta: string; geoId?: number | string }): Promise<MercadoAnalyticsResponse> {

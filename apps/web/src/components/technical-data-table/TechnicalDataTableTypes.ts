@@ -61,6 +61,7 @@ export type TechnicalDataTableProps<T extends object> = {
   exportFileName: string;
   getTotalsRow?: TechnicalTotalsRow<T>;
   loadExportRows?: () => Promise<T[]>;
+  onRowDoubleClick?: (row: T) => void;
   showHeaderTitle?: boolean;
   showQuality?: boolean;
   showPagination?: boolean;

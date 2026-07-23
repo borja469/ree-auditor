@@ -45,7 +45,8 @@ export function TechnicalDataRow<T extends object>({
   stickyOffsets,
   maxByNumericColumn,
   quality,
-  duplicate
+  duplicate,
+  onDoubleClick
 }: {
   row: T;
   columns: Array<TechnicalColumn<T>>;
@@ -54,9 +55,10 @@ export function TechnicalDataRow<T extends object>({
   maxByNumericColumn: Map<string, number>;
   quality: RowQuality;
   duplicate: boolean;
+  onDoubleClick?: () => void;
 }) {
   return (
-    <div className={`technical-grid technical-data-row ${quality.tone} ${duplicate ? "duplicate" : ""}`} style={{ gridTemplateColumns }}>
+    <div className={`technical-grid technical-data-row ${quality.tone} ${duplicate ? "duplicate" : ""}`} onDoubleClick={onDoubleClick} style={{ gridTemplateColumns }}>
       {columns.map((column) => {
         const raw = column.value(row);
         const numeric = column.type === "number" ? normalizeNumericValue(raw) : undefined;
@@ -101,6 +103,7 @@ export function TechnicalDataTable<T extends object>({
   exportFileName,
   getTotalsRow,
   loadExportRows,
+  onRowDoubleClick,
   showHeaderTitle = true,
   showQuality = true,
   showPagination = true,
@@ -456,6 +459,7 @@ export function TechnicalDataTable<T extends object>({
                   quality={getRowQuality(entry.row)}
                   row={entry.row}
                   stickyOffsets={stickyOffsets}
+                  onDoubleClick={onRowDoubleClick ? () => onRowDoubleClick(entry.row) : undefined}
                   key={entry.key}
                 />
               )

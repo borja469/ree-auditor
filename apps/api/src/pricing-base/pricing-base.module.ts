@@ -14,6 +14,6 @@ import { PricingRegulatedCostsLoader } from "./regulated_costs_loader";
   imports: [PrismaModule, ReeLossesModule],
   controllers: [PricingBaseController],
   providers: [PricingBaseTableService, PricingProfilesLoader, PricingOmieLoader, PricingRegulatedCostsLoader, MeffForwardCurveService, PricingCalculatorManualValuesService, PricingBaseExportService],
-  exports: [PricingBaseTableService]
+  exports: [PricingBaseTableService, PricingProfilesLoader]
 })
 export class PricingBaseModule {}

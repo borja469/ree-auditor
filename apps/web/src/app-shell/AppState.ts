@@ -125,9 +125,8 @@ export function isEsiosSection(section: Section) {
   );
 }
 
-
 export function isPricingSection(section: Section) {
-  return section === "pricingBase" || section === "pricingMeff";
+  return section === "pricingBase" || section === "pricingMeff" || section === "pricingMir";
 }
 
 export function isInformesSection(section: Section) {

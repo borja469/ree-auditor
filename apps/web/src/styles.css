@@ -2503,6 +2503,14 @@ select:disabled {
   border-color: #fecaca;
 }
 
+.technical-kpi.good.signed strong {
+  color: #166534;
+}
+
+.technical-kpi.danger.signed strong {
+  color: #991b1b;
+}
+
 .quality-strip,
 .technical-pagination {
   display: flex;
@@ -3748,6 +3756,16 @@ select:disabled {
   background: #dbeafe;
 }
 
+.mir-sale-prices-table {
+  min-width: 1520px;
+}
+
+.mir-sale-prices-table .pricing-calculator-sticky {
+  width: 118px;
+  min-width: 118px;
+  max-width: 118px;
+}
+
 .pricing-upload-button {
   cursor: pointer;
 }
@@ -3786,6 +3804,190 @@ select:disabled {
   overflow: hidden;
 }
 
+.mir-status-line {
+  align-items: center;
+  gap: 8px 18px;
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: #f7fbfc;
+  border: 1px solid #d7e6eb;
+  border-radius: 8px;
+}
+
+.mir-action-toolbar {
+  padding-top: 2px;
+}
+
+.mir-filter-toolbar {
+  padding-top: 8px;
+  border-top: 1px solid #edf3f6;
+}
+
+.mir-surcharge-toolbar {
+  align-items: flex-end;
+  padding-top: 8px;
+  border-top: 1px solid #edf3f6;
+}
+
+.mir-surcharge-hint {
+  align-self: center;
+  color: #607482;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.mir-config-details {
+  margin-top: 10px;
+  border-top: 1px solid #edf3f6;
+}
+
+.mir-config-details summary {
+  cursor: pointer;
+  width: max-content;
+  max-width: 100%;
+  padding-top: 10px;
+  color: #496673;
+  font-size: 0.75rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.mir-config-toolbar {
+  padding: 2px 0 4px;
+}
+
+.omie-toolbar .filter-field.wide {
+  min-width: min(340px, 100%);
+}
+
+.danger-button {
+  color: #8a1f17;
+  background: #fff1f0;
+  border-color: #efc7c2;
+}
+
+.danger-button:hover:not(:disabled),
+.danger-button:focus-visible {
+  color: #ffffff;
+  background: #b42318;
+  border-color: #b42318;
+}
+
+.mir-multi-filter {
+  position: relative;
+  min-width: 170px;
+}
+
+.mir-multi-filter summary {
+  display: grid;
+  gap: 4px;
+  min-height: 34px;
+  padding: 5px 10px;
+  color: #17313f;
+  background: #ffffff;
+  border: 1px solid #cbd8df;
+  border-radius: 8px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.mir-multi-filter summary::-webkit-details-marker {
+  display: none;
+}
+
+.mir-multi-filter summary span {
+  color: #607482;
+  font-size: 0.66rem;
+  font-weight: 850;
+}
+
+.mir-multi-filter summary strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #17313f;
+  font-size: 0.78rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mir-multi-filter-menu {
+  position: absolute;
+  z-index: 35;
+  top: calc(100% + 6px);
+  left: 0;
+  width: min(340px, calc(100vw - 32px));
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid #d7e6eb;
+  border-radius: 8px;
+  box-shadow: var(--shadow-soft);
+}
+
+.mir-multi-filter-menu input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #cbd8df;
+  border-radius: 8px;
+}
+
+.mir-multi-filter-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.mir-multi-filter-actions button {
+  min-height: 30px;
+  padding: 0 9px;
+  color: #17445c;
+  background: #e8f1f5;
+  border: 1px solid #c9d9e1;
+  border-radius: 7px;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.mir-multi-filter-options {
+  display: grid;
+  gap: 4px;
+  max-height: 260px;
+  margin-top: 8px;
+  overflow-y: auto;
+}
+
+.mir-multi-filter-options label {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 5px 6px;
+  border-radius: 6px;
+}
+
+.mir-multi-filter-options label:hover {
+  background: #f3f7f9;
+}
+
+.mir-multi-filter-options span {
+  min-width: 0;
+  overflow: hidden;
+  color: #263d48;
+  font-size: 0.78rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mir-multi-filter-empty {
+  padding: 16px 8px;
+  color: #607482;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-align: center;
+}
+
 .pricing-meff-table-scroll {
   overflow-x: auto;
   margin-top: 12px;
@@ -3822,6 +4024,22 @@ select:disabled {
 .pricing-meff-table th.number {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.technical-cell-input {
+  width: 88px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  padding: 5px 7px;
+  text-align: right;
+  font: inherit;
+  color: #0f172a;
+  background: #ffffff;
+}
+
+.technical-cell-input:focus {
+  border-color: #2563eb;
+  outline: 2px solid rgba(37, 99, 235, 0.14);
 }
 
 .pricing-meff-increase-positive {

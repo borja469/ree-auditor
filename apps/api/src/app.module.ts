@@ -5,6 +5,7 @@ import { AuthModule } from "./auth/auth.module";
 import { EsiosModule } from "./esios/esios.module";
 import { HealthModule } from "./health/health.module";
 import { ImportsModule } from "./imports/imports.module";
+import { MirModule } from "./mir/mir.module";
 import { OmieAnalisisModule } from "./omie-analisis/omie-analisis.module";
 import { OmieDescargasModule } from "./omie-descargas/omie-descargas.module";
 import { OmieGuaranteesModule } from "./omie-guarantees/omie-guarantees.module";
@@ -33,6 +34,7 @@ import { ReeSeieModule } from "./ree-seie/ree-seie.module";
     OmieAnalisisModule,
     OmieGuaranteesModule,
     OmieDescargasModule,
+    MirModule,
     PricingBaseModule,
     PricingMeffModule,
     EsiosModule,

@@ -1116,3 +1116,168 @@ model EsiosProfileCalculationLog {
   @@index([createdAt])
   @@map("esios_profile_calculation_logs")
 }
+
+model MirContract {
+  id                String   @id @default(uuid()) @db.Uuid
+  mirContractId     Int      @unique @map("mir_contract_id")
+  policyId          Int?     @map("policy_id")
+  policyCode        String?  @map("policy_code") @db.VarChar(80)
+  commercialId      Int?     @map("commercial_id")
+  commercialName    String?  @map("commercial_name") @db.VarChar(255)
+  annualConsumption Decimal? @map("annual_consumption") @db.Decimal(20, 6)
+  contractEndDate   DateTime? @map("contract_end_date") @db.Date
+  tariffId          Int?     @map("tariff_id")
+  tariffName        String?  @map("tariff_name") @db.VarChar(80)
+  priceListId       Int?     @map("price_list_id")
+  priceListName     String?  @map("price_list_name") @db.VarChar(160)
+  synchronizedAt    DateTime @map("synchronized_at")
+  syncStatus        String   @default("OK") @map("sync_status") @db.VarChar(30)
+  validationErrors  Json?    @map("validation_errors")
+  rawPayloadJson    Json     @map("raw_payload_json")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  monthlyConsumption PricingPortfolioMonthlyConsumption[]
+  forecasts          PricingPortfolioForecast[]
+  monthlyValuations  PricingPortfolioMonthlyValuation[]
+
+  @@index([policyCode])
+  @@index([commercialName])
+  @@index([tariffName])
+  @@index([priceListName])
+  @@index([contractEndDate])
+  @@index([synchronizedAt])
+  @@index([syncStatus])
+  @@map("mir_contracts")
+}
+
+model PricingPortfolioMonthlyConsumption {
+  id             String      @id @default(uuid()) @db.Uuid
+  contractId     String      @map("contract_id") @db.Uuid
+  contract       MirContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  referenceDate  DateTime    @default(dbgenerated("'1970-01-01'::date")) @map("reference_date") @db.Date
+  year           Int
+  month          Int
+  tariffPeriod   String      @map("tariff_period") @db.VarChar(5)
+  consumptionKwh Decimal     @map("consumption_kwh") @db.Decimal(24, 6)
+  elevatedConsumptionKwh Decimal? @map("elevated_consumption_kwh") @db.Decimal(24, 6)
+  lossesKwh      Decimal?    @map("losses_kwh") @db.Decimal(24, 6)
+  lossPercentage Decimal?    @map("loss_percentage") @db.Decimal(12, 6)
+  lossVersion    String?     @map("loss_version") @db.VarChar(80)
+  lossMode       String?     @map("loss_mode") @db.VarChar(80)
+  boeLossPercentage Decimal? @map("boe_loss_percentage") @db.Decimal(12, 6)
+  kFactor        Decimal?    @map("k_factor") @db.Decimal(20, 10)
+  kFactorVersion String?     @map("k_factor_version") @db.VarChar(255)
+  kFactorSourceMonth String? @map("k_factor_source_month") @db.VarChar(255)
+  salePriceYear  Int?        @map("sale_price_year")
+  salePriceMonth Int?        @map("sale_price_month")
+  salePriceEurMwh Decimal?   @map("sale_price_eur_mwh") @db.Decimal(20, 6)
+  saleSurchargeEurMwh Decimal? @map("sale_surcharge_eur_mwh") @db.Decimal(20, 6)
+  appliedSalePriceEurMwh Decimal? @map("applied_sale_price_eur_mwh") @db.Decimal(20, 6)
+  estimatedSaleAmountEur Decimal? @map("estimated_sale_amount_eur") @db.Decimal(24, 6)
+  estimatedSaleAmountBcEur Decimal? @map("estimated_sale_amount_bc_eur") @db.Decimal(24, 6)
+  salePriceStatus String?    @map("sale_price_status") @db.VarChar(40)
+  profileWeight  Decimal     @map("profile_weight") @db.Decimal(24, 15)
+  intervals      Int
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  @@unique([contractId, referenceDate, year, month, tariffPeriod], map: "ux_pricing_portfolio_monthly_consumption_contract_ref_period")
+  @@index([contractId])
+  @@index([referenceDate])
+  @@index([year, month])
+  @@index([tariffPeriod])
+  @@map("pricing_portfolio_monthly_consumption")
+}
+
+model PricingPortfolioForecast {
+  id                   String      @id @default(uuid()) @db.Uuid
+  contractId           String      @map("contract_id") @db.Uuid
+  contract             MirContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  referenceDate        DateTime    @map("reference_date") @db.Date
+  calculatedUntil      DateTime?   @map("calculated_until") @db.Date
+  estimatedConsumption Decimal     @map("estimated_consumption") @db.Decimal(24, 6)
+  estimatedSaleAmount  Decimal?    @map("estimated_sale_amount") @db.Decimal(24, 6)
+  estimatedSaleAmountBc Decimal?   @map("estimated_sale_amount_bc") @db.Decimal(24, 6)
+  estimatedMeffSaleAmount Decimal? @map("estimated_meff_sale_amount") @db.Decimal(24, 6)
+  saleSurchargesJson Json?    @map("sale_surcharges_json")
+  salePriceStatus      String?     @map("sale_price_status") @db.VarChar(40)
+  meffValuationStatus  String?     @map("meff_valuation_status") @db.VarChar(40)
+  calculatedAt         DateTime    @map("calculated_at")
+  status               String      @db.VarChar(40)
+
+  @@unique([contractId, referenceDate], map: "ux_pricing_portfolio_forecast_contract_reference")
+  @@index([referenceDate])
+  @@index([status])
+  @@map("pricing_portfolio_forecast")
+}
+
+model PricingPortfolioMonthlyValuation {
+  id                   String      @id @default(uuid()) @db.Uuid
+  contractId           String      @map("contract_id") @db.Uuid
+  contract             MirContract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  referenceDate        DateTime    @map("reference_date") @db.Date
+  year                 Int
+  month                Int
+  consumptionBcKwh     Decimal     @map("consumption_bc_kwh") @db.Decimal(24, 6)
+  meffPriceEurMwh      Decimal?    @map("meff_price_eur_mwh") @db.Decimal(20, 6)
+  estimatedMeffSaleEur Decimal?    @map("estimated_meff_sale_eur") @db.Decimal(24, 6)
+  meffPublicationDate  DateTime?   @map("meff_publication_date") @db.Date
+  meffProductCode      String?     @map("meff_product_code") @db.VarChar(120)
+  meffPriceOrigin      String?     @map("meff_price_origin") @db.VarChar(40)
+  status               String      @db.VarChar(40)
+  createdAt            DateTime    @default(now()) @map("created_at")
+  updatedAt            DateTime    @updatedAt @map("updated_at")
+
+  @@unique([contractId, referenceDate, year, month], map: "ux_pricing_portfolio_monthly_valuation_contract_ref_month")
+  @@index([referenceDate])
+  @@index([year, month])
+  @@index([status])
+  @@map("pricing_portfolio_monthly_valuation")
+}
+
+model PricingPortfolioSalePrice {
+  id          String   @id @default(uuid()) @db.Uuid
+  year        Int
+  month       Int
+  tariff      String   @db.VarChar(20)
+  period      String   @db.VarChar(5)
+  priceEurMwh Decimal? @map("price_eur_mwh") @db.Decimal(20, 6)
+  source      String   @default("INITIAL") @db.VarChar(30)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([year, month, tariff, period], map: "ux_pricing_portfolio_sale_prices_month_tariff_period")
+  @@index([year, month])
+  @@index([tariff])
+  @@index([period])
+  @@map("pricing_portfolio_sale_prices")
+}
+
+model PricingPortfolioSaleSurcharge {
+  id              String   @id @default(uuid()) @db.Uuid
+  year            Int
+  month           Int
+  tariff          String   @db.VarChar(20)
+  surchargeEurMwh Decimal? @map("surcharge_eur_mwh") @db.Decimal(20, 6)
+  source          String   @default("MANUAL") @db.VarChar(30)
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([year, month, tariff], map: "ux_pricing_portfolio_sale_surcharges_month_tariff")
+  @@index([year, month])
+  @@index([tariff])
+  @@map("pricing_portfolio_sale_surcharges")
+}
+
+model MirConfig {
+  id            Int      @id @default(1)
+  apiUrl        String?  @map("api_url") @db.VarChar(1000)
+  contractsPath String   @default("/contracts") @map("contracts_path") @db.VarChar(500)
+  username      String?  @db.VarChar(255)
+  password      String?  @db.Text
+  timeoutMs     Int      @default(60000) @map("timeout_ms")
+  retries       Int      @default(3)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("mir_config")
+}
