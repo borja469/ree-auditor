@@ -49,13 +49,16 @@ const MONTH_OPTIONS = [
   { value: "12", label: "Diciembre" }
 ] as const;
 
-type OmieAnnualSummaryMetric = "energy" | "profit" | "profitRate" | "omieCost" | "omiePrice";
+type OmieAnnualSummaryMetric = "energy" | "profit" | "profitRate" | "omieCost" | "omieMdLinearPrice" | "omiePrice";
 
 type OmieAnnualSummaryCell = {
   energy: number | null;
   profit: number | null;
   profitRate: number | null;
   omieCost: number | null;
+  omieMdLinearPrice: number | null;
+  omieMdLinearPriceSum: number | null;
+  omieMdLinearPriceCount: number;
   omiePrice: number | null;
 };
 
@@ -201,6 +204,7 @@ function OmieAnnualSummaryTable({
     { id: "profit", label: "Suma profit" },
     { id: "profitRate", label: "Profit Medio €/MWh" },
     { id: "omieCost", label: "Coste OMIE" },
+    { id: "omieMdLinearPrice", label: "Precio medio OMIE MD" },
     { id: "omiePrice", label: "Precio OMIE" }
   ];
 
@@ -677,12 +681,16 @@ function buildOmieAnnualSummary(analyses: Array<OmieAnalisisMensualResponse | nu
     const energy = nullableSum(analysis.periodos.map(omieMonthlyPeriodEnergyTotal));
     const profit = nullableSum(analysis.periodos.map((row) => row.sumaProfit));
     const omieCost = nullableSum(analysis.periodos.map(omieMonthlyPeriodOmieCost));
+    const omieMdLinearPrice = linearAverageParts(analysis.periodos.map((row) => row.precioMd));
 
     return {
       energy,
       profit,
       profitRate: divideOrNull(profit, energy),
       omieCost,
+      omieMdLinearPrice: averageFromParts(omieMdLinearPrice),
+      omieMdLinearPriceSum: omieMdLinearPrice.sum,
+      omieMdLinearPriceCount: omieMdLinearPrice.count,
       omiePrice: divideOrNull(omieCost, energy)
     };
   });
@@ -692,12 +700,17 @@ function buildOmieAnnualSummaryTotal(summary: OmieAnnualSummaryCell[]): OmieAnnu
   const energy = nullableSum(summary.map((cell) => cell.energy));
   const profit = nullableSum(summary.map((cell) => cell.profit));
   const omieCost = nullableSum(summary.map((cell) => cell.omieCost));
+  const omieMdLinearPriceSum = nullableSum(summary.map((cell) => cell.omieMdLinearPriceSum));
+  const omieMdLinearPriceCount = summary.reduce((count, cell) => count + cell.omieMdLinearPriceCount, 0);
 
   return {
     energy,
     profit,
     profitRate: divideOrNull(profit, energy),
     omieCost,
+    omieMdLinearPrice: divideOrNull(omieMdLinearPriceSum, omieMdLinearPriceCount),
+    omieMdLinearPriceSum,
+    omieMdLinearPriceCount,
     omiePrice: divideOrNull(omieCost, energy)
   };
 }
@@ -708,6 +721,9 @@ function emptyAnnualSummaryCell(): OmieAnnualSummaryCell {
     profit: null,
     profitRate: null,
     omieCost: null,
+    omieMdLinearPrice: null,
+    omieMdLinearPriceSum: null,
+    omieMdLinearPriceCount: 0,
     omiePrice: null
   };
 }
@@ -737,6 +753,20 @@ function nullableSum(values: Array<number | string | null | undefined>) {
     .map((value) => normalizeNumericValue(value))
     .filter((value): value is number => value !== undefined && Number.isFinite(value));
   return numericValues.length > 0 ? numericValues.reduce((sum, value) => sum + value, 0) : null;
+}
+
+function linearAverageParts(values: Array<number | string | null | undefined>) {
+  const numericValues = values
+    .map((value) => normalizeNumericValue(value))
+    .filter((value): value is number => value !== undefined && Number.isFinite(value));
+  return {
+    sum: numericValues.length > 0 ? numericValues.reduce((sum, value) => sum + value, 0) : null,
+    count: numericValues.length
+  };
+}
+
+function averageFromParts(parts: { sum: number | null; count: number }) {
+  return divideOrNull(parts.sum, parts.count);
 }
 
 function formatAnnualSummaryValue(metric: OmieAnnualSummaryMetric, value: number | null) {
