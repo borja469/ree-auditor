@@ -2,16 +2,14 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { OmieTipoPrecio, Prisma } from "@prisma/client";
 import { buildPricingCalendarRange } from "../pricing-base/calendar_builder";
 import { PrismaService } from "../prisma/prisma.service";
-import type { PricingHedgeOperation, PricingHedgeOperationInput, PricingHedgeOperationType, PricingHedgePosition, PricingHedgeProduct, PricingHedgesResponse } from "./pricing-hedges.types";
+import type { PricingHedgeOperation, PricingHedgeOperationInput, PricingHedgeOperationType, PricingHedgePosition, PricingHedgeProduct, PricingHedgeProductFilters, PricingHedgesResponse } from "./pricing-hedges.types";
 
 @Injectable()
 export class PricingHedgesService {
-  private productsCache: { expiresAt: number; products: PricingHedgeProduct[] } | null = null;
-
   constructor(private readonly prisma: PrismaService) {}
 
-  async products(): Promise<PricingHedgeProduct[]> {
-    return this.loadProducts();
+  async products(filters: PricingHedgeProductFilters = {}): Promise<PricingHedgeProduct[]> {
+    return this.loadProducts(undefined, normalizeProductFilters(filters));
   }
 
   async overview(): Promise<PricingHedgesResponse> {
@@ -155,12 +153,9 @@ export class PricingHedgesService {
     return { contractDate, operationType, productCod, powerMw, contractedPrice, broker: optionalText(input.broker), observations: optionalText(input.observations) };
   }
 
-  private async loadProducts(codes?: string[]): Promise<PricingHedgeProduct[]> {
+  private async loadProducts(codes?: string[], filters?: NormalizedProductFilters): Promise<PricingHedgeProduct[]> {
     const normalizedCodes = [...new Set(codes?.map((code) => code.trim()).filter(Boolean) ?? [])].sort();
     const cacheKeyIsFullCatalog = normalizedCodes.length === 0;
-    if (cacheKeyIsFullCatalog && this.productsCache && this.productsCache.expiresAt > Date.now()) {
-      return this.productsCache.products;
-    }
     const latestRows = normalizedCodes.length
       ? await this.prisma.$queryRaw<PricingMeffLatestRow[]>`
           SELECT DISTINCT ON ("cod")
@@ -215,11 +210,9 @@ export class PricingHedgesService {
         latestPrice: marketPrice?.price ?? decimalToNumber(row.precio),
         latestPriceDate: marketPrice?.priceDate ?? formatDate(row.fechaPublicacion)
       };
-    }).sort((left, right) => left.label.localeCompare(right.label, "es", { numeric: true, sensitivity: "base" }));
-    if (cacheKeyIsFullCatalog) {
-      this.productsCache = { expiresAt: Date.now() + 60_000, products };
-    }
-    return products;
+    });
+    const filteredProducts = cacheKeyIsFullCatalog ? filterProductCatalog(products, filters) : products;
+    return filteredProducts.sort((left, right) => left.label.localeCompare(right.label, "es", { numeric: true, sensitivity: "base" }));
   }
 
   private async loadLatestProductRows(): Promise<PricingMeffLatestRow[]> {
@@ -352,6 +345,13 @@ type DeliveryRange = {
 type MarketPrice = {
   price: number;
   priceDate: string;
+};
+
+type NormalizedProductFilters = {
+  clase: "FUTURO" | "SWAP" | null;
+  tipo: "BASE" | "PUNTA" | null;
+  periodo: "ANUAL" | "DIARIO" | "FIN DE SEMANA" | "MENSUAL" | "SEMANAL" | "TRIMESTRAL" | null;
+  showExpired: boolean;
 };
 
 type CascadeMonthPrice = {
@@ -768,6 +768,87 @@ const MONTHS: Record<string, number> = {
 function productLabel(row: { cod: string; clase: string | null; entrega: string | null }) {
   const parts = [row.entrega ?? row.cod, row.clase].filter(Boolean);
   return [...new Set(parts)].join(" ");
+}
+
+function normalizeProductFilters(filters: PricingHedgeProductFilters): NormalizedProductFilters {
+  return {
+    clase: normalizeProductFilter(filters.clase, ["FUTURO", "SWAP"]),
+    tipo: normalizeProductFilter(filters.tipo, ["BASE", "PUNTA"]),
+    periodo: normalizeProductFilter(filters.periodo, ["ANUAL", "DIARIO", "FIN DE SEMANA", "MENSUAL", "SEMANAL", "TRIMESTRAL"]),
+    showExpired: filters.showExpired === true || String(filters.showExpired ?? "").toLowerCase() === "true"
+  };
+}
+
+function normalizeProductFilter<T extends string>(value: string | undefined, allowed: readonly T[]): T | null {
+  const normalized = normalizeText(value).toUpperCase();
+  return allowed.includes(normalized as T) ? normalized as T : null;
+}
+
+function filterProductCatalog(products: PricingHedgeProduct[], filters?: NormalizedProductFilters) {
+  if (!filters) {
+    return products;
+  }
+  const today = todayInputValue();
+  return products.filter((product) => {
+    if (!filters.showExpired && product.fechaFin && product.fechaFin < today) {
+      return false;
+    }
+    if (filters.clase && productBusinessClase(product) !== filters.clase) {
+      return false;
+    }
+    if (filters.tipo && productBusinessTipo(product) !== filters.tipo) {
+      return false;
+    }
+    if (filters.periodo && productBusinessPeriodo(product) !== filters.periodo) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function productBusinessTipo(product: Pick<PricingHedgeProduct, "tipo">) {
+  const normalized = normalizeText(product.tipo);
+  if (normalized.includes("base")) {
+    return "BASE";
+  }
+  if (normalized.includes("punta") || normalized.includes("peak")) {
+    return "PUNTA";
+  }
+  return product.tipo?.toUpperCase() ?? "-";
+}
+
+function productBusinessClase(product: Pick<PricingHedgeProduct, "clase">) {
+  const normalized = normalizeText(product.clase);
+  if (normalized.includes("futuro") || normalized.includes("future")) {
+    return "FUTURO";
+  }
+  if (normalized.includes("swap")) {
+    return "SWAP";
+  }
+  return product.clase?.toUpperCase() ?? "-";
+}
+
+function productBusinessPeriodo(product: Pick<PricingHedgeProduct, "periodo">) {
+  const normalized = normalizeText(product.periodo);
+  if (normalized.includes("anual") || normalized.includes("year")) {
+    return "ANUAL";
+  }
+  if (normalized.includes("diario") || normalized.includes("daily")) {
+    return "DIARIO";
+  }
+  if (normalized.includes("fin") || normalized.includes("weekend")) {
+    return "FIN DE SEMANA";
+  }
+  if (normalized.includes("mensual") || normalized.includes("month")) {
+    return "MENSUAL";
+  }
+  if (normalized.includes("semanal") || normalized.includes("week")) {
+    return "SEMANAL";
+  }
+  if (normalized.includes("trimestral") || normalized.includes("quarter")) {
+    return "TRIMESTRAL";
+  }
+  return product.periodo?.toUpperCase() ?? "-";
 }
 
 function weightedAverage(rows: PricingHedgeOperation[]) {

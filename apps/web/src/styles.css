@@ -4150,6 +4150,18 @@ select:disabled {
   accent-color: #17445c;
 }
 
+.pricing-hedges-load-products {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pricing-hedges-load-products small {
+  color: #607482;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .pricing-hedges-form-actions,
 .pricing-hedges-actions,
 .pricing-hedges-row-actions,

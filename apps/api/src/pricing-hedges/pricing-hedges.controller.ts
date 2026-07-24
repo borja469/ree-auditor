@@ -1,6 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Post, Put } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Post, Put, Query } from "@nestjs/common";
 import { PricingHedgesService } from "./pricing-hedges.service";
-import type { PricingHedgeOperationInput } from "./pricing-hedges.types";
+import type { PricingHedgeOperationInput, PricingHedgeProductFilters } from "./pricing-hedges.types";
 
 @Controller("pricing/hedges")
 export class PricingHedgesController {
@@ -12,8 +12,8 @@ export class PricingHedgesController {
   }
 
   @Get("products")
-  products() {
-    return this.service.products();
+  products(@Query() query: PricingHedgeProductFilters) {
+    return this.service.products(query);
   }
 
   @Post("operations")

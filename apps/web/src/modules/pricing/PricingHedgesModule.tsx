@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { EChartsOption } from "echarts";
-import { BarChart3, Download, Edit3, Plus, Save, Search, Trash2, X } from "lucide-react";
+import { BarChart3, Download, Edit3, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import {
   createPricingHedgeOperation,
   deletePricingHedgeOperation,
@@ -53,7 +53,6 @@ export function PricingHedgesModule() {
     try {
       const result = await getPricingHedges();
       setData(result);
-      setProducts((current) => current.length ? current : result.products);
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error consultando coberturas." });
     } finally {
@@ -64,12 +63,6 @@ export function PricingHedgesModule() {
   useEffect(() => {
     void load();
   }, []);
-
-  useEffect(() => {
-    if (activeTab === "operations" && !productCatalogLoaded && !productsLoading) {
-      void ensureProducts();
-    }
-  }, [activeTab, productCatalogLoaded, productsLoading]);
 
   const productByCod = useMemo(() => new Map(products.map((product) => [product.cod, product])), [products]);
   const selectableProducts = useMemo(() => filterProducts(products, productFilters), [products, productFilters]);
@@ -139,8 +132,14 @@ export function PricingHedgesModule() {
 
   async function ensureProducts() {
     setProductsLoading(true);
+    setProductCatalogLoaded(false);
     try {
-      const result = await getPricingHedgeProducts();
+      const result = await getPricingHedgeProducts({
+        clase: productFilters.clase || undefined,
+        tipo: productFilters.tipo || undefined,
+        periodo: productFilters.periodo || undefined,
+        showExpired: productFilters.showExpired
+      });
       setProducts(result);
       setProductCatalogLoaded(true);
       setDraft((current) => current.productCod ? current : { ...current, productCod: result[0]?.cod ?? "" });
@@ -148,6 +147,19 @@ export function PricingHedgesModule() {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando productos MEFF." });
     } finally {
       setProductsLoading(false);
+    }
+  }
+
+  function changeProductFilters(next: ProductFilterState) {
+    const catalogFilterChanged = next.clase !== productFilters.clase
+      || next.tipo !== productFilters.tipo
+      || next.periodo !== productFilters.periodo
+      || next.showExpired !== productFilters.showExpired;
+    setProductFilters(next);
+    if (catalogFilterChanged) {
+      setProducts([]);
+      setProductCatalogLoaded(false);
+      setDraft((current) => ({ ...current, productCod: "" }));
     }
   }
 
@@ -204,12 +216,14 @@ export function PricingHedgesModule() {
             editing={Boolean(editingId)}
             loading={loading || productsLoading}
             products={products}
+            productCatalogLoaded={productCatalogLoaded}
             productsLoading={productsLoading}
             selectableProducts={selectableProducts}
             productFilters={productFilters}
             onCancel={cancelEdit}
             onChange={setDraft}
-            onProductFiltersChange={setProductFilters}
+            onLoadProducts={() => void ensureProducts()}
+            onProductFiltersChange={changeProductFilters}
             onSave={() => void saveDraft()}
           />
           <div className="panel wide pricing-meff-panel">
@@ -252,11 +266,13 @@ function OperationEditor({
   editing,
   loading,
   products,
+  productCatalogLoaded,
   productsLoading,
   selectableProducts,
   productFilters,
   onCancel,
   onChange,
+  onLoadProducts,
   onProductFiltersChange,
   onSave
 }: {
@@ -265,11 +281,13 @@ function OperationEditor({
   editing: boolean;
   loading: boolean;
   products: PricingHedgeProduct[];
+  productCatalogLoaded: boolean;
   productsLoading: boolean;
   selectableProducts: PricingHedgeProduct[];
   productFilters: ProductFilterState;
   onCancel: () => void;
   onChange: (draft: PricingHedgeOperationInput) => void;
+  onLoadProducts: () => void;
   onProductFiltersChange: (filters: ProductFilterState) => void;
   onSave: () => void;
 }) {
@@ -280,8 +298,9 @@ function OperationEditor({
   const deliveryOptions = useMemo(() => buildDeliveryOptions(products, productFilters), [products, productFilters]);
 
   useEffect(() => {
-    if (!editing && !selectableProducts.some((product) => product.cod === draft.productCod)) {
-      onChange({ ...draft, productCod: selectableProducts[0]?.cod ?? "" });
+    const nextProductCod = selectableProducts[0]?.cod ?? "";
+    if (!editing && !selectableProducts.some((product) => product.cod === draft.productCod) && draft.productCod !== nextProductCod) {
+      onChange({ ...draft, productCod: nextProductCod });
     }
   }, [draft, editing, onChange, selectableProducts]);
 
@@ -302,7 +321,7 @@ function OperationEditor({
         </label>
         <label className="filter-field wide">
           <span>Clase</span>
-          <select disabled={loading || products.length === 0} value={productFilters.clase} onChange={(event) => onProductFiltersChange({ ...productFilters, clase: event.target.value as ProductFilterState["clase"], entrega: "" })}>
+          <select disabled={loading} value={productFilters.clase} onChange={(event) => onProductFiltersChange({ ...productFilters, clase: event.target.value as ProductFilterState["clase"], entrega: "" })}>
             <option value="">Todas</option>
             <option value="FUTURO">Futuro</option>
             <option value="SWAP">Swap</option>
@@ -310,7 +329,7 @@ function OperationEditor({
         </label>
         <label className="filter-field wide">
           <span>Tipo</span>
-          <select disabled={loading || products.length === 0} value={productFilters.tipo} onChange={(event) => onProductFiltersChange({ ...productFilters, tipo: event.target.value as ProductFilterState["tipo"], entrega: "" })}>
+          <select disabled={loading} value={productFilters.tipo} onChange={(event) => onProductFiltersChange({ ...productFilters, tipo: event.target.value as ProductFilterState["tipo"], entrega: "" })}>
             <option value="">Todos</option>
             <option value="BASE">Base</option>
             <option value="PUNTA">Punta</option>
@@ -318,7 +337,7 @@ function OperationEditor({
         </label>
         <label className="filter-field wide">
           <span>Periodo</span>
-          <select disabled={loading || products.length === 0} value={productFilters.periodo} onChange={(event) => onProductFiltersChange({ ...productFilters, periodo: event.target.value as ProductFilterState["periodo"], entrega: "" })}>
+          <select disabled={loading} value={productFilters.periodo} onChange={(event) => onProductFiltersChange({ ...productFilters, periodo: event.target.value as ProductFilterState["periodo"], entrega: "" })}>
             <option value="">Todos</option>
             <option value="ANUAL">Anual</option>
             <option value="DIARIO">Diario</option>
@@ -329,9 +348,16 @@ function OperationEditor({
           </select>
         </label>
         <label className="pricing-hedges-check">
-          <input checked={productFilters.showExpired} disabled={loading || products.length === 0} onChange={(event) => onProductFiltersChange({ ...productFilters, showExpired: event.target.checked })} type="checkbox" />
+          <input checked={productFilters.showExpired} disabled={loading} onChange={(event) => onProductFiltersChange({ ...productFilters, showExpired: event.target.checked })} type="checkbox" />
           <span>Mostrar vencidos</span>
         </label>
+        <div className="pricing-hedges-load-products">
+          <button className="secondary-button" disabled={loading || productsLoading} onClick={onLoadProducts} type="button">
+            <RefreshCw size={16} />
+            {productsLoading ? "Cargando..." : "Cargar productos"}
+          </button>
+          <small>{productCatalogLoaded ? `${formatNumber(products.length)} productos cargados desde MEFF` : "Define filtros y pulsa cargar"}</small>
+        </div>
         <label className="filter-field wide">
           <span>Entrega</span>
           <select disabled={loading || deliveryOptions.length === 0} value={productFilters.entrega} onChange={(event) => onProductFiltersChange({ ...productFilters, entrega: event.target.value })}>
@@ -349,7 +375,7 @@ function OperationEditor({
               <option key={product.cod} value={product.cod}>{productSelectorLabel(product)}</option>
             ))}
           </select>
-          <small>{productsLoading ? "Cargando productos MEFF..." : selectableProducts.length ? `${formatNumber(selectableProducts.length)} productos disponibles` : "Sin productos para los filtros seleccionados"}</small>
+          <small>{productsLoading ? "Cargando productos MEFF..." : !productCatalogLoaded ? "Pendiente de cargar productos" : selectableProducts.length ? `${formatNumber(selectableProducts.length)} productos disponibles` : "Sin productos para los filtros seleccionados"}</small>
         </label>
         <label className="filter-field">
           <span>MW</span>

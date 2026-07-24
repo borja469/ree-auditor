@@ -15,6 +15,13 @@ export type PricingHedgeProduct = {
   latestPriceDate: string | null;
 };
 
+export type PricingHedgeProductFilters = {
+  clase?: string;
+  tipo?: string;
+  periodo?: string;
+  showExpired?: string | boolean;
+};
+
 export type PricingHedgeOperationInput = {
   contractDate: string;
   operationType: PricingHedgeOperationType;

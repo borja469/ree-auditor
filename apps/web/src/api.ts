@@ -1123,6 +1123,13 @@ export type PricingHedgeProduct = {
   latestPriceDate: string | null;
 };
 
+export type PricingHedgeProductFilters = {
+  clase?: string;
+  tipo?: string;
+  periodo?: string;
+  showExpired?: boolean;
+};
+
 export type PricingHedgeOperationInput = {
   contractDate: string;
   operationType: PricingHedgeOperationType;
@@ -3232,8 +3239,8 @@ export async function getPricingHedges(): Promise<PricingHedgesResponse> {
   return getJson(`/pricing/hedges`);
 }
 
-export async function getPricingHedgeProducts(): Promise<PricingHedgeProduct[]> {
-  return getJson(`/pricing/hedges/products`);
+export async function getPricingHedgeProducts(filters: PricingHedgeProductFilters = {}): Promise<PricingHedgeProduct[]> {
+  return getJson(`/pricing/hedges/products${toQuery(filters)}`);
 }
 
 export async function createPricingHedgeOperation(input: PricingHedgeOperationInput): Promise<PricingHedgeOperation> {
