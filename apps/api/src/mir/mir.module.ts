@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { PricingBaseModule } from "../pricing-base/pricing-base.module";
+import { PricingHedgesModule } from "../pricing-hedges/pricing-hedges.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { ReeLossesModule } from "../ree-losses/ree-losses.module";
 import { MirClientService } from "./mir-client.service";
@@ -12,7 +13,7 @@ import { PricingPortfolioController } from "./pricing-portfolio.controller";
 import { MirContractRepository } from "./repositories/mir-contract.repository";
 
 @Module({
-  imports: [PrismaModule, PricingBaseModule, ReeLossesModule],
+  imports: [PrismaModule, PricingBaseModule, PricingHedgesModule, ReeLossesModule],
   controllers: [MirController, PricingPortfolioController],
   providers: [MirClientService, MirContractRepository, MirService, MirSyncService, PortfolioForecastService, PortfolioSalePriceService],
   exports: [MirService, MirSyncService, PortfolioForecastService, PortfolioSalePriceService]

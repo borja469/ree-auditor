@@ -19,6 +19,7 @@ export type Section =
   | "esiosConfiguracion"
   | "pricingBase"
   | "pricingMeff"
+  | "pricingHedges"
   | "pricingMir"
   | "annualReport";
 

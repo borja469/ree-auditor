@@ -15,6 +15,7 @@ import { OmieSiom2Module } from "./omie-siom2/omie-siom2.module";
 import { OmieTransaccionesModule } from "./omie-transacciones/omie-transacciones.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { PricingBaseModule } from "./pricing-base/pricing-base.module";
+import { PricingHedgesModule } from "./pricing-hedges/pricing-hedges.module";
 import { PricingMeffModule } from "./pricing-meff/pricing-meff.module";
 import { ReeLossesModule } from "./ree-losses/ree-losses.module";
 import { ReeSeieModule } from "./ree-seie/ree-seie.module";
@@ -37,6 +38,7 @@ import { ReeSeieModule } from "./ree-seie/ree-seie.module";
     MirModule,
     PricingBaseModule,
     PricingMeffModule,
+    PricingHedgesModule,
     EsiosModule,
     ReeSeieModule
   ]

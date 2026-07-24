@@ -63,6 +63,7 @@ import { OmieTransaccionesModule } from "./modules/omie/transacciones/OmieTransa
 import { EsiosModule, type EsiosViewKey } from "./modules/esios/EsiosModule";
 import { AnnualReportModule } from "./modules/annual-report/AnnualReportModule";
 import { PricingBaseModule } from "./modules/pricing/PricingBaseModule";
+import { PricingHedgesModule } from "./modules/pricing/PricingHedgesModule";
 import { MirPortfolioModule } from "./modules/pricing/MirPortfolioModule";
 import { PricingMeffModule } from "./modules/pricing/PricingMeffModule";
 import { MedperFilterBand, MedperViewPanel } from "./modules/medper/MedperModule";
@@ -1698,6 +1699,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                       ? "Pricing base apuntamientos"
 	                      : section === "pricingMeff"
 	                        ? "Pricing MEFF"
+	                      : section === "pricingHedges"
+	                        ? "Pricing Coberturas"
 	                      : section === "pricingMir"
 	                        ? "Pricing Cartera Fijo"
                     : section === "esiosIndicadores"
@@ -2139,6 +2142,13 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           onSelect: () => changeSection("pricingMeff")
         },
         {
+          key: "pricing-hedges",
+          label: "Coberturas",
+          description: "posiciones MEFF",
+          active: section === "pricingHedges",
+          onSelect: () => changeSection("pricingHedges")
+        },
+        {
           key: "pricing-mir",
           label: "Cartera Fijo",
           description: "pólizas Fijo",
@@ -2427,6 +2437,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           {section === "annualReport" && <AnnualReportModule />}
           {section === "pricingBase" && <PricingBaseModule />}
           {section === "pricingMeff" && <PricingMeffModule />}
+          {section === "pricingHedges" && <PricingHedgesModule />}
           {section === "pricingMir" && <MirPortfolioModule />}
 
           {section === "reeDownloads" && (

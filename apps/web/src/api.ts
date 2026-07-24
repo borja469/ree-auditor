@@ -1106,6 +1106,80 @@ export type PricingMeffResponse = {
   };
 };
 
+export type PricingHedgeOperationType = "COMPRA" | "VENTA";
+
+export type PricingHedgeProduct = {
+  cod: string;
+  label: string;
+  tipo: string | null;
+  clase: string | null;
+  periodo: string | null;
+  entrega: string | null;
+  fechaInicio: string | null;
+  fechaFin: string | null;
+  horasBase: number | null;
+  horasPunta: number | null;
+  latestPrice: number | null;
+  latestPriceDate: string | null;
+};
+
+export type PricingHedgeOperationInput = {
+  contractDate: string;
+  operationType: PricingHedgeOperationType;
+  productCod: string;
+  powerMw: number;
+  contractedPrice: number;
+  broker?: string | null;
+  observations?: string | null;
+};
+
+export type PricingHedgeOperation = PricingHedgeOperationInput & {
+  id: string;
+  product: PricingHedgeProduct | null;
+  volumeMwh: number | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PricingHedgePosition = {
+  productCod: string;
+  product: PricingHedgeProduct | null;
+  productLabel: string;
+  tipo: string | null;
+  clase: string | null;
+  mwComprados: number;
+  mwVendidos: number;
+  mwCerrados: number;
+  mwNetos: number;
+  mwhCerrados: number | null;
+  mwhNetos: number | null;
+  precioMedioCompra: number | null;
+  precioMedioVenta: number | null;
+  precioMedioPosicionAbierta: number | null;
+  precioMercado: number | null;
+  fechaPrecioMercado: string | null;
+  valorMercado: number | null;
+  resultadoLatente: number | null;
+  margenRealizado: number | null;
+  resultadoTotal: number | null;
+  operations: PricingHedgeOperation[];
+};
+
+export type PricingHedgesResponse = {
+  operations: PricingHedgeOperation[];
+  positions: PricingHedgePosition[];
+  products: PricingHedgeProduct[];
+  summary: {
+    openPositions: number;
+    openMw: number;
+    openMwh: number;
+    marketValue: number;
+    latentResult: number;
+    realizedResult: number;
+    totalResult: number;
+  };
+};
+
 export type MirContract = {
   id: string;
   mirContractId: number;
@@ -1214,6 +1288,7 @@ export type PricingPortfolioForecastRunResponse = {
   calculated: number;
   expired: number;
   errors: number;
+  purchasePointingCoefficient?: number;
   saleSurchargesEurMwh: Record<string, unknown>;
   calculatedAt: string;
 };
@@ -1256,8 +1331,12 @@ export type PricingPortfolioMonthlySummaryRow = {
   estimatedSaleAmountEur: number;
   estimatedSaleAmountBcEur: number;
   estimatedMeffSaleEur: number;
+  hedgeResultEur: number;
+  hedgeNetMwh: number;
   meffSpreadEur: number;
+  meffSpreadWithHedgesEur: number;
   meffSpreadEurMwh: number | null;
+  meffSpreadWithHedgesEurMwh: number | null;
   averageSalePriceEurMwh: number | null;
   averageMeffPriceEurMwh: number | null;
   rows: number;
@@ -1273,8 +1352,12 @@ export type PricingPortfolioMonthlySummaryResponse = {
   totalEstimatedSaleAmountEur: number;
   totalEstimatedSaleAmountBcEur: number;
   totalEstimatedMeffSaleEur: number;
+  totalHedgeResultEur: number;
+  totalHedgeNetMwh: number;
   totalMeffSpreadEur: number;
+  totalMeffSpreadWithHedgesEur: number;
   totalMeffSpreadEurMwh: number | null;
+  totalMeffSpreadWithHedgesEurMwh: number | null;
   averageSalePriceEurMwh: number | null;
   averageMeffPriceEurMwh: number | null;
   months: PricingPortfolioMonthlySummaryRow[];
@@ -3145,6 +3228,26 @@ export async function uploadPricingMeffFile(file: File, onProgress?: (progress: 
   return sendMultipart<PricingMeffImportResponse>(`${API_URL}/pricing/meff/import`, formData, onProgress);
 }
 
+export async function getPricingHedges(): Promise<PricingHedgesResponse> {
+  return getJson(`/pricing/hedges`);
+}
+
+export async function getPricingHedgeProducts(): Promise<PricingHedgeProduct[]> {
+  return getJson(`/pricing/hedges/products`);
+}
+
+export async function createPricingHedgeOperation(input: PricingHedgeOperationInput): Promise<PricingHedgeOperation> {
+  return sendJson(`/pricing/hedges/operations`, "POST", "Guardando operacion de cobertura", REQUEST_TIMEOUT_MS, input);
+}
+
+export async function updatePricingHedgeOperation(id: string, input: PricingHedgeOperationInput): Promise<PricingHedgeOperation> {
+  return sendJson(`/pricing/hedges/operations/${encodeURIComponent(id)}`, "PUT", "Actualizando operacion de cobertura", REQUEST_TIMEOUT_MS, input);
+}
+
+export async function deletePricingHedgeOperation(id: string): Promise<{ deleted: boolean }> {
+  return sendJson(`/pricing/hedges/operations/${encodeURIComponent(id)}`, "DELETE", "Eliminando operacion de cobertura", REQUEST_TIMEOUT_MS);
+}
+
 export async function getMirContracts(filters: MirContractFilters = {}): Promise<MirContractsResponse> {
   return getJson(`/mir/contracts${toQuery(filters)}`);
 }
@@ -3169,8 +3272,8 @@ export async function saveMirConfig(config: MirConfigInput): Promise<MirConfig> 
   return sendJson(`/mir/config`, "PUT", "Guardando configuración Fijo", REQUEST_TIMEOUT_MS, config);
 }
 
-export async function calculatePricingPortfolioForecast(referenceDate: string): Promise<PricingPortfolioForecastRunResponse> {
-  return sendJson(`/pricing/portfolio/forecast`, "POST", "Calculando previsión de cartera", REQUEST_TIMEOUT_MS * 20, { referenceDate });
+export async function calculatePricingPortfolioForecast(referenceDate: string, purchasePointingCoefficient = 1): Promise<PricingPortfolioForecastRunResponse> {
+  return sendJson(`/pricing/portfolio/forecast`, "POST", "Calculando previsión de cartera", REQUEST_TIMEOUT_MS * 20, { referenceDate, purchasePointingCoefficient });
 }
 
 export async function getPricingPortfolioForecast(filters: { referenceDate?: string; status?: string; skip?: number; take?: number } = {}): Promise<PricingPortfolioForecastResponse> {

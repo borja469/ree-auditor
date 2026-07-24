@@ -4059,6 +4059,171 @@ select:disabled {
   font-weight: 800;
 }
 
+.pricing-hedges-module {
+  gap: 14px;
+}
+
+.pricing-hedges-tabs {
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 4px;
+  margin-top: 12px;
+  padding: 4px;
+  background: #dfe7ec;
+  border-radius: 8px;
+}
+
+.pricing-hedges-tabs button {
+  min-height: 34px;
+  padding: 0 12px;
+  color: #31505d;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.pricing-hedges-tabs button.active {
+  color: #ffffff;
+  background: #17445c;
+}
+
+.pricing-hedges-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  gap: 8px;
+  margin: 0 30px;
+}
+
+.pricing-hedges-chart-panel {
+  margin-top: 0;
+}
+
+.pricing-hedges-editor {
+  overflow: visible;
+}
+
+.pricing-hedges-form {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(120px, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+  margin-top: 12px;
+}
+
+.pricing-hedges-form .filter-field.wide {
+  grid-column: span 2;
+}
+
+.pricing-hedges-product-field {
+  grid-column: span 4;
+}
+
+.pricing-hedges-product-field small {
+  overflow: hidden;
+  color: #607482;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pricing-hedges-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 10px;
+  color: #31505d;
+  background: #ffffff;
+  border: 1px solid #cbd8df;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.pricing-hedges-check input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: #17445c;
+}
+
+.pricing-hedges-form-actions,
+.pricing-hedges-actions,
+.pricing-hedges-row-actions,
+.pricing-hedges-table-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pricing-hedges-form-actions {
+  justify-content: flex-end;
+}
+
+.pricing-hedges-table-header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pricing-hedges-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pricing-hedges-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: min(360px, 100%);
+  min-height: 38px;
+  padding: 0 10px;
+  color: #607482;
+  background: #ffffff;
+  border: 1px solid #cbd8df;
+  border-radius: 7px;
+}
+
+.pricing-hedges-search input {
+  width: 100%;
+  min-height: auto;
+  padding: 0;
+  color: #17212b;
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.pricing-hedges-table {
+  min-width: 1280px;
+}
+
+.pricing-hedges-table tbody tr {
+  cursor: default;
+}
+
+.pricing-hedges-table tbody tr:hover {
+  background: #eef6fb;
+}
+
+.pricing-hedges-row-actions .secondary-button {
+  width: 34px;
+  min-height: 32px;
+  padding: 0;
+}
+
+.pricing-hedges-positive {
+  color: #067647 !important;
+  font-weight: 950;
+}
+
+.pricing-hedges-negative {
+  color: #b42318 !important;
+  font-weight: 950;
+}
+
 .pricing-multi-select-option {
   display: flex;
   align-items: center;
@@ -4076,6 +4241,20 @@ select:disabled {
 @media (max-width: 1200px) {
   .pricing-matrix-grid {
     grid-template-columns: 1fr;
+  }
+
+  .pricing-hedges-kpis,
+  .pricing-hedges-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pricing-hedges-form-actions {
+    justify-content: flex-start;
+  }
+
+  .pricing-hedges-product-field,
+  .pricing-hedges-form .filter-field.wide {
+    grid-column: span 2;
   }
 }
 

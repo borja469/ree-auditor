@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { AnnualReportRetributionType, OmieDownloadEstado, OmieTipoDocumento, OmieTipoPrecio, Prisma, ReeSettlementVersion } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { PricingHedgesService } from "../pricing-hedges/pricing-hedges.service";
 
 const VERSION_PRIORITY: AnnualReportVersion[] = ["C5", "C4", "C3", "C2"];
 const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1);
@@ -30,6 +31,8 @@ type AnnualMetricKey =
   | "importeOmieEur"
   | "importeReerEur"
   | "precioOmieEurMwh"
+  | "resultadoCoberturasEur"
+  | "precioOmieCoberturasEurMwh"
   | "precioRetribucionOsEurMwh"
   | "importeRetribucionOsEur"
   | "precioRetribucionOmEurMwh"
@@ -148,6 +151,8 @@ type MonthValues = {
   importeOmieEur: number | null;
   importeReerEur: number | null;
   precioOmieEurMwh: number | null;
+  resultadoCoberturasEur: number | null;
+  precioOmieCoberturasEurMwh: number | null;
   precioRetribucionOsEurMwh: number | null;
   importeRetribucionOsEur: number | null;
   precioRetribucionOmEurMwh: number | null;
@@ -157,7 +162,10 @@ type MonthValues = {
 
 @Injectable()
 export class AnnualReportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly pricingHedgesService: PricingHedgesService
+  ) {}
 
   async availableYears() {
     const rows = await this.prisma.$queryRaw<Array<{ year: number }>>`
@@ -187,7 +195,7 @@ export class AnnualReportService {
   async report(year: number): Promise<AnnualReportResponse> {
     validateYear(year);
     const range = buildYearRange(year);
-    const [availableYears, medperRows, reganecuRows, programRows, priceRows, transactionRows, retributionRows, reerOfficialRows, seieRows] = await Promise.all([
+    const [availableYears, medperRows, reganecuRows, programRows, priceRows, transactionRows, retributionRows, reerOfficialRows, seieRows, hedgeResults] = await Promise.all([
       this.availableYears(),
       this.loadMedperRows(range.start, range.end),
       this.loadReganecuRows(range.start, range.end),
@@ -196,7 +204,8 @@ export class AnnualReportService {
       this.loadOmieTransactionRows(range.start, range.end),
       this.loadRetributionPrices(year),
       this.loadReerOfficialRows(range.start, range.end),
-      this.loadSeieRows(range.start, range.end)
+      this.loadSeieRows(range.start, range.end),
+      this.pricingHedgesService.monthlyTotalResults(year)
     ]);
 
     const versions = selectVersions(medperRows, reganecuRows);
@@ -205,7 +214,7 @@ export class AnnualReportService {
     const omie = aggregateOmie(loadOmieProgramMap(programRows), loadOmiePriceMap(priceRows), buildXbidTransactionMap(transactionRows));
     const retributions = aggregateRetributionPrices(retributionRows);
     const reerOfficial = aggregateReerOfficialByMonth(reerOfficialRows);
-    const monthValues = MONTHS.map((month) => buildMonthValues(month, versions, medper.get(month), reganecu.get(month), omie.get(month), retributions.get(month), reerOfficial.get(month)));
+    const monthValues = MONTHS.map((month) => buildMonthValues(month, versions, medper.get(month), reganecu.get(month), omie.get(month), retributions.get(month), reerOfficial.get(month), hedgeResults.get(month) ?? null));
     const seieVersions = selectSeieVersions(seieRows);
     const seie = aggregateSeieBySelectedVersion(seieRows, seieVersions);
     const seieProgram = aggregateSeieProgramC2(seieRows);
@@ -697,7 +706,8 @@ function buildMonthValues(
   reganecu?: Pick<MonthValues, "importeCadEur" | "importeDsvEur" | "importePc3Eur" | "importeBs3Eur" | "importeRad3Eur">,
   omie?: { programaMwh: number | null; importeOmieEur: number | null },
   retribution?: Pick<MonthValues, "precioRetribucionOsEurMwh" | "precioRetribucionOmEurMwh" | "importeRemitEur">,
-  reerOfficial?: Pick<MonthValues, "importeReerEur">
+  reerOfficial?: Pick<MonthValues, "importeReerEur">,
+  resultadoCoberturas?: number | null
 ): MonthValues {
   const importeTotalEur = nullableSum([
     reganecu?.importeCadEur ?? null,
@@ -713,7 +723,9 @@ function buildMonthValues(
   const precioRetribucionOmEurMwh = roundPrice(retribution?.precioRetribucionOmEurMwh ?? null);
   const importeOmieEur = roundEuro(omie?.importeOmieEur ?? null);
   const importeReerEur = roundEuro(reerOfficial?.importeReerEur ?? null);
+  const resultadoCoberturasEur = roundEuro(resultadoCoberturas ?? null);
   const importeOmieConReerEur = nullableSum([importeOmieEur, importeReerEur]);
+  const importeOmieConReerYCoberturasEur = nullableSum([importeOmieEur, importeReerEur, resultadoCoberturasEur === null ? null : -resultadoCoberturasEur]);
   return {
     programaMwh,
     versionUtilizada: versions.get(month) ?? null,
@@ -733,6 +745,8 @@ function buildMonthValues(
     importeOmieEur,
     importeReerEur,
     precioOmieEurMwh: ratio(importeOmieConReerEur, programaMwh),
+    resultadoCoberturasEur,
+    precioOmieCoberturasEurMwh: ratio(importeOmieConReerYCoberturasEur, programaMwh),
     precioRetribucionOsEurMwh,
     importeRetribucionOsEur: roundEuro(multiply(precioRetribucionOsEurMwh, programaMwh)),
     precioRetribucionOmEurMwh,
@@ -772,6 +786,8 @@ function buildSeieMonthValues(
     importeOmieEur: null,
     importeReerEur: null,
     precioOmieEurMwh: null,
+    resultadoCoberturasEur: null,
+    precioOmieCoberturasEurMwh: null,
     precioRetribucionOsEurMwh,
     importeRetribucionOsEur: roundEuro(multiply(precioRetribucionOsEurMwh, roundedPrograma)),
     precioRetribucionOmEurMwh: null,
@@ -786,7 +802,9 @@ function buildRows(values: MonthValues[]): AnnualReportMetricRow[] {
   const totalPrograma = sumPresent(values.map((month) => month.programaMwh));
   const totalImporteOmie = sumPresent(values.map((month) => month.importeOmieEur));
   const totalImporteReer = sumPresent(values.map((month) => month.importeReerEur));
+  const totalResultadoCoberturas = sumPresent(values.map((month) => month.resultadoCoberturasEur));
   const totalImporteOmieConReer = nullableSum([totalImporteOmie, totalImporteReer]);
+  const totalImporteOmieConReerYCoberturas = nullableSum([totalImporteOmie, totalImporteReer, totalResultadoCoberturas === null ? null : -totalResultadoCoberturas]);
   const totalImporteRetribucionOs = sumPresent(values.map((month) => month.importeRetribucionOsEur));
   const totalImporteRetribucionOm = sumPresent(values.map((month) => month.importeRetribucionOmEur));
   const totalImporteRemit = sumPresent(values.map((month) => month.importeRemitEur));
@@ -806,6 +824,8 @@ function buildRows(values: MonthValues[]): AnnualReportMetricRow[] {
     { key: "importeOmieEur", label: "Importe OMIE (EUR)", kind: "currency" },
     { key: "importeReerEur", label: "Coste REER (EUR)", kind: "currency" },
     { key: "precioOmieEurMwh", label: "Precio OMIE (EUR/MWh)", kind: "price", total: ratio(totalImporteOmieConReer, totalPrograma) },
+    { key: "resultadoCoberturasEur", label: "Resultado Coberturas (EUR)", kind: "currency", total: totalResultadoCoberturas },
+    { key: "precioOmieCoberturasEurMwh", label: "Precio OMIE con Coberturas (EUR/MWh)", kind: "price", total: ratio(totalImporteOmieConReerYCoberturas, totalPrograma) },
     { key: "precioRetribucionOsEurMwh", label: "Precio retribucion OS (EUR/MWh)", kind: "price", total: ratio(totalImporteRetribucionOs, totalPrograma), editable: { type: AnnualReportRetributionType.OS } },
     { key: "importeRetribucionOsEur", label: "Importe retribucion OS (EUR)", kind: "currency" },
     { key: "precioRetribucionOmEurMwh", label: "Precio retribucion OM (EUR/MWh)", kind: "price", total: ratio(totalImporteRetribucionOm, totalPrograma), editable: { type: AnnualReportRetributionType.OM } },

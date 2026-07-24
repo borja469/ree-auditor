@@ -51,6 +51,7 @@ export function MirPortfolioModule() {
   const [deleting, setDeleting] = useState(false);
   const [calculatingForecast, setCalculatingForecast] = useState(false);
   const [referenceDate, setReferenceDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [purchasePointingCoefficient, setPurchasePointingCoefficient] = useState("1.00");
   const [saleSurchargeDraft, setSaleSurchargeDraft] = useState<Record<string, string>>({});
   const [selectedContract, setSelectedContract] = useState<MirContract | null>(null);
   const [monthlyRows, setMonthlyRows] = useState<PricingPortfolioMonthlyConsumptionRow[]>([]);
@@ -306,10 +307,10 @@ export function MirPortfolioModule() {
     setCalculatingForecast(true);
     setMessage(undefined);
     try {
-      const result = await calculatePricingPortfolioForecast(referenceDate);
+      const result = await calculatePricingPortfolioForecast(referenceDate, parsePurchasePointingCoefficientInput(purchasePointingCoefficient));
       setMessage({
         tone: result.errors ? "info" : "success",
-        text: `Previsión calculada: ${formatNumber(result.calculated)} contratos, ${formatNumber(result.expired)} expiradas, ${formatNumber(result.errors)} incidencias.`
+        text: `Previsión calculada: ${formatNumber(result.calculated)} contratos, ${formatNumber(result.expired)} expiradas, ${formatNumber(result.errors)} incidencias. Coef. apuntamiento ${formatDecimal(result.purchasePointingCoefficient ?? 1, 2)}.`
       });
       if (selectedContract) {
         await loadMonthlyConsumption(selectedContract);
@@ -1064,6 +1065,19 @@ export function MirPortfolioModule() {
             value={splitMultiFilter(filters.priceLists)}
             onChange={(value) => updateMultiFilter(setFilters, setPage, "priceLists", value)}
           />
+          <label className="filter-field short">
+            <span>Coef. apuntamiento</span>
+            <input
+              disabled={disabled}
+              max="1"
+              min="0"
+              step="0.01"
+              type="number"
+              value={purchasePointingCoefficient}
+              onBlur={() => setPurchasePointingCoefficient((value) => parsePurchasePointingCoefficientInput(value).toFixed(2))}
+              onChange={(event) => setPurchasePointingCoefficient(event.target.value)}
+            />
+          </label>
           <label className="filter-field">
             <span>Fecha fin hasta</span>
             <input disabled={disabled} type="date" value={filters.contractEndDateTo ?? ""} onChange={(event) => updateFilter(setFilters, setPage, "contractEndDateTo", event.target.value)} />
@@ -1154,7 +1168,7 @@ export function MirPortfolioModule() {
         <PanelTitle
           icon={<BarChart3 size={18} />}
           title="Venta estimada vs compra"
-          subtitle={monthlySummary ? `${formatDate(monthlySummary.fechaDesde)} - ${formatDate(monthlySummary.fechaHasta)} · venta BC ${formatCurrency(monthlySummary.totalEstimatedSaleAmountBcEur)} · compra ref. ${formatCurrency(monthlySummary.totalEstimatedMeffSaleEur)} · pérdida/ganancia ${formatCurrency(monthlySummary.totalMeffSpreadEur)} · dif. ${formatEurMwh(monthlySummary.totalMeffSpreadEurMwh)}` : "Sin previsión calculada"}
+          subtitle={monthlySummary ? `${formatDate(monthlySummary.fechaDesde)} - ${formatDate(monthlySummary.fechaHasta)} · venta BC ${formatCurrency(monthlySummary.totalEstimatedSaleAmountBcEur)} · compra ref. ${formatCurrency(monthlySummary.totalEstimatedMeffSaleEur)} · pérdida/ganancia ${formatCurrency(monthlySummary.totalMeffSpreadEur)} · coberturas ${formatCurrency(monthlySummary.totalHedgeResultEur ?? 0)} · dif. ${formatEurMwh(monthlySummary.totalMeffSpreadEurMwh)}` : "Sin previsión calculada"}
         />
         <div className="technical-kpis">
           <div className="technical-kpi neutral">
@@ -1168,6 +1182,7 @@ export function MirPortfolioModule() {
           <div className={`technical-kpi ${signedKpiTone(monthlySummary?.totalMeffSpreadEur ?? null)}`}>
             <span>Pérdida/ganancia</span>
             <strong>{formatCurrency(monthlySummary?.totalMeffSpreadEur ?? null)}</strong>
+            <small>Coberturas {formatCurrency(monthlySummary?.totalHedgeResultEur ?? 0)}</small>
           </div>
           <div className="technical-kpi neutral">
             <span>Precio venta aplicado</span>
@@ -1637,6 +1652,14 @@ function formatDecimal(value: number | null, decimals: number) {
   return value === null ? "-" : value.toLocaleString("es-ES", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
+function parsePurchasePointingCoefficientInput(value: string) {
+  const parsed = Number(value.replace(",", "."));
+  if (!Number.isFinite(parsed)) {
+    return 1;
+  }
+  return Math.min(1, Math.max(0, Number(parsed.toFixed(2))));
+}
+
 function formatEurMwh(value: number | null) {
   return value === null ? "-" : `${formatNumber(value)} EUR/MWh`;
 }
@@ -1755,6 +1778,18 @@ function buildMonthlyEconomicChartOption(summary: PricingPortfolioMonthlySummary
         barMaxWidth: 24,
         itemStyle: { color: "#ea580c", borderRadius: [4, 4, 0, 0] },
         emphasis: { itemStyle: { color: "#c2410c" } }
+      },
+      {
+        name: "Resultado Coberturas",
+        type: "bar",
+        yAxisIndex: 0,
+        data: rows.map((row) => Number((row.hedgeResultEur ?? 0).toFixed(2))),
+        barMaxWidth: 24,
+        itemStyle: {
+          color: (params: { value?: unknown }) => Number(params.value) < 0 ? "#9333ea" : "#0891b2",
+          borderRadius: [4, 4, 0, 0]
+        },
+        emphasis: { itemStyle: { color: "#0e7490" } }
       },
       {
         name: "Pérdida/ganancia",
@@ -1905,8 +1940,8 @@ function buildMonthlySummaryChartOption(summary: PricingPortfolioMonthlySummaryR
         const title = firstItem?.axisValueLabel ?? firstItem?.name ?? "";
         const lines = items.map((item) => {
           const value = Array.isArray(item.value) ? item.value[1] : item.value;
-          const numeric = typeof value === "number" ? value : Number(value);
-          const marker = typeof item.marker === "string" ? item.marker : "";
+        const numeric = typeof value === "number" ? value : Number(value);
+        const marker = typeof item.marker === "string" ? item.marker : "";
           const suffix = item.seriesName === "Dif. EUR/MWh BC" ? " EUR/MWh" : ` ${unit}`;
           return `${marker}${item.seriesName}: ${Number.isFinite(numeric) ? formatNumber(numeric) : "-"}${suffix}`;
         });
@@ -1951,6 +1986,18 @@ function buildMonthlySummaryChartOption(summary: PricingPortfolioMonthlySummaryR
         barMaxWidth: 28,
         itemStyle: { color: "#2563eb", borderRadius: [4, 4, 0, 0] },
         emphasis: { itemStyle: { color: "#1d4ed8" } }
+      },
+      {
+        name: "MWh netos coberturas",
+        type: "bar",
+        yAxisIndex: 0,
+        data: rows.map((row) => Number(((row.hedgeNetMwh ?? 0) * 1000 / divisor).toFixed(3))),
+        barMaxWidth: 28,
+        itemStyle: {
+          color: (params: { value?: unknown }) => Number(params.value) < 0 ? "#9333ea" : "#0891b2",
+          borderRadius: [4, 4, 0, 0]
+        },
+        emphasis: { itemStyle: { color: "#0e7490" } }
       },
       {
         name: "Dif. EUR/MWh BC",

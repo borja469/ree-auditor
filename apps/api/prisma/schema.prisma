@@ -776,6 +776,41 @@ model PricingMeffPrice {
   @@map("pricing_meff_prices")
 }
 
+model PricingHedgeOperation {
+  id                String   @id @default(uuid()) @db.Uuid
+  contractDate      DateTime @map("contract_date") @db.Date
+  operationType     String   @map("operation_type") @db.VarChar(10)
+  productCod        String   @map("product_cod") @db.VarChar(120)
+  powerMw           Decimal  @map("power_mw") @db.Decimal(20, 6)
+  contractedPrice   Decimal  @map("contracted_price_eur_mwh") @db.Decimal(20, 8)
+  broker            String?  @db.VarChar(160)
+  observations      String?  @db.Text
+  deletedAt         DateTime? @map("deleted_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  buyAllocations    PricingHedgeAllocation[] @relation("PricingHedgeAllocationBuy")
+  sellAllocations   PricingHedgeAllocation[] @relation("PricingHedgeAllocationSell")
+
+  @@index([productCod])
+  @@index([contractDate])
+  @@index([operationType])
+  @@index([deletedAt])
+  @@map("pricing_hedge_operations")
+}
+
+model PricingHedgeAllocation {
+  id              String   @id @default(uuid()) @db.Uuid
+  buyOperationId  String   @map("buy_operation_id") @db.Uuid
+  sellOperationId String   @map("sell_operation_id") @db.Uuid
+  powerMw         Decimal  @map("power_mw") @db.Decimal(20, 6)
+  createdAt       DateTime @default(now()) @map("created_at")
+  buyOperation    PricingHedgeOperation @relation("PricingHedgeAllocationBuy", fields: [buyOperationId], references: [id], onDelete: Cascade)
+  sellOperation   PricingHedgeOperation @relation("PricingHedgeAllocationSell", fields: [sellOperationId], references: [id], onDelete: Cascade)
+
+  @@index([buyOperationId])
+  @@index([sellOperationId])
+  @@map("pricing_hedge_allocations")
+}
 model PricingCalculatorManualValue {
   id        String   @id @default(uuid()) @db.Uuid
   concepto  String   @db.VarChar(80)

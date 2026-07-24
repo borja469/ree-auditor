@@ -13,7 +13,8 @@ export class PricingPortfolioController {
   @Post("forecast")
   recalculateForecast(@Body() body: unknown) {
     const referenceDate = body && typeof body === "object" && "referenceDate" in body ? String((body as { referenceDate?: unknown }).referenceDate ?? "") : "";
-    return this.forecastService.recalculatePortfolio(referenceDate);
+    const purchasePointingCoefficient = body && typeof body === "object" && "purchasePointingCoefficient" in body ? (body as { purchasePointingCoefficient?: unknown }).purchasePointingCoefficient : undefined;
+    return this.forecastService.recalculatePortfolio(referenceDate, purchasePointingCoefficient);
   }
 
   @Get("forecast")

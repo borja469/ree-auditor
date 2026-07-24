@@ -244,6 +244,7 @@ function isHighlightedAnnualReportRow(key: string) {
     "importeTotalEur",
     "importeOmieEur",
     "importeReerEur",
+    "resultadoCoberturasEur",
     "importeRetribucionOsEur",
     "importeRetribucionOmEur",
     "importeRemitEur"

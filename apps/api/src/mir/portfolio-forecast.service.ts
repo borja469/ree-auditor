@@ -7,6 +7,7 @@ import { ReeLossesRegulatoryEngine } from "../ree-losses/regulatory-engine.servi
 import { PrismaService } from "../prisma/prisma.service";
 import { parsePriceListPeriod } from "./entities/mir-contract.entity";
 import { buildCurveMonths, toCurveProduct, type MeffForwardCurveMonth } from "../pricing-base/meff_forward_curve_service";
+import { PricingHedgesService } from "../pricing-hedges/pricing-hedges.service";
 import type { MirContractQuery } from "./interfaces/mir-api.interfaces";
 import { buildMirContractWhere } from "./repositories/mir-contract.repository";
 
@@ -64,11 +65,13 @@ const K_VERSION_PRIORITY = ["C5", "C4", "C3", "C2", "C1"] as const;
 export class PortfolioForecastService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly regulatoryEngine: ReeLossesRegulatoryEngine
+    private readonly regulatoryEngine: ReeLossesRegulatoryEngine,
+    private readonly pricingHedgesService: PricingHedgesService
   ) {}
 
-  async recalculatePortfolio(referenceDateText: string) {
+  async recalculatePortfolio(referenceDateText: string, rawPurchasePointingCoefficient: unknown = 1) {
     const referenceDate = parseReferenceDate(referenceDateText);
+    const purchasePointingCoefficient = parsePurchasePointingCoefficient(rawPurchasePointingCoefficient);
     const contracts = await this.loadContracts();
     const [periodContext, boeLosses] = await Promise.all([
       this.regulatoryEngine.buildPeriodContext(),
@@ -90,7 +93,7 @@ export class PortfolioForecastService {
     let errors = 0;
 
     for (const contract of contracts) {
-      const result = await this.calculateContract(contract, referenceDateText, referenceDate, forecastWindow.end, calendar, profileSet, profileTotalsByTariff, periodContext, boeLosses, historicalKCurve, salePrices, saleSurcharges, meffCurve, omieRealPrices, calculatedAt);
+      const result = await this.calculateContract(contract, referenceDateText, referenceDate, forecastWindow.end, calendar, profileSet, profileTotalsByTariff, periodContext, boeLosses, historicalKCurve, salePrices, saleSurcharges, meffCurve, omieRealPrices, purchasePointingCoefficient, calculatedAt);
       if (result.status === "CALCULADO") {
         calculated += 1;
       } else if (result.status === "EXPIRADA") {
@@ -106,6 +109,7 @@ export class PortfolioForecastService {
       calculated,
       expired,
       errors,
+      purchasePointingCoefficient,
       saleSurchargesEurMwh: SALE_SURCHARGE_TRACE,
       calculatedAt: calculatedAt.toISOString()
     };
@@ -225,6 +229,7 @@ export class PortfolioForecastService {
   async getMonthlySummary(referenceDateText: string, filters: MirContractQuery = {}) {
     const referenceDate = parseReferenceDate(referenceDateText);
     const forecastWindow = buildForecastWindow(referenceDateText);
+    const forecastMonths = buildForecastMonths(referenceDateText, forecastWindow.end);
     const contractWhere = buildMirContractWhere(filters);
     const contractFilter = Object.keys(contractWhere).length > 0 ? { contract: contractWhere } : {};
     const rows = await this.prisma.pricingPortfolioMonthlyConsumption.groupBy({
@@ -234,7 +239,7 @@ export class PortfolioForecastService {
       _count: { _all: true },
       orderBy: [{ year: "asc" }, { month: "asc" }]
     });
-    const [valuationRows] = await Promise.all([
+    const [valuationRows, hedgeResults] = await Promise.all([
       this.prisma.pricingPortfolioMonthlyValuation.groupBy({
         by: ["year", "month"],
         where: { referenceDate, ...contractFilter },
@@ -242,13 +247,22 @@ export class PortfolioForecastService {
         _avg: { meffPriceEurMwh: true },
         _count: { _all: true },
         orderBy: [{ year: "asc" }, { month: "asc" }]
-      })
+      }),
+      Promise.all([...new Set(forecastMonths.map((month) => month.year))].map((year) => this.pricingHedgesService.monthlyValues(year)))
     ]);
+    const hedgeValuesByKey = new Map<string, { resultadoTotal: number; mwhNetos: number }>();
+    for (const [index, year] of [...new Set(forecastMonths.map((month) => month.year))].entries()) {
+      const yearResults = hedgeResults[index];
+      for (const [month, value] of yearResults.entries()) {
+        hedgeValuesByKey.set(monthKey(year, month), value);
+      }
+    }
     const valuesByKey = new Map(rows.map((row) => [`${row.year}-${row.month}`, row]));
     const valuationByKey = new Map(valuationRows.map((row) => [`${row.year}-${row.month}`, row]));
-    const months = buildForecastMonths(referenceDateText, forecastWindow.end).map((month) => {
+    const months = forecastMonths.map((month) => {
       const row = valuesByKey.get(`${month.year}-${month.month}`);
       const valuation = valuationByKey.get(`${month.year}-${month.month}`);
+      const hedgeValues = hedgeValuesByKey.get(monthKey(month.year, month.month));
       const values = {
         year: month.year,
         month: month.month,
@@ -259,16 +273,26 @@ export class PortfolioForecastService {
         estimatedSaleAmountEur: decimalToNumber(row?._sum.estimatedSaleAmountEur) ?? 0,
         estimatedSaleAmountBcEur: decimalToNumber(row?._sum.estimatedSaleAmountBcEur) ?? 0,
         estimatedMeffSaleEur: decimalToNumber(valuation?._sum.estimatedMeffSaleEur) ?? 0,
+        hedgeResultEur: hedgeValues?.resultadoTotal ?? 0,
+        hedgeNetMwh: hedgeValues?.mwhNetos ?? 0,
         averageMeffPriceEurMwh: null as number | null,
         meffSpreadEur: 0,
+        meffSpreadWithHedgesEur: 0,
+        meffSpreadWithHedgesEurMwh: null as number | null,
         meffSpreadEurMwh: null as number | null,
         rows: row?._count._all ?? 0
       };
+      const meffSpreadEur = values.estimatedSaleAmountBcEur - values.estimatedMeffSaleEur;
+      const meffSpreadWithHedgesEur = values.estimatedSaleAmountBcEur - values.estimatedMeffSaleEur + values.hedgeResultEur;
       return {
         ...values,
-        meffSpreadEur: values.estimatedSaleAmountBcEur - values.estimatedMeffSaleEur,
+        meffSpreadEur,
+        meffSpreadWithHedgesEur,
         meffSpreadEurMwh: values.elevatedConsumptionKwh > 0
-          ? (values.estimatedSaleAmountBcEur - values.estimatedMeffSaleEur) / (values.elevatedConsumptionKwh / 1000)
+          ? meffSpreadEur / (values.elevatedConsumptionKwh / 1000)
+          : null,
+        meffSpreadWithHedgesEurMwh: values.elevatedConsumptionKwh > 0
+          ? meffSpreadWithHedgesEur / (values.elevatedConsumptionKwh / 1000)
           : null,
         averageMeffPriceEurMwh: values.elevatedConsumptionKwh > 0 && values.estimatedMeffSaleEur > 0
           ? values.estimatedMeffSaleEur / (values.elevatedConsumptionKwh / 1000)
@@ -283,7 +307,10 @@ export class PortfolioForecastService {
     const totalEstimatedSaleAmountEur = months.reduce((sum, row) => sum + row.estimatedSaleAmountEur, 0);
     const totalEstimatedSaleAmountBcEur = months.reduce((sum, row) => sum + row.estimatedSaleAmountBcEur, 0);
     const totalEstimatedMeffSaleEur = months.reduce((sum, row) => sum + row.estimatedMeffSaleEur, 0);
+    const totalHedgeResultEur = months.reduce((sum, row) => sum + row.hedgeResultEur, 0);
+    const totalHedgeNetMwh = months.reduce((sum, row) => sum + row.hedgeNetMwh, 0);
     const totalMeffSpreadEur = totalEstimatedSaleAmountBcEur - totalEstimatedMeffSaleEur;
+    const totalMeffSpreadWithHedgesEur = totalMeffSpreadEur + totalHedgeResultEur;
     return {
       referenceDate: referenceDateText,
       fechaDesde: referenceDateText,
@@ -294,9 +321,15 @@ export class PortfolioForecastService {
       totalEstimatedSaleAmountEur,
       totalEstimatedSaleAmountBcEur,
       totalEstimatedMeffSaleEur,
+      totalHedgeResultEur,
+      totalHedgeNetMwh,
       totalMeffSpreadEur,
+      totalMeffSpreadWithHedgesEur,
       totalMeffSpreadEurMwh: totalElevatedConsumptionKwh > 0
         ? totalMeffSpreadEur / (totalElevatedConsumptionKwh / 1000)
+        : null,
+      totalMeffSpreadWithHedgesEurMwh: totalElevatedConsumptionKwh > 0
+        ? totalMeffSpreadWithHedgesEur / (totalElevatedConsumptionKwh / 1000)
         : null,
       averageMeffPriceEurMwh: totalElevatedConsumptionKwh > 0 && totalEstimatedMeffSaleEur > 0
         ? totalEstimatedMeffSaleEur / (totalElevatedConsumptionKwh / 1000)
@@ -337,6 +370,7 @@ export class PortfolioForecastService {
     saleSurcharges: SaleSurchargeMap,
     meffCurve: MeffCurve,
     omieRealPrices: Map<string, OmieRealMonth>,
+    purchasePointingCoefficient: number,
     calculatedAt: Date
   ) {
     const annualConsumption = decimalToNumber(contract.annualConsumption);
@@ -363,7 +397,7 @@ export class PortfolioForecastService {
     const estimatedSaleAmount = monthlyRows.reduce((sum, row) => sum + (row.estimatedSaleAmountEur ?? 0), 0);
     const estimatedSaleAmountBc = monthlyRows.reduce((sum, row) => sum + (row.estimatedSaleAmountBcEur ?? 0), 0);
     const salePriceStatus = summarizeSalePriceStatus(monthlyRows.map((row) => row.salePriceStatus));
-    const meffRows = this.valueMeffMonthlyRows(contract.id, referenceDate, monthlyRows, meffCurve, omieRealPrices);
+    const meffRows = this.valueMeffMonthlyRows(contract.id, referenceDate, monthlyRows, meffCurve, omieRealPrices, purchasePointingCoefficient);
     const estimatedMeffSaleAmount = meffRows.reduce((sum, row) => sum + (row.estimatedMeffSaleEur ?? 0), 0);
     const meffValuationStatus = summarizeMeffValuationStatus(meffRows.map((row) => row.status));
     await this.persistForecast(contract.id, referenceDate, parseReferenceDate(activeEndDateText), estimatedConsumption, estimatedSaleAmount, estimatedSaleAmountBc, estimatedMeffSaleAmount, salePriceStatus, meffValuationStatus, calculatedAt, "CALCULADO", monthlyRows, meffRows);
@@ -843,9 +877,10 @@ export class PortfolioForecastService {
     referenceDate: Date,
     monthlyRows: Array<{ year: number; month: number; elevatedConsumptionKwh: number }>,
     meffCurve: MeffCurve,
-    omieRealPrices: Map<string, OmieRealMonth>
+    omieRealPrices: Map<string, OmieRealMonth>,
+    purchasePointingCoefficient: number
   ) {
-    return this.valueMeffRowsFromGroups(contractId, referenceDate, monthlyRows, meffCurve, omieRealPrices);
+    return this.valueMeffRowsFromGroups(contractId, referenceDate, monthlyRows, meffCurve, omieRealPrices, purchasePointingCoefficient);
   }
 
   private valueMeffRowsFromGroups(
@@ -853,7 +888,8 @@ export class PortfolioForecastService {
     referenceDate: Date,
     monthlyRows: Array<{ year: number; month: number; elevatedConsumptionKwh: number }>,
     meffCurve?: MeffCurve,
-    omieRealPrices: Map<string, OmieRealMonth> = new Map()
+    omieRealPrices: Map<string, OmieRealMonth> = new Map(),
+    purchasePointingCoefficient = 1
   ) {
     const byMonth = new Map<string, { year: number; month: number; consumptionBcKwh: number }>();
     for (const row of monthlyRows) {
@@ -868,16 +904,17 @@ export class PortfolioForecastService {
         const omieMonth = omieRealPrices.get(key) ?? null;
         const curveMonth = meffCurve?.months.get(key) ?? null;
         const useOmie = Boolean(omieMonth?.complete && omieMonth.price !== null);
-        const price = useOmie ? omieMonth!.price : curveMonth?.price ?? null;
-        const status: PurchaseValuationStatus = row.consumptionBcKwh <= 0 ? "SIN_CONSUMO_BC" : useOmie ? "OK_OMIE" : price === null ? "SIN_MEFF" : "OK";
+        const marketPrice = useOmie ? omieMonth!.price : curveMonth?.price ?? null;
+        const appliedPrice = marketPrice === null ? null : marketPrice * purchasePointingCoefficient;
+        const status: PurchaseValuationStatus = row.consumptionBcKwh <= 0 ? "SIN_CONSUMO_BC" : useOmie ? "OK_OMIE" : marketPrice === null ? "SIN_MEFF" : "OK";
         return {
           contractId,
           referenceDate,
           year: row.year,
           month: row.month,
           consumptionBcKwh: row.consumptionBcKwh,
-          meffPriceEurMwh: price,
-          estimatedMeffSaleEur: price === null ? null : (row.consumptionBcKwh / 1000) * price,
+          meffPriceEurMwh: appliedPrice,
+          estimatedMeffSaleEur: appliedPrice === null ? null : (row.consumptionBcKwh / 1000) * appliedPrice,
           meffPublicationDate: useOmie ? new Date(Date.UTC(row.year, row.month - 1, daysInUtcMonth(row.year, row.month))) : meffCurve?.publicationDate ?? null,
           meffProductCode: useOmie ? `OMIE_REAL_${key}` : curveMonth?.sourceProductCode ?? curveMonth?.productCode ?? null,
           meffPriceOrigin: useOmie ? "OMIE_REAL" : curveMonth?.origin ?? null,
@@ -1044,6 +1081,17 @@ function parseReferenceDate(value: string) {
   } catch (error) {
     throw new BadRequestException(error instanceof Error ? error.message : "Fecha referencia no valida.");
   }
+}
+
+function parsePurchasePointingCoefficient(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return 1;
+  }
+  const parsed = typeof value === "number" ? value : Number(String(value).replace(",", "."));
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 1) {
+    throw new BadRequestException("El coeficiente de apuntamiento debe estar entre 0,00 y 1,00.");
+  }
+  return Number(parsed.toFixed(2));
 }
 
 function buildForecastWindow(referenceDateText: string) {
