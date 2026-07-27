@@ -142,6 +142,7 @@ export function PricingHedgesModule() {
       });
       setProducts(result);
       setProductCatalogLoaded(true);
+      setProductFilters((current) => current.entrega && !result.some((product) => product.entrega === current.entrega) ? { ...current, entrega: "" } : current);
       setDraft((current) => current.productCod ? current : { ...current, productCod: result[0]?.cod ?? "" });
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando productos MEFF." });
@@ -160,6 +161,7 @@ export function PricingHedgesModule() {
       setProducts([]);
       setProductCatalogLoaded(false);
       setDraft((current) => ({ ...current, productCod: "" }));
+      setProductFilters({ ...next, entrega: "" });
     }
   }
 
@@ -348,7 +350,7 @@ function OperationEditor({
           </select>
         </label>
         <label className="pricing-hedges-check">
-          <input checked={productFilters.showExpired} disabled={loading} onChange={(event) => onProductFiltersChange({ ...productFilters, showExpired: event.target.checked })} type="checkbox" />
+          <input checked={productFilters.showExpired} disabled={loading} onChange={(event) => onProductFiltersChange({ ...productFilters, showExpired: event.target.checked, entrega: "" })} type="checkbox" />
           <span>Mostrar vencidos</span>
         </label>
         <div className="pricing-hedges-load-products">
