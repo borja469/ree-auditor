@@ -168,6 +168,7 @@ export function PricingBaseModule() {
           enabledConcepts={calculatorEnabledConcepts}
           meffMonths={response.meffForward.months}
           meffMatrices={meffPeriodMatrices}
+          omieMatrices={omiePeriodMatrices}
           onDraftChange={(key, value) =>
             setCalculatorDrafts((current) => {
               const next = new Map(current);
@@ -605,6 +606,7 @@ function PricingCalculatorPanel({
   manualValues,
   meffMonths,
   meffMatrices,
+  omieMatrices,
   onDraftChange,
   onToggleConcept,
   onSave,
@@ -617,6 +619,7 @@ function PricingCalculatorPanel({
   manualValues: Map<string, number | null>;
   meffMonths: NonNullable<PricingBaseResponse["meffForward"]>["months"];
   meffMatrices: ProfiledPeriodMatrix[];
+  omieMatrices: ProfiledPeriodMatrix[];
   onDraftChange: (key: string, value: string) => void;
   onToggleConcept: (conceptKey: CalculatorConceptKey, enabled: boolean) => void;
   onSave: (concept: PricingCalculatorManualConcept, tariff: string, period: string, raw: string) => void;
@@ -626,6 +629,7 @@ function PricingCalculatorPanel({
   const tariffGroups = buildPricingCalculatorTariffGroups(columns);
   const coefForward = average(meffMonths.map((month) => (month.price === null || month.previous7DaysPrice === null ? null : month.price - month.previous7DaysPrice)));
   const meffByTariff = new Map(meffMatrices.map((row) => [row.tariff, row]));
+  const omieByTariff = new Map(omieMatrices.map((row) => [row.tariff, row]));
   const cadRadByTariff = new Map(cadRadRows.map((row) => [row.tariff, row]));
   const lossesByTariff = new Map(lossesRows.map((row) => [row.tariff, row]));
 
@@ -638,6 +642,7 @@ function PricingCalculatorPanel({
         drafts,
         manualValues,
         meffMatrices,
+        omieMatrices,
         cadRadRows,
         lossesRows,
         coefForward
@@ -729,6 +734,56 @@ function PricingCalculatorPanel({
                 })}
               </tr>
             ))}
+            <tr className="pricing-calculator-row pricing-calculator-row--profile-share">
+              <th className="pricing-calculator-sticky">% perfil</th>
+              {columns.map((column) => {
+                const value = calculatePricingCalculatorProfileShare(column, omieByTariff.get(column.tariff));
+                return (
+                  <td className={`pricing-calculator-auto-cell ${pricingCalculatorTariffBoundaryClass(columns, column)}`} key={pricingCalculatorColumnKey(column)} title={pricingCalculatorProfileShareTitle(column, omieByTariff.get(column.tariff))}>
+                    {formatPercentage(value)}
+                  </td>
+                );
+              })}
+            </tr>
+            <tr className="pricing-calculator-row pricing-calculator-row--kwh">
+              <th className="pricing-calculator-sticky">Precio unico €/kWh</th>
+              {columns.map((column) => {
+                const value = calculatePricingCalculatorUniqueKwhPrice({
+                  column,
+                  enabledConcepts,
+                  manualValues,
+                  coefForward,
+                  meffByTariff,
+                  omieByTariff,
+                  cadRadByTariff,
+                  lossesByTariff
+                });
+                return (
+                  <td className={`pricing-calculator-auto-cell ${pricingCalculatorTariffBoundaryClass(columns, column)}`} key={pricingCalculatorColumnKey(column)} title={pricingCalculatorUniqueKwhPriceTitle(column, value)}>
+                    {formatMatrixValue(value, 6)}
+                  </td>
+                );
+              })}
+            </tr>
+            <tr className="pricing-calculator-row pricing-calculator-row--kwh">
+              <th className="pricing-calculator-sticky">Precio Final €/kWh</th>
+              {columns.map((column) => {
+                const value = calculatePricingCalculatorFinalKwhPrice({
+                  column,
+                  enabledConcepts,
+                  manualValues,
+                  coefForward,
+                  meffByTariff,
+                  cadRadByTariff,
+                  lossesByTariff
+                });
+                return (
+                  <td className={`pricing-calculator-auto-cell ${pricingCalculatorTariffBoundaryClass(columns, column)}`} key={pricingCalculatorColumnKey(column)}>
+                    {formatMatrixValue(value, 6)}
+                  </td>
+                );
+              })}
+            </tr>
           </tbody>
         </table>
       </div>
@@ -941,6 +996,7 @@ function buildPricingCalculatorClipboardText({
   drafts,
   manualValues,
   meffMatrices,
+  omieMatrices,
   cadRadRows,
   lossesRows,
   coefForward
@@ -951,11 +1007,13 @@ function buildPricingCalculatorClipboardText({
   drafts: Map<string, string>;
   manualValues: Map<string, number | null>;
   meffMatrices: ProfiledPeriodMatrix[];
+  omieMatrices: ProfiledPeriodMatrix[];
   cadRadRows: CadRadPeriodSummaryRow[];
   lossesRows: LossesPeriodSummaryRow[];
   coefForward: number | null;
 }) {
   const meffByTariff = new Map(meffMatrices.map((row) => [row.tariff, row]));
+  const omieByTariff = new Map(omieMatrices.map((row) => [row.tariff, row]));
   const cadRadByTariff = new Map(cadRadRows.map((row) => [row.tariff, row]));
   const lossesByTariff = new Map(lossesRows.map((row) => [row.tariff, row]));
   const lines = [
@@ -988,6 +1046,42 @@ function buildPricingCalculatorClipboardText({
     });
     lines.push([label, ...values].join("\t"));
   }
+  lines.push(["% perfil", ...columns.map((column) => formatPercentage(calculatePricingCalculatorProfileShare(column, omieByTariff.get(column.tariff))))].join("\t"));
+  lines.push([
+    "Precio unico €/kWh",
+    ...columns.map((column) =>
+      formatMatrixValue(
+        calculatePricingCalculatorUniqueKwhPrice({
+          column,
+          enabledConcepts,
+          manualValues,
+          coefForward,
+          meffByTariff,
+          omieByTariff,
+          cadRadByTariff,
+          lossesByTariff
+        }),
+        6
+      )
+    )
+  ].join("\t"));
+  lines.push([
+    "Precio Final €/kWh",
+    ...columns.map((column) =>
+      formatMatrixValue(
+        calculatePricingCalculatorFinalKwhPrice({
+          column,
+          enabledConcepts,
+          manualValues,
+          coefForward,
+          meffByTariff,
+          cadRadByTariff,
+          lossesByTariff
+        }),
+        6
+      )
+    )
+  ].join("\t"));
 
   return lines.join("\n");
 }
@@ -1043,6 +1137,73 @@ function buildPricingCalculatorTariffGroups(columns: PricingCalculatorColumn[]) 
 
 function periodsForTariff(tariff: BaseTariff): Array<(typeof PERIODS)[number]> {
   return tariff === "2.0TD" ? ["P1", "P2", "P3"] : [...PERIODS];
+}
+
+type PricingCalculatorDerivedValueInput = {
+  column: PricingCalculatorColumn;
+  enabledConcepts: Set<CalculatorConceptKey>;
+  manualValues: Map<string, number | null>;
+  coefForward: number | null;
+  meffByTariff: Map<BaseTariff, ProfiledPeriodMatrix>;
+  omieByTariff?: Map<BaseTariff, ProfiledPeriodMatrix>;
+  cadRadByTariff: Map<BaseTariff, CadRadPeriodSummaryRow>;
+  lossesByTariff: Map<BaseTariff, LossesPeriodSummaryRow>;
+};
+
+function calculatePricingCalculatorFinalKwhPrice({
+  column,
+  enabledConcepts,
+  manualValues,
+  coefForward,
+  meffByTariff,
+  cadRadByTariff,
+  lossesByTariff
+}: PricingCalculatorDerivedValueInput) {
+  const finalPrice = calculatePricingCalculatorValue({
+    conceptKey: "precioFinal",
+    column,
+    enabledConcepts,
+    manualValues,
+    coefForward,
+    meffMatrix: meffByTariff.get(column.tariff),
+    cadRadRow: cadRadByTariff.get(column.tariff),
+    lossesRow: lossesByTariff.get(column.tariff)
+  });
+  return finalPrice === null ? null : finalPrice / 1000;
+}
+
+function calculatePricingCalculatorUniqueKwhPrice(input: PricingCalculatorDerivedValueInput) {
+  const omieMatrix = input.omieByTariff?.get(input.column.tariff);
+  if (!omieMatrix) {
+    return null;
+  }
+  let weightedPrice = 0;
+  for (const period of periodsForTariff(input.column.tariff)) {
+    const periodColumn = { tariff: input.column.tariff, period };
+    const finalPrice = calculatePricingCalculatorValue({
+      conceptKey: "precioFinal",
+      column: periodColumn,
+      enabledConcepts: input.enabledConcepts,
+      manualValues: input.manualValues,
+      coefForward: input.coefForward,
+      meffMatrix: input.meffByTariff.get(periodColumn.tariff),
+      cadRadRow: input.cadRadByTariff.get(periodColumn.tariff),
+      lossesRow: input.lossesByTariff.get(periodColumn.tariff)
+    });
+    const profileShare = calculatePricingCalculatorProfileShare(periodColumn, omieMatrix);
+    if (finalPrice === null || profileShare === null) {
+      return null;
+    }
+    weightedPrice += finalPrice * (profileShare / 100);
+  }
+  return weightedPrice / 1000;
+}
+
+function pricingCalculatorUniqueKwhPriceTitle(column: PricingCalculatorColumn, value: number | null) {
+  return [
+    `Precio unico ${column.tariff}: ${formatOptionalDecimal(value, 6)} €/kWh`,
+    "Formula: suma Precio Final periodo x % perfil periodo / 1000"
+  ].join("\n");
 }
 
 function calculatePricingCalculatorValue({
@@ -1142,6 +1303,27 @@ function calculatePricingCalculatorValue({
     default:
       return null;
   }
+}
+
+function calculatePricingCalculatorProfileShare(column: PricingCalculatorColumn, omieMatrix: ProfiledPeriodMatrix | undefined) {
+  if (!omieMatrix) {
+    return null;
+  }
+  const periodProfile = sumPeriodProfile(omieMatrix, column.period);
+  const totalProfile = periodsForTariff(column.tariff).reduce((sum, period) => sum + sumPeriodProfile(omieMatrix, period), 0);
+  return totalProfile === 0 ? null : (periodProfile / totalProfile) * 100;
+}
+
+function pricingCalculatorProfileShareTitle(column: PricingCalculatorColumn, omieMatrix: ProfiledPeriodMatrix | undefined) {
+  if (!omieMatrix) {
+    return undefined;
+  }
+  const periodProfile = sumPeriodProfile(omieMatrix, column.period);
+  const totalProfile = periodsForTariff(column.tariff).reduce((sum, period) => sum + sumPeriodProfile(omieMatrix, period), 0);
+  return [
+    `Suma perfil ${column.period}: ${formatOptionalDecimal(periodProfile, 12)}`,
+    `Suma perfil tarifa: ${formatOptionalDecimal(totalProfile, 12)}`
+  ].join("\n");
 }
 
 function manualNumber(values: Map<string, number | null>, concept: PricingCalculatorManualConcept, column: PricingCalculatorColumn) {

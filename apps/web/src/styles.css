@@ -3756,6 +3756,18 @@ select:disabled {
   background: #dbeafe;
 }
 
+.pricing-calculator-row--profile-share th,
+.pricing-calculator-row--profile-share td {
+  color: #2f4858;
+  background: #f8fafc;
+  border-top: 1px solid #b8c7d0;
+  font-weight: 800;
+}
+
+.pricing-calculator-row--profile-share .pricing-calculator-sticky {
+  background: #f8fafc;
+}
+
 .mir-sale-prices-table {
   min-width: 1520px;
 }
