@@ -3768,6 +3768,38 @@ select:disabled {
   background: #f8fafc;
 }
 
+.pricing-calculator-row--balance-adjustment th,
+.pricing-calculator-row--balance-adjustment td {
+  border-top: 1px solid #b8c7d0;
+}
+
+.pricing-calculator-row--balance-adjustment .pricing-calculator-sticky {
+  background: #fff3bf;
+}
+
+.pricing-calculator-row--adjusted-final th,
+.pricing-calculator-row--adjusted-final td {
+  color: #102f3b;
+  background: #dbeafe;
+  border-top: 2px solid #17445c;
+  font-weight: 950;
+}
+
+.pricing-calculator-row--adjusted-final .pricing-calculator-sticky {
+  background: #dbeafe;
+}
+
+.pricing-calculator-row--adjusted-final-kwh th,
+.pricing-calculator-row--adjusted-final-kwh td {
+  color: #2f4858;
+  background: #f8fafc;
+  font-weight: 800;
+}
+
+.pricing-calculator-row--adjusted-final-kwh .pricing-calculator-sticky {
+  background: #f8fafc;
+}
+
 .mir-sale-prices-table {
   min-width: 1520px;
 }

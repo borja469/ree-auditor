@@ -1047,6 +1047,8 @@ export type PricingCalculatorManualConcept =
   | "aportacionFnee"
   | "desvio"
   | "modificador"
+  | "ajusteEquilibrio1"
+  | "ajusteEquilibrio2"
   | "perdidasInc"
   | "atr";
 

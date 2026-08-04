@@ -554,6 +554,8 @@ type PricingCalculatorColumn = {
   period: (typeof PERIODS)[number];
 };
 
+type PricingCalculatorBalanceAdjustmentConcept = Extract<PricingCalculatorManualConcept, "ajusteEquilibrio1" | "ajusteEquilibrio2">;
+
 type PricingCalculatorConcept = {
   key:
     | "renta4"
@@ -784,6 +786,57 @@ function PricingCalculatorPanel({
                 );
               })}
             </tr>
+            {(["ajusteEquilibrio1", "ajusteEquilibrio2"] as const).flatMap((concept, index) => {
+              const scenario = index + 1;
+              return [
+                <tr className="pricing-calculator-row pricing-calculator-row--balance-adjustment" key={`${concept}-adjustment`}>
+                  <th className="pricing-calculator-sticky">Ajuste equilibrio {scenario} EUR/MWh</th>
+                  {columns.map((column) => renderPricingCalculatorBalanceAdjustmentCell({ column, columns, concept, drafts, manualValues, omieMatrix: omieByTariff.get(column.tariff), onDraftChange, onSave }))}
+                </tr>,
+                <tr className="pricing-calculator-row pricing-calculator-row--adjusted-final" key={`${concept}-final`}>
+                  <th className="pricing-calculator-sticky">Precio Final ajustado {scenario}</th>
+                  {columns.map((column) => {
+                    const value = calculatePricingCalculatorAdjustedFinalPrice({
+                      column,
+                      enabledConcepts,
+                      manualValues,
+                      coefForward,
+                      meffByTariff,
+                      omieByTariff,
+                      cadRadByTariff,
+                      lossesByTariff,
+                      adjustmentConcept: concept
+                    });
+                    return (
+                      <td className={`pricing-calculator-final-cell ${pricingCalculatorTariffBoundaryClass(columns, column)}`} key={pricingCalculatorColumnKey(column)}>
+                        {formatMatrixValue(value, 2)}
+                      </td>
+                    );
+                  })}
+                </tr>,
+                <tr className="pricing-calculator-row pricing-calculator-row--adjusted-final-kwh" key={`${concept}-final-kwh`}>
+                  <th className="pricing-calculator-sticky">Precio Final ajustado {scenario} EUR/kWh</th>
+                  {columns.map((column) => {
+                    const value = calculatePricingCalculatorAdjustedFinalKwhPrice({
+                      column,
+                      enabledConcepts,
+                      manualValues,
+                      coefForward,
+                      meffByTariff,
+                      omieByTariff,
+                      cadRadByTariff,
+                      lossesByTariff,
+                      adjustmentConcept: concept
+                    });
+                    return (
+                      <td className={`pricing-calculator-auto-cell ${pricingCalculatorTariffBoundaryClass(columns, column)}`} key={pricingCalculatorColumnKey(column)}>
+                        {formatMatrixValue(value, 6)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ];
+            })}
           </tbody>
         </table>
       </div>
@@ -793,6 +846,52 @@ function PricingCalculatorPanel({
 
 function buildOmiePeriodMatrices(rows: PricingBaseRow[]): ProfiledPeriodMatrix[] {
   return buildProfiledPeriodMatrices(rows, OMIE_MATRIX_CONFIGS, MONTHS.map((month) => ({ key: month, label: month })), (row) => String(row.mes));
+}
+
+function renderPricingCalculatorBalanceAdjustmentCell({
+  column,
+  columns,
+  concept,
+  drafts,
+  manualValues,
+  omieMatrix,
+  onDraftChange,
+  onSave
+}: {
+  column: PricingCalculatorColumn;
+  columns: PricingCalculatorColumn[];
+  concept: PricingCalculatorBalanceAdjustmentConcept;
+  drafts: Map<string, string>;
+  manualValues: Map<string, number | null>;
+  omieMatrix: ProfiledPeriodMatrix | undefined;
+  onDraftChange: (key: string, value: string) => void;
+  onSave: (concept: PricingCalculatorManualConcept, tariff: string, period: string, raw: string) => void;
+}) {
+  const key = calculatorManualKey(concept, column.tariff, column.period);
+  const draft = drafts.get(key);
+  const value = calculatePricingCalculatorBalanceAdjustment(column, omieMatrix, manualValues, concept);
+  if (isPricingCalculatorBalanceClosingPeriod(column)) {
+    return (
+      <td className={`pricing-calculator-auto-cell ${pricingCalculatorTariffBoundaryClass(columns, column)}`} key={pricingCalculatorColumnKey(column)} title={pricingCalculatorBalanceAdjustmentTitle(column, omieMatrix, manualValues, concept)}>
+        {formatMatrixValue(value, 2)}
+      </td>
+    );
+  }
+  return (
+    <td className={`pricing-calculator-manual-cell ${pricingCalculatorTariffBoundaryClass(columns, column)}`} key={pricingCalculatorColumnKey(column)}>
+      <input
+        title="Ajuste manual positivo o negativo en EUR/MWh. El ultimo periodo de la tarifa se calcula para equilibrar a cero con el % perfil."
+        value={draft ?? formatCalculatorInputValue(manualValues.get(key) ?? 0)}
+        onBlur={(event) => onSave(concept, column.tariff, column.period, event.target.value)}
+        onChange={(event) => onDraftChange(key, event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.currentTarget.blur();
+          }
+        }}
+      />
+    </td>
+  );
 }
 
 function buildMeffPriceMatrices(months: NonNullable<PricingBaseResponse["meffForward"]>["months"], omieMatrices: ProfiledPeriodMatrix[]): ProfiledPeriodMatrix[] {
@@ -1083,6 +1182,58 @@ function buildPricingCalculatorClipboardText({
     )
   ].join("\t"));
 
+  (["ajusteEquilibrio1", "ajusteEquilibrio2"] as const).forEach((concept, index) => {
+    const scenario = index + 1;
+    lines.push([
+      `Ajuste equilibrio ${scenario} EUR/MWh`,
+      ...columns.map((column) => {
+        if (isPricingCalculatorBalanceClosingPeriod(column)) {
+          return formatMatrixValue(calculatePricingCalculatorBalanceAdjustment(column, omieByTariff.get(column.tariff), manualValues, concept), 2);
+        }
+        const key = calculatorManualKey(concept, column.tariff, column.period);
+        return drafts.get(key) ?? formatCalculatorInputValue(manualValues.get(key) ?? 0);
+      })
+    ].join("\t"));
+    lines.push([
+      `Precio Final ajustado ${scenario}`,
+      ...columns.map((column) =>
+        formatMatrixValue(
+          calculatePricingCalculatorAdjustedFinalPrice({
+            column,
+            enabledConcepts,
+            manualValues,
+            coefForward,
+            meffByTariff,
+            omieByTariff,
+            cadRadByTariff,
+            lossesByTariff,
+            adjustmentConcept: concept
+          }),
+          2
+        )
+      )
+    ].join("\t"));
+    lines.push([
+      `Precio Final ajustado ${scenario} EUR/kWh`,
+      ...columns.map((column) =>
+        formatMatrixValue(
+          calculatePricingCalculatorAdjustedFinalKwhPrice({
+            column,
+            enabledConcepts,
+            manualValues,
+            coefForward,
+            meffByTariff,
+            omieByTariff,
+            cadRadByTariff,
+            lossesByTariff,
+            adjustmentConcept: concept
+          }),
+          6
+        )
+      )
+    ].join("\t"));
+  });
+
   return lines.join("\n");
 }
 
@@ -1148,6 +1299,7 @@ type PricingCalculatorDerivedValueInput = {
   omieByTariff?: Map<BaseTariff, ProfiledPeriodMatrix>;
   cadRadByTariff: Map<BaseTariff, CadRadPeriodSummaryRow>;
   lossesByTariff: Map<BaseTariff, LossesPeriodSummaryRow>;
+  adjustmentConcept?: PricingCalculatorBalanceAdjustmentConcept;
 };
 
 function calculatePricingCalculatorFinalKwhPrice({
@@ -1197,6 +1349,72 @@ function calculatePricingCalculatorUniqueKwhPrice(input: PricingCalculatorDerive
     weightedPrice += finalPrice * (profileShare / 100);
   }
   return weightedPrice / 1000;
+}
+
+function calculatePricingCalculatorAdjustedFinalPrice(input: PricingCalculatorDerivedValueInput) {
+  const finalPrice = calculatePricingCalculatorValue({
+    conceptKey: "precioFinal",
+    column: input.column,
+    enabledConcepts: input.enabledConcepts,
+    manualValues: input.manualValues,
+    coefForward: input.coefForward,
+    meffMatrix: input.meffByTariff.get(input.column.tariff),
+    cadRadRow: input.cadRadByTariff.get(input.column.tariff),
+    lossesRow: input.lossesByTariff.get(input.column.tariff)
+  });
+  const adjustmentConcept = input.adjustmentConcept ?? "ajusteEquilibrio1";
+  const adjustment = calculatePricingCalculatorBalanceAdjustment(input.column, input.omieByTariff?.get(input.column.tariff), input.manualValues, adjustmentConcept);
+  return finalPrice === null || adjustment === null ? null : finalPrice + adjustment;
+}
+
+function calculatePricingCalculatorAdjustedFinalKwhPrice(input: PricingCalculatorDerivedValueInput) {
+  const value = calculatePricingCalculatorAdjustedFinalPrice(input);
+  return value === null ? null : value / 1000;
+}
+
+function calculatePricingCalculatorBalanceAdjustment(
+  column: PricingCalculatorColumn,
+  omieMatrix: ProfiledPeriodMatrix | undefined,
+  manualValues: Map<string, number | null>,
+  concept: PricingCalculatorBalanceAdjustmentConcept
+) {
+  if (!isPricingCalculatorBalanceClosingPeriod(column)) {
+    return manualNumber(manualValues, concept, column);
+  }
+  if (!omieMatrix) {
+    return null;
+  }
+  const closingShare = calculatePricingCalculatorProfileShare(column, omieMatrix);
+  if (closingShare === null || closingShare === 0) {
+    return null;
+  }
+  let weightedAdjustment = 0;
+  for (const period of periodsForTariff(column.tariff)) {
+    if (period === column.period) {
+      continue;
+    }
+    const periodColumn = { tariff: column.tariff, period };
+    const profileShare = calculatePricingCalculatorProfileShare(periodColumn, omieMatrix);
+    if (profileShare === null) {
+      return null;
+    }
+    weightedAdjustment += manualNumber(manualValues, concept, periodColumn) * profileShare;
+  }
+  return -weightedAdjustment / closingShare;
+}
+
+function isPricingCalculatorBalanceClosingPeriod(column: PricingCalculatorColumn) {
+  const periods = periodsForTariff(column.tariff);
+  return column.period === periods[periods.length - 1];
+}
+
+function pricingCalculatorBalanceAdjustmentTitle(column: PricingCalculatorColumn, omieMatrix: ProfiledPeriodMatrix | undefined, manualValues: Map<string, number | null>, concept: PricingCalculatorBalanceAdjustmentConcept) {
+  const value = calculatePricingCalculatorBalanceAdjustment(column, omieMatrix, manualValues, concept);
+  const closingPeriod = column.tariff === "2.0TD" ? "P3" : "P6";
+  return [
+    `${closingPeriod} calculado para que la suma ponderada de ajustes sea 0.`,
+    `Ajuste calculado: ${formatOptionalDecimal(value, 2)} EUR/MWh`
+  ].join("\n");
 }
 
 function pricingCalculatorUniqueKwhPriceTitle(column: PricingCalculatorColumn, value: number | null) {
