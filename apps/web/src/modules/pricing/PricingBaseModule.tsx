@@ -1352,19 +1352,27 @@ function calculatePricingCalculatorUniqueKwhPrice(input: PricingCalculatorDerive
 }
 
 function calculatePricingCalculatorAdjustedFinalPrice(input: PricingCalculatorDerivedValueInput) {
-  const finalPrice = calculatePricingCalculatorValue({
-    conceptKey: "precioFinal",
-    column: input.column,
-    enabledConcepts: input.enabledConcepts,
-    manualValues: input.manualValues,
-    coefForward: input.coefForward,
-    meffMatrix: input.meffByTariff.get(input.column.tariff),
-    cadRadRow: input.cadRadByTariff.get(input.column.tariff),
-    lossesRow: input.lossesByTariff.get(input.column.tariff)
-  });
   const adjustmentConcept = input.adjustmentConcept ?? "ajusteEquilibrio1";
+  const finalPrice =
+    adjustmentConcept === "ajusteEquilibrio2"
+      ? pricingCalculatorUniquePriceMwh(input)
+      : calculatePricingCalculatorValue({
+          conceptKey: "precioFinal",
+          column: input.column,
+          enabledConcepts: input.enabledConcepts,
+          manualValues: input.manualValues,
+          coefForward: input.coefForward,
+          meffMatrix: input.meffByTariff.get(input.column.tariff),
+          cadRadRow: input.cadRadByTariff.get(input.column.tariff),
+          lossesRow: input.lossesByTariff.get(input.column.tariff)
+        });
   const adjustment = calculatePricingCalculatorBalanceAdjustment(input.column, input.omieByTariff?.get(input.column.tariff), input.manualValues, adjustmentConcept);
   return finalPrice === null || adjustment === null ? null : finalPrice + adjustment;
+}
+
+function pricingCalculatorUniquePriceMwh(input: PricingCalculatorDerivedValueInput) {
+  const value = calculatePricingCalculatorUniqueKwhPrice(input);
+  return value === null ? null : value * 1000;
 }
 
 function calculatePricingCalculatorAdjustedFinalKwhPrice(input: PricingCalculatorDerivedValueInput) {
