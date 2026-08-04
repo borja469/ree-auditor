@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildCurveMonths, toCurveProduct } from "../pricing-base/meff_forward_curve_service";
 import { buildGuaranteeRows, calculateGuaranteeDateRange } from "./guarantee-calculation.core";
-import { buildDailySwapPriceMap, toDailySwapProduct } from "./omie-guarantees.service";
+import { buildDailySwapPriceMap, OmieGuaranteesService, toDailySwapProduct } from "./omie-guarantees.service";
 import type { MeffGuaranteePrice, OmieGuaranteeDayData } from "./types/guarantee-calculation.types";
 
 void describe("calculateGuaranteeDateRange", () => {
@@ -339,6 +339,38 @@ void describe("MEFF helpers", () => {
       ]
     );
     assert.deepEqual(prices.get("2026-06-29"), { price: 83.51, publicationDate: "2026-06-29", code: "SMBCD29JUN26" });
+  });
+});
+
+void describe("OmieGuaranteesService", () => {
+  void it("usa base imponible sin IVA como coste OMIE real para garantias", async () => {
+    const service = new OmieGuaranteesService({} as never, {
+      obtenerComprobacionLiquidaciones: async () => ({
+        detalleDiario: [
+          {
+            fechaIso: "2026-08-03",
+            energiaMd: 79.15,
+            energiaIda1: 62.45,
+            energiaIda2: 12.725,
+            energiaIda3: 5.1,
+            energiaXbid: null,
+            netoFactura: 27418.47,
+            netoBaseImponible: 22659.89
+          }
+        ]
+      })
+    } as never);
+
+    const days = await (service as unknown as { loadOmieDays: (start: Date, end: Date) => Promise<Map<string, OmieGuaranteeDayData>> }).loadOmieDays(
+      new Date(Date.UTC(2026, 7, 3)),
+      new Date(Date.UTC(2026, 7, 3))
+    );
+
+    assert.deepEqual(days.get("2026-08-03"), {
+      date: "2026-08-03",
+      volume: 159.425,
+      costWithoutTax: 22659.89
+    });
   });
 });
 
