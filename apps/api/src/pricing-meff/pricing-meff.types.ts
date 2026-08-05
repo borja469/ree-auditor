@@ -51,9 +51,29 @@ export type PricingMeffRow = {
   precio14Dias: PricingMeffComparison;
 };
 
+export type PricingMeffHistoryPoint = {
+  id: string;
+  fechaPublicacion: string;
+  cod: string;
+  tipo: string | null;
+  clase: string | null;
+  periodo: string | null;
+  entrega: string | null;
+  multiplicador: string | null;
+  precio: number | null;
+};
+
+export type PricingMeffHistoryResponse = {
+  cod: string;
+  rows: PricingMeffHistoryPoint[];
+};
+
 export type PricingMeffResponse = {
   total: number;
   rows: PricingMeffRow[];
+  appliedFilters: {
+    fechaPublicacion?: string;
+  };
   filterOptions: {
     tipos: string[];
     clases: string[];

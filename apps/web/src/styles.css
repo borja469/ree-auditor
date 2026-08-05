@@ -4064,6 +4064,24 @@ select:disabled {
   color: #263d48;
 }
 
+.pricing-meff-table tbody tr {
+  cursor: pointer;
+}
+
+.pricing-meff-table tbody tr:hover td,
+.pricing-meff-table tbody tr:focus td {
+  background: #f7fbfc;
+}
+
+.pricing-meff-table tbody tr:focus {
+  outline: 2px solid #7aa7ba;
+  outline-offset: -2px;
+}
+
+.pricing-meff-table tbody tr.selected td {
+  background: #e8f1f5;
+}
+
 .pricing-meff-table td.number,
 .pricing-meff-table th.number {
   text-align: right;
@@ -4101,6 +4119,111 @@ select:disabled {
   color: #607482;
   text-align: center;
   font-weight: 800;
+}
+
+.pricing-meff-history {
+  min-width: 0;
+  padding: 2px 0 0;
+}
+
+.pricing-meff-history-modal {
+  width: min(1180px, 100%);
+  color: #edf7fb;
+  background: #12212b;
+  border-color: #2d4652;
+}
+
+.pricing-meff-history-modal .ops-modal-head {
+  align-items: flex-start;
+  border-bottom-color: #2d4652;
+}
+
+.pricing-meff-history-modal .ops-modal-head strong {
+  display: block;
+  color: #f4fbfd;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.pricing-meff-history-heading {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.pricing-meff-history-heading span {
+  display: block;
+  overflow: hidden;
+  color: #cfe1e7;
+  font-size: 0.85rem;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pricing-meff-history-heading small {
+  color: #9eb7c0;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.pricing-meff-history-modal .ops-modal-head button {
+  color: #edf7fb;
+  background: #172b36;
+  border-color: #3a5663;
+}
+
+.pricing-meff-history-ranges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  width: max-content;
+  max-width: 100%;
+  padding: 3px;
+  background: #0f1b23;
+  border: 1px solid #2d4652;
+  border-radius: 8px;
+}
+
+.pricing-meff-history-ranges button {
+  min-width: 42px;
+  min-height: 28px;
+  padding: 0 9px;
+  color: #b7cbd3;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.pricing-meff-history-ranges button:hover,
+.pricing-meff-history-ranges button:focus-visible {
+  color: #f4fbfd;
+  background: #18323f;
+}
+
+.pricing-meff-history-ranges button.active {
+  color: #06141a;
+  background: #63c7ee;
+}
+
+@media (max-width: 720px) {
+  .pricing-meff-history-modal {
+    max-height: min(88vh, 760px);
+  }
+
+  .pricing-meff-history-heading small {
+    display: none;
+  }
+
+  .pricing-meff-history-ranges {
+    width: 100%;
+  }
+
+  .pricing-meff-history-ranges button {
+    flex: 1 1 42px;
+  }
 }
 
 .pricing-hedges-module {

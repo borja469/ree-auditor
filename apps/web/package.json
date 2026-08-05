@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "build:prod": "npm run build",
     "test:technical-module-v2": "tsc -p tsconfig.test.json && node ./scripts/run-technical-module-v2-tests.cjs",
+    "test:pricing-meff": "tsc -p tsconfig.pricing-meff-test.json && node --test ./.tmp/pricing-meff-test/tests/pricing-meff/*.test.js",
     "preview": "vite preview",
     "serve:static": "vite preview --host 0.0.0.0",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",

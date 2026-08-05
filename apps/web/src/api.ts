@@ -1079,6 +1079,18 @@ export type PricingMeffRow = {
   precio14Dias: PricingMeffComparison;
 };
 
+export type PricingMeffHistoryPoint = {
+  id: string;
+  fechaPublicacion: string;
+  cod: string;
+  tipo: string | null;
+  clase: string | null;
+  periodo: string | null;
+  entrega: string | null;
+  multiplicador: string | null;
+  precio: number | null;
+};
+
 export type PricingMeffFilters = {
   fechaPublicacion?: string;
   tipo?: string[];
@@ -1099,6 +1111,9 @@ export type PricingMeffImportResponse = {
 export type PricingMeffResponse = {
   total: number;
   rows: PricingMeffRow[];
+  appliedFilters?: {
+    fechaPublicacion?: string;
+  };
   filterOptions: {
     tipos: string[];
     clases: string[];
@@ -1106,6 +1121,11 @@ export type PricingMeffResponse = {
     entregas: string[];
     multiplicadores: string[];
   };
+};
+
+export type PricingMeffHistoryResponse = {
+  cod: string;
+  rows: PricingMeffHistoryPoint[];
 };
 
 export type PricingHedgeOperationType = "COMPRA" | "VENTA";
@@ -3229,6 +3249,10 @@ export async function downloadPricingBaseExport(filters: PricingBaseFilters = {}
 
 export async function getPricingMeff(filters: PricingMeffFilters = {}): Promise<PricingMeffResponse> {
   return getJson(`/pricing/meff${toQuery(filters)}`);
+}
+
+export async function getPricingMeffHistory(cod: string): Promise<PricingMeffHistoryResponse> {
+  return getJson(`/pricing/meff/${encodeURIComponent(cod)}/history`);
 }
 
 export async function uploadPricingMeffFile(file: File, onProgress?: (progress: number) => void): Promise<PricingMeffImportResponse> {

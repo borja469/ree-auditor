@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { parsePricingMeffWorkbook } from "./pricing-meff.parser";
-import type { PricingMeffQuery, PricingMeffResponse, PricingMeffRow } from "./pricing-meff.types";
+import type { PricingMeffHistoryPoint, PricingMeffHistoryResponse, PricingMeffQuery, PricingMeffResponse, PricingMeffRow } from "./pricing-meff.types";
 
 @Injectable()
 export class PricingMeffService {
@@ -59,26 +59,30 @@ export class PricingMeffService {
   }
 
   async list(query: PricingMeffQuery): Promise<PricingMeffResponse> {
-    const where = buildWhere(query);
+    const effectiveQuery = await this.withDefaultPublicationDate(query);
+    const where = buildWhere(effectiveQuery);
     const [total, rows, tipos, clases, periodos, entregas, multiplicadores] = await Promise.all([
       this.prisma.pricingMeffPrice.count({ where }),
       this.prisma.pricingMeffPrice.findMany({
         where,
         orderBy: [{ periodo: "asc" }, { entrega: "asc" }, { fechaPublicacion: "desc" }, { cod: "asc" }],
-        skip: query.skip,
-        take: query.take
+        skip: effectiveQuery.skip,
+        take: effectiveQuery.take
       }),
-      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(query, "tipo"), distinct: ["tipo"], select: { tipo: true }, orderBy: { tipo: "asc" } }),
-      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(query, "clase"), distinct: ["clase"], select: { clase: true }, orderBy: { clase: "asc" } }),
-      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(query, "periodo"), distinct: ["periodo"], select: { periodo: true }, orderBy: { periodo: "asc" } }),
-      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(query, "entrega"), distinct: ["entrega"], select: { entrega: true }, orderBy: { entrega: "asc" } }),
-      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(query, "multiplicador"), distinct: ["multiplicador"], select: { multiplicador: true }, orderBy: { multiplicador: "asc" } })
+      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(effectiveQuery, "tipo"), distinct: ["tipo"], select: { tipo: true }, orderBy: { tipo: "asc" } }),
+      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(effectiveQuery, "clase"), distinct: ["clase"], select: { clase: true }, orderBy: { clase: "asc" } }),
+      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(effectiveQuery, "periodo"), distinct: ["periodo"], select: { periodo: true }, orderBy: { periodo: "asc" } }),
+      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(effectiveQuery, "entrega"), distinct: ["entrega"], select: { entrega: true }, orderBy: { entrega: "asc" } }),
+      this.prisma.pricingMeffPrice.findMany({ where: buildFilterOptionsWhere(effectiveQuery, "multiplicador"), distinct: ["multiplicador"], select: { multiplicador: true }, orderBy: { multiplicador: "asc" } })
     ]);
     const sortedRows = [...rows].sort(comparePricingMeffRows);
     const comparisonRows = await this.loadComparisonRows(sortedRows.map((row) => ({ cod: row.cod, fechaPublicacion: row.fechaPublicacion })));
     return {
       total,
       rows: sortedRows.map((row) => toResponseRow(row, comparisonRows)),
+      appliedFilters: {
+        fechaPublicacion: effectiveQuery.fechaPublicacion
+      },
       filterOptions: {
         tipos: distinctTextValues(tipos.map((row) => row.tipo)),
         clases: distinctTextValues(clases.map((row) => row.clase)),
@@ -86,6 +90,40 @@ export class PricingMeffService {
         entregas: distinctTextValues(entregas.map((row) => row.entrega)),
         multiplicadores: distinctTextValues(multiplicadores.map((row) => row.multiplicador))
       }
+    };
+  }
+
+  private async withDefaultPublicationDate(query: PricingMeffQuery): Promise<PricingMeffQuery> {
+    if (query.fechaPublicacion) {
+      return query;
+    }
+
+    const latest = await this.prisma.pricingMeffPrice.findFirst({
+      orderBy: { fechaPublicacion: "desc" },
+      select: { fechaPublicacion: true }
+    });
+
+    return {
+      ...query,
+      fechaPublicacion: latest?.fechaPublicacion.toISOString().slice(0, 10)
+    };
+  }
+
+  async history(cod: string): Promise<PricingMeffHistoryResponse> {
+    const normalizedCod = cod.trim();
+    const rows = await this.prisma.pricingMeffPrice.findMany({
+      where: {
+        cod: {
+          equals: normalizedCod,
+          mode: "insensitive"
+        }
+      },
+      orderBy: { fechaPublicacion: "asc" }
+    });
+
+    return {
+      cod: normalizedCod,
+      rows: rows.map(toHistoryPoint)
     };
   }
 
@@ -288,6 +326,30 @@ function toResponseRow(
     precio,
     precio7Dias: buildComparison(precio, comparisons.get(`${row.cod}|${date7}`)?.precio ?? null),
     precio14Dias: buildComparison(precio, comparisons.get(`${row.cod}|${date14}`)?.precio ?? null)
+  };
+}
+
+function toHistoryPoint(row: {
+  id: string;
+  fechaPublicacion: Date;
+  cod: string;
+  tipo: string | null;
+  clase: string | null;
+  periodo: string | null;
+  entrega: string | null;
+  multiplicador: string | null;
+  precio: Prisma.Decimal | null;
+}): PricingMeffHistoryPoint {
+  return {
+    id: row.id,
+    fechaPublicacion: row.fechaPublicacion.toISOString().slice(0, 10),
+    cod: row.cod,
+    tipo: row.tipo,
+    clase: row.clase,
+    periodo: row.periodo,
+    entrega: row.entrega,
+    multiplicador: row.multiplicador,
+    precio: decimalToNumber(row.precio)
   };
 }
 

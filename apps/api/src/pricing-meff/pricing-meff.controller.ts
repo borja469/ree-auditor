@@ -1,4 +1,4 @@
-import { BadRequestException, Controller, Get, Post, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
+import { BadRequestException, Controller, Get, Param, Post, Query, UploadedFile, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { attachUploadedFileBuffer, cleanupUploadedFile, uploadDiskStorage, uploadLimits } from "../common/upload-storage";
 import { defaultPricingMeffQuery, PricingMeffService } from "./pricing-meff.service";
@@ -10,6 +10,11 @@ export class PricingMeffController {
   @Get()
   list(@Query() query: Record<string, unknown>) {
     return this.service.list(defaultPricingMeffQuery(query));
+  }
+
+  @Get(":cod/history")
+  history(@Param("cod") cod: string) {
+    return this.service.history(cod);
   }
 
   @Post("import")

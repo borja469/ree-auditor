@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Calculator, Check, ChevronDown, FileUp, RotateCcw } from "lucide-react";
-import { getPricingMeff, uploadPricingMeffFile, type PricingMeffFilters, type PricingMeffImportResponse, type PricingMeffRow } from "../../api";
-import { PanelTitle, formatDecimalNumber, formatNumber } from "../shared/RestoredModuleCommon";
+import type { EChartsOption } from "echarts";
+import { Calculator, Check, ChevronDown, FileUp, LineChart, RotateCcw, X } from "lucide-react";
+import { getPricingMeff, getPricingMeffHistory, uploadPricingMeffFile, type PricingMeffFilters, type PricingMeffHistoryPoint, type PricingMeffImportResponse, type PricingMeffRow } from "../../api";
+import { EChart, PanelTitle, formatDecimalNumber, formatNumber } from "../shared/RestoredModuleCommon";
+import { buildPricingMeffHistoryChartOption, formatChartDate, formatChartPrice, type PricingMeffHistoryRangePreset } from "./pricingMeffHistoryChart";
 
 const PAGE_SIZE = 500;
 const EMPTY_FILTER_OPTIONS = {
@@ -22,6 +24,10 @@ export function PricingMeffModule() {
   const [message, setMessage] = useState<{ tone: "error" | "info"; text: string }>();
   const [lastImport, setLastImport] = useState<PricingMeffImportResponse>();
   const [filterOptions, setFilterOptions] = useState(EMPTY_FILTER_OPTIONS);
+  const [selectedRow, setSelectedRow] = useState<PricingMeffRow>();
+  const [historyRows, setHistoryRows] = useState<PricingMeffHistoryPoint[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string>();
 
   async function load(nextFilters = filters) {
     setLoading(true);
@@ -31,6 +37,9 @@ export function PricingMeffModule() {
       setRows(result.rows);
       setTotal(result.total);
       setFilterOptions(result.filterOptions);
+      if (!nextFilters.fechaPublicacion && result.appliedFilters?.fechaPublicacion) {
+        setFilters((current) => current.fechaPublicacion ? current : { ...current, fechaPublicacion: result.appliedFilters?.fechaPublicacion });
+      }
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error consultando precios MEFF." });
     } finally {
@@ -42,6 +51,54 @@ export function PricingMeffModule() {
     const handle = window.setTimeout(() => void load(filters), 250);
     return () => window.clearTimeout(handle);
   }, [filters]);
+
+  useEffect(() => {
+    if (!selectedRow) {
+      setHistoryRows([]);
+      setHistoryError(undefined);
+      return;
+    }
+
+    let cancelled = false;
+    setHistoryLoading(true);
+    setHistoryError(undefined);
+    void getPricingMeffHistory(selectedRow.cod)
+      .then((result) => {
+        if (!cancelled) {
+          setHistoryRows(result.rows);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setHistoryRows([]);
+          setHistoryError(error instanceof Error ? error.message : "Error cargando historico MEFF.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setHistoryLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRow?.cod]);
+
+  useEffect(() => {
+    if (!selectedRow) {
+      return;
+    }
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setSelectedRow(undefined);
+      }
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [selectedRow]);
 
   async function uploadFile(file: File | undefined) {
     if (!file) {
@@ -64,7 +121,6 @@ export function PricingMeffModule() {
   }
 
   const visibleRows = useMemo(() => rows, [rows]);
-
   return (
     <div className="omie-layout omie-layout-a">
       <div className="panel wide omie-control-panel">
@@ -164,7 +220,18 @@ export function PricingMeffModule() {
             </thead>
             <tbody>
               {visibleRows.map((row) => (
-                <tr key={row.id}>
+                <tr
+                  className={selectedRow?.id === row.id ? "selected" : ""}
+                  key={row.id}
+                  onClick={() => setSelectedRow(row)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelectedRow(row);
+                    }
+                  }}
+                  tabIndex={0}
+                >
                   <td>{formatDate(row.fechaPublicacion)}</td>
                   <td>{row.tipo ?? "-"}</td>
                   <td>{row.clase ?? "-"}</td>
@@ -182,6 +249,70 @@ export function PricingMeffModule() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {selectedRow && (
+        <PricingMeffHistoryModal
+          error={historyError}
+          loading={historyLoading}
+          onClose={() => setSelectedRow(undefined)}
+          row={selectedRow}
+          rows={historyRows}
+        />
+      )}
+    </div>
+  );
+}
+
+function PricingMeffHistoryModal({
+  error,
+  loading,
+  onClose,
+  row,
+  rows
+}: {
+  error?: string;
+  loading: boolean;
+  onClose: () => void;
+  row: PricingMeffRow;
+  rows: PricingMeffHistoryPoint[];
+}) {
+  const [rangePreset, setRangePreset] = useState<PricingMeffHistoryRangePreset>("ALL");
+  const compact = useCompactViewport();
+  const option = useMemo(() => buildPricingMeffHistoryChartOption(rows, row, rangePreset, compact) as EChartsOption, [compact, rangePreset, row, rows]);
+
+  return (
+    <div className="ops-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="ops-modal pricing-meff-history-modal" role="dialog" aria-modal="true" aria-label="Historico MEFF" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="ops-modal-head">
+          <div className="pricing-meff-history-heading">
+            <strong>Historico del producto</strong>
+            <span>{productLabel(row)}</span>
+            <small>Precio: {formatMarkedPrice(row.precio)} · Fecha marcada: {formatChartDate(row.fechaPublicacion)}</small>
+          </div>
+          <button aria-label="Cerrar" onClick={onClose} type="button">
+            <X size={18} />
+          </button>
+        </div>
+        <div className="ops-modal-body">
+          <div className="pricing-meff-history-ranges" role="toolbar" aria-label="Rango historico">
+            {(["1M", "3M", "6M", "YTD", "ALL"] as PricingMeffHistoryRangePreset[]).map((preset) => (
+              <button className={rangePreset === preset ? "active" : ""} key={preset} onClick={() => setRangePreset(preset)} type="button">
+                {preset === "ALL" ? "Todo" : preset}
+              </button>
+            ))}
+          </div>
+          {error && <div className="status-message error">{error}</div>}
+          {loading ? (
+            <div className="empty-state">Cargando historico MEFF...</div>
+          ) : rows.length ? (
+            <div className="pricing-meff-history" tabIndex={0} aria-label="Grafico historico de precios MEFF">
+              <EChart height={compact ? 320 : 440} option={option} />
+            </div>
+          ) : (
+            <div className="empty-state">Sin historico disponible para este producto.</div>
+          )}
         </div>
       </div>
     </div>
@@ -337,4 +468,26 @@ function formatComparison(value: { precio: number | null; porcentaje: number | n
       {formatPrice(value.precio)} <span className={toneClass}>({sign}{formatDecimalNumber(value.porcentaje, 2)}%)</span>
     </>
   );
+}
+
+function productLabel(row: Pick<PricingMeffRow, "cod" | "tipo" | "clase" | "periodo" | "entrega" | "multiplicador">) {
+  return [row.cod, row.tipo, row.clase, row.periodo, row.entrega, row.multiplicador].filter(Boolean).join(" - ");
+}
+
+function formatMarkedPrice(value: number | null) {
+  return value === null ? "-" : formatChartPrice(value, 2).replace("/MWh", "");
+}
+
+function useCompactViewport() {
+  const [compact, setCompact] = useState(() => typeof window !== "undefined" ? window.matchMedia("(max-width: 720px)").matches : false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 720px)");
+    const update = () => setCompact(mediaQuery.matches);
+    update();
+    mediaQuery.addEventListener("change", update);
+    return () => mediaQuery.removeEventListener("change", update);
+  }, []);
+
+  return compact;
 }
