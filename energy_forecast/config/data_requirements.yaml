@@ -1,0 +1,53 @@
+omie_price:
+  required: true
+  priority: critical
+  source: omie
+  min_coverage: 0.98
+demand_forecast:
+  required: true
+  priority: critical
+  source: esios
+  indicator_id: 460
+  min_coverage: 0.98
+wind_forecast:
+  required: true
+  priority: critical
+  source: esios
+  indicator_id: 541
+  min_coverage: 0.95
+solar_forecast:
+  required: true
+  priority: critical
+  source: esios
+  indicator_id: 10034
+  min_coverage: 0.95
+hydro_generation:
+  required: true
+  priority: high
+  source: esios
+  min_coverage: 0.90
+nuclear_generation:
+  required: true
+  priority: high
+  source: esios
+  min_coverage: 0.90
+france_net_import:
+  required: false
+  priority: medium
+  source: esios
+  min_coverage: 0.80
+portugal_net_import:
+  required: false
+  priority: medium
+  source: esios
+  min_coverage: 0.80
+ccgt_generation:
+  required: false
+  priority: medium
+  source: esios
+  min_coverage: 0.80
+unavailability_generation:
+  required: false
+  priority: medium
+  source: esios
+  min_coverage: 0.80

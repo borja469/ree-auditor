@@ -1,0 +1,114 @@
+timestamp:
+  - timestamp
+  - datetime
+  - date_time
+  - fecha_hora
+  - fecha hora
+  - fecha
+date:
+  - date
+  - fecha
+hour:
+  - hour
+  - hora
+omie_price:
+  - omie
+  - precio_omie
+  - precio mercado diario
+  - precio_spot
+  - precio spot
+  - mercado diario
+demand:
+  - demand
+  - demanda
+  - demanda_real
+  - demanda real
+demand_forecast:
+  - demand_forecast
+  - forecast_demand
+  - demanda_prevista
+  - demanda prevista
+  - prevision_demanda
+wind:
+  - wind
+  - eolica
+  - eolica_real
+  - generacion_eolica
+  - generacion eolica
+wind_forecast:
+  - wind_forecast
+  - forecast_wind
+  - prevision_eolica
+  - eolica_prevista
+  - eolica prevista
+solar:
+  - solar
+  - fotovoltaica
+  - generacion_solar
+  - generacion solar
+  - generacion_solar_fotovoltaica
+solar_forecast:
+  - solar_forecast
+  - forecast_solar
+  - prevision_solar
+  - generacion_prevista_solar
+  - solar_prevista
+hydro_expected:
+  - hydro_expected
+  - hidraulica_expected
+  - hidraulica_programada
+  - hidraulica prevista
+hydro:
+  - hydro
+  - hidraulica
+  - hidráulica
+  - generacion_hidraulica
+nuclear:
+  - nuclear
+  - generacion_nuclear
+nuclear_expected:
+  - nuclear_expected
+  - nuclear_programada
+  - nuclear prevista
+imports:
+  - imports
+  - importaciones
+  - importacion
+exports:
+  - exports
+  - exportaciones
+  - exportacion
+net_imports:
+  - net_imports
+  - importaciones_netas
+  - saldo_interconexiones
+  - total_net_import
+net_import_expected:
+  - net_import_expected
+  - saldo_programado
+  - saldo previsto
+  - saldo_pbf
+france_net_import:
+  - france
+  - francia
+  - france_net_import
+portugal_net_import:
+  - portugal
+  - portugal_net_import
+ccgt_generation:
+  - ccgt
+  - ciclos_combinados
+  - ciclos combinados
+  - gas
+mibgas:
+  - mibgas
+ttf:
+  - ttf
+eua:
+  - eua
+  - co2
+omip:
+  - omip
+temperature:
+  - temperature
+  - temperatura

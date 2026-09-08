@@ -1,0 +1,92 @@
+# IDs are intentionally configurable. The application can fill or override them.
+demanda_real:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+demanda_prevista:
+  source: esios
+  id: 460
+  frequency: hourly
+  unit: MW
+demanda_programada:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+generacion_eolica:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+prevision_eolica:
+  source: esios
+  id: 541
+  frequency: hourly
+  unit: MW
+generacion_solar_fotovoltaica:
+  source: esios
+  id: 542
+  frequency: hourly
+  unit: MW
+prevision_solar:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+hidraulica:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+nuclear:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+ciclos_combinados:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+carbon:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+cogeneracion:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+france_net_import:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+portugal_net_import:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+total_net_import:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+indisponibilidades_generacion:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+generacion_total:
+  source: esios
+  id:
+  frequency: hourly
+  unit: MW
+omie_price:
+  source: internal_omie
+  id:
+  frequency: hourly
+  unit: EUR/MWh
+
