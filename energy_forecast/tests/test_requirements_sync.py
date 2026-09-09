@@ -42,6 +42,8 @@ def test_coalesce_missing_ranges_deduplicates_dst_same_day():
 
 
 def test_esios_gateway_maps_401_to_auth_required(monkeypatch):
+    monkeypatch.delenv("ENERGY_FORECAST_READ_ONLY", raising=False)
+
     def raise_401(*args, **kwargs):
         raise HTTPError("http://localhost", 401, "Unauthorized", {}, BytesIO(b'{"message":"Sesion no valida"}'))
 
@@ -53,6 +55,8 @@ def test_esios_gateway_maps_401_to_auth_required(monkeypatch):
 
 
 def test_omie_gateway_maps_401_to_auth_required(monkeypatch):
+    monkeypatch.delenv("ENERGY_FORECAST_READ_ONLY", raising=False)
+
     def raise_401(*args, **kwargs):
         raise HTTPError("http://localhost", 401, "Unauthorized", {}, BytesIO(b'{"message":"Sesion no valida"}'))
 
