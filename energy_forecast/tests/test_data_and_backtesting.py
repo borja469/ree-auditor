@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from energy_forecast.backtesting.io import append_predictions
+from energy_forecast.backtesting.run import wide_to_canonical
 from energy_forecast.data.aliases import load_aliases, recognize_columns
 from energy_forecast.data.contracts import MADRID_TZ
 from energy_forecast.data.excel_adapter import ExcelAdapter, parse_date_hour
@@ -82,6 +83,28 @@ def test_residual_load_variants_and_import_sign():
     assert features["residual_load"].iloc[0] == 10000
 
 
+def test_feature_builder_accepts_database_generation_names():
+    index = pd.date_range("2026-01-01", periods=1, freq="h", tz=MADRID_TZ)
+    frame = pd.DataFrame(
+        {
+            "demand_forecast": [30000],
+            "wind_forecast": [5000],
+            "solar_forecast": [4000],
+            "hydro_generation": [3000],
+            "nuclear_generation": [6000],
+            "ccgt_generation": [2000],
+        },
+        index=index,
+    )
+
+    features = build_electricity_features(frame)
+
+    assert features["hydro_generation"].iloc[0] == 3000
+    assert features["nuclear_generation"].iloc[0] == 6000
+    assert features["ccgt_generation"].iloc[0] == 2000
+    assert features["residual_load_alt_without_imports"].iloc[0] == 12000
+
+
 def test_exports_increase_residual_load_when_net_imports_negative():
     index = pd.date_range("2026-01-01", periods=1, freq="h", tz=MADRID_TZ)
     base = pd.DataFrame(
@@ -138,3 +161,16 @@ def test_forecast_append_only(tmp_path):
     append_predictions(path, predictions)
 
     assert len(pd.read_csv(path)) == 2
+
+
+def test_database_wide_frame_converts_to_canonical_availability():
+    index = pd.date_range("2026-01-02", periods=1, freq="h", tz=MADRID_TZ)
+    wide = pd.DataFrame({"omie_price": [50.0], "demand_forecast": [30000.0]}, index=index)
+
+    dataset = wide_to_canonical(wide)
+
+    rows = dataset.rows.set_index("variable")
+    assert rows.loc["omie_price", "data_type"] == "observed"
+    assert rows.loc["omie_price", "available_at"] == index[0]
+    assert rows.loc["demand_forecast", "data_type"] == "forecast"
+    assert rows.loc["demand_forecast", "available_at"] == pd.Timestamp("2026-01-01 13:00", tz=MADRID_TZ)

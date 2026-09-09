@@ -10,8 +10,8 @@ def build_electricity_features(df: pd.DataFrame) -> pd.DataFrame:
     demand = first_present(result, ["demand_forecast", "demand", "demanda_prevista", "demanda_programada", "demanda_real"])
     wind = first_present(result, ["wind_forecast", "wind", "prevision_eolica", "generacion_eolica"])
     solar = first_present(result, ["solar_forecast", "solar", "prevision_solar", "generacion_solar_fotovoltaica"])
-    hydro = first_present(result, ["hydro", "hidraulica"])
-    nuclear = first_present(result, ["nuclear"])
+    hydro = first_present(result, ["hydro_generation", "hydro", "hidraulica"])
+    nuclear = first_present(result, ["nuclear_generation", "nuclear"])
     imports = first_present(result, ["net_imports", "total_net_import", "saldo_interconexiones"])
 
     # net_imports is positive when Spain imports energy and negative when it exports.
@@ -82,7 +82,7 @@ def build_electricity_features(df: pd.DataFrame) -> pd.DataFrame:
         & result["net_import_expected"].notna()
     ).astype(int)
 
-    ccgt = first_present(result, ["ciclos_combinados"])
+    ccgt = first_present(result, ["ccgt_generation", "ciclos_combinados"])
     result["ccgt_generation"] = ccgt
     result["ccgt_share"] = safe_ratio(ccgt, demand)
     result["ccgt_lag_24h"] = ccgt.shift(24)
