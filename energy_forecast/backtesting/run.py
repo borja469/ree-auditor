@@ -9,7 +9,7 @@ import pandas as pd
 from energy_forecast.backtesting.io import append_predictions
 from energy_forecast.backtesting.walk_forward import walk_forward_canonical_dayahead
 from energy_forecast.diagnostics import summarize_bias_diagnosis, write_bias_diagnosis
-from energy_forecast.data.audit import DEFAULT_DATABASE_URL, load_data_requirements
+from energy_forecast.data.audit import DEFAULT_DATABASE_URL, audit_database
 from energy_forecast.data.contracts import CANONICAL_COLUMNS, MADRID_TZ, CanonicalDataset
 from energy_forecast.data.esios_adapter import infer_unit
 from energy_forecast.data.esios_database_provider import SystemDatabaseProvider
@@ -105,19 +105,17 @@ def load_database_dataset(database_url: str, from_date: str, to_date: str) -> tu
     except Exception as exc:
         raise RuntimeError("Install psycopg to load PostgreSQL: python -m pip install psycopg[binary]") from exc
 
-    requirements = load_data_requirements()
-    indicator_mapping = {
-        variable: int(requirement["indicator_id"])
-        for variable, requirement in requirements.items()
-        if requirement.get("source") == "esios" and requirement.get("indicator_id")
-    }
+    audit_rows = audit_database(database_url, from_date, to_date)
+    indicator_mapping = build_database_indicator_mapping(audit_rows)
+    data_kinds = {str(row["variable"]): str(row.get("data_kind") or "") for row in audit_rows}
     with psycopg.connect(database_url) as connection:
         provider = SystemDatabaseProvider(connection=connection, indicator_mapping=indicator_mapping)
         wide = provider.load_hourly_indicators(from_date, to_date)
-    dataset = wide_to_canonical(wide)
+    dataset = wide_to_canonical(wide, data_kinds=data_kinds)
     preview = {
         "source": "postgresql",
         "variables": sorted(str(column) for column in wide.columns),
+        "indicator_mapping": {key: int(value) for key, value in sorted(indicator_mapping.items())},
         "rows": int(len(dataset.rows)),
         "start": wide.index.min().isoformat() if not wide.empty else None,
         "end": wide.index.max().isoformat() if not wide.empty else None,
@@ -126,9 +124,21 @@ def load_database_dataset(database_url: str, from_date: str, to_date: str) -> tu
     return dataset, preview
 
 
-def wide_to_canonical(wide: pd.DataFrame) -> CanonicalDataset:
+def build_database_indicator_mapping(audit_rows: list[dict[str, object]]) -> dict[str, int]:
+    mapping = {}
+    for row in audit_rows:
+        if row.get("source") != "esios" or row.get("mapping_status") != "MAPPED":
+            continue
+        indicator_id = row.get("indicator_id")
+        if not indicator_id:
+            continue
+        mapping[str(row["variable"])] = int(indicator_id)
+    return mapping
+
+
+def wide_to_canonical(wide: pd.DataFrame, *, data_kinds: dict[str, str] | None = None) -> CanonicalDataset:
+    data_kinds = data_kinds or {}
     rows = []
-    forecast_variables = {"demand_forecast", "wind_forecast", "solar_forecast"}
     for timestamp, values in wide.sort_index().iterrows():
         timestamp = pd.Timestamp(timestamp)
         if timestamp.tzinfo is None:
@@ -138,7 +148,7 @@ def wide_to_canonical(wide: pd.DataFrame) -> CanonicalDataset:
         for variable, value in values.items():
             if pd.isna(value):
                 continue
-            data_type = "forecast" if variable in forecast_variables else "observed"
+            data_type = infer_database_data_type(str(variable), data_kinds.get(str(variable)))
             rows.append(
                 {
                     "timestamp": timestamp,
@@ -153,6 +163,16 @@ def wide_to_canonical(wide: pd.DataFrame) -> CanonicalDataset:
                 }
             )
     return CanonicalDataset(pd.DataFrame(rows, columns=CANONICAL_COLUMNS))
+
+
+def infer_database_data_type(variable: str, data_kind: str | None) -> str:
+    if data_kind in {"FORECAST", "SCHEDULED", "PROXY"}:
+        return "forecast"
+    if data_kind == "OBSERVED":
+        return "observed"
+    if variable.endswith("_forecast") or variable.endswith("_expected"):
+        return "forecast"
+    return "observed"
 
 
 def default_database_available_at(timestamp: pd.Timestamp, data_type: str) -> pd.Timestamp:

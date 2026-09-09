@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from energy_forecast.backtesting.io import append_predictions
-from energy_forecast.backtesting.run import wide_to_canonical
+from energy_forecast.backtesting.run import build_database_indicator_mapping, wide_to_canonical
 from energy_forecast.data.aliases import load_aliases, recognize_columns
 from energy_forecast.data.contracts import MADRID_TZ
 from energy_forecast.data.excel_adapter import ExcelAdapter, parse_date_hour
@@ -174,3 +174,28 @@ def test_database_wide_frame_converts_to_canonical_availability():
     assert rows.loc["omie_price", "available_at"] == index[0]
     assert rows.loc["demand_forecast", "data_type"] == "forecast"
     assert rows.loc["demand_forecast", "available_at"] == pd.Timestamp("2026-01-01 13:00", tz=MADRID_TZ)
+
+
+def test_database_indicator_mapping_uses_audit_resolved_ids():
+    audit_rows = [
+        {"variable": "omie_price", "source": "omie", "mapping_status": "MAPPED", "indicator_id": None},
+        {"variable": "hydro_generation", "source": "esios", "mapping_status": "MAPPED", "indicator_id": 2080},
+        {"variable": "nuclear_generation", "source": "esios", "mapping_status": "MAPPED", "indicator_id": 2039},
+        {"variable": "unknown_esios_1", "source": "esios", "mapping_status": "UNKNOWN_MAPPING", "indicator_id": 1},
+    ]
+
+    assert build_database_indicator_mapping(audit_rows) == {
+        "hydro_generation": 2080,
+        "nuclear_generation": 2039,
+    }
+
+
+def test_database_wide_frame_marks_scheduled_values_as_forecast():
+    index = pd.date_range("2026-01-02", periods=1, freq="h", tz=MADRID_TZ)
+    wide = pd.DataFrame({"france_net_import": [1200.0]}, index=index)
+
+    dataset = wide_to_canonical(wide, data_kinds={"france_net_import": "SCHEDULED"})
+
+    row = dataset.rows.iloc[0]
+    assert row["data_type"] == "forecast"
+    assert row["available_at"] == pd.Timestamp("2026-01-01 13:00", tz=MADRID_TZ)
