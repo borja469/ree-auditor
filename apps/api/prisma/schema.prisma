@@ -776,6 +776,74 @@ model PricingMeffPrice {
   @@map("pricing_meff_prices")
 }
 
+model GasMibgasPrice {
+  id                     String   @id @default(uuid()) @db.Uuid
+  tradingDay             DateTime @map("trading_day") @db.Date
+  product                String   @db.VarChar(120)
+  placeOfDelivery        String   @map("place_of_delivery") @db.VarChar(80)
+  area                   String   @db.VarChar(40)
+  firstDayDelivery       DateTime @map("first_day_delivery") @db.Date
+  lastDayDelivery        DateTime @map("last_day_delivery") @db.Date
+  priceEurMwh            Decimal? @map("price_eur_mwh") @db.Decimal(20, 8)
+  sourceYear             Int      @map("source_year")
+  sourceFilename         String   @map("source_filename") @db.VarChar(180)
+  sourceEmissionDatetime DateTime? @map("source_emission_datetime")
+  deliveryPeriodLabel    String?  @map("delivery_period_label") @db.VarChar(120)
+  rawPayloadJson         Json     @map("raw_payload_json")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@unique([tradingDay, product, placeOfDelivery, area, firstDayDelivery, lastDayDelivery], map: "ux_gas_mibgas_prices_natural_key")
+  @@index([tradingDay])
+  @@index([product])
+  @@index([placeOfDelivery])
+  @@index([area])
+  @@index([firstDayDelivery])
+  @@index([lastDayDelivery])
+  @@index([sourceYear])
+  @@map("gas_mibgas_prices")
+}
+
+model GasMibgasSyncRun {
+  id                     String   @id @default(uuid()) @db.Uuid
+  year                   Int
+  runType                String   @map("run_type") @db.VarChar(20)
+  status                 String   @db.VarChar(20)
+  startedAt              DateTime @map("started_at")
+  finishedAt             DateTime? @map("finished_at")
+  url                    String?  @db.VarChar(700)
+  sourceFilename         String?  @map("source_filename") @db.VarChar(180)
+  sourceEmissionDatetime DateTime? @map("source_emission_datetime")
+  rowsRead               Int      @default(0) @map("rows_read")
+  insertedRows           Int      @default(0) @map("inserted_rows")
+  updatedRows            Int      @default(0) @map("updated_rows")
+  unchangedRows          Int      @default(0) @map("unchanged_rows")
+  nullPriceRows          Int      @default(0) @map("null_price_rows")
+  errorRows              Int      @default(0) @map("error_rows")
+  errorMessage           String?  @map("error_message") @db.Text
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@index([year])
+  @@index([runType])
+  @@index([status])
+  @@index([startedAt])
+  @@map("gas_mibgas_sync_runs")
+}
+
+model GasMibgasAutomationConfig {
+  id              Int      @id @default(1)
+  active          Boolean  @default(false)
+  scheduleTime    String   @default("22:30") @map("schedule_time") @db.VarChar(5)
+  syncCurrentYear Boolean  @default(true) @map("sync_current_year")
+  lastRunKey      String?  @map("last_run_key") @db.VarChar(30)
+  lastRunAt       DateTime? @map("last_run_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@map("gas_mibgas_automation_config")
+}
+
 model PricingHedgeOperation {
   id                String   @id @default(uuid()) @db.Uuid
   contractDate      DateTime @map("contract_date") @db.Date

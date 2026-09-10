@@ -3,6 +3,7 @@ import { AnnualReportModule } from "./annual-report/annual-report.module";
 import { AuthMiddleware } from "./auth/auth.middleware";
 import { AuthModule } from "./auth/auth.module";
 import { EsiosModule } from "./esios/esios.module";
+import { GasMibgasModule } from "./gas-mibgas/gas-mibgas.module";
 import { HealthModule } from "./health/health.module";
 import { ImportsModule } from "./imports/imports.module";
 import { MirModule } from "./mir/mir.module";
@@ -35,6 +36,7 @@ import { ReeSeieModule } from "./ree-seie/ree-seie.module";
     OmieAnalisisModule,
     OmieGuaranteesModule,
     OmieDescargasModule,
+    GasMibgasModule,
     MirModule,
     PricingBaseModule,
     PricingMeffModule,

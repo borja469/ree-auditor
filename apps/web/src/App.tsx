@@ -44,6 +44,7 @@ import {
   getLatestLiquidationAnalysisVersionForMonth,
   getTodayInputValue,
   isEsiosSection,
+  isGasSection,
   isInformesSection,
   isOmieSection,
   isPricingSection,
@@ -66,6 +67,7 @@ import { PricingBaseModule } from "./modules/pricing/PricingBaseModule";
 import { PricingHedgesModule } from "./modules/pricing/PricingHedgesModule";
 import { MirPortfolioModule } from "./modules/pricing/MirPortfolioModule";
 import { PricingMeffModule } from "./modules/pricing/PricingMeffModule";
+import { GasMibgasModule } from "./modules/gas/GasMibgasModule";
 import { MedperFilterBand, MedperViewPanel } from "./modules/medper/MedperModule";
 import { HistoryView } from "./modules/import-history/ImportHistoryModule";
 import { isLikelyMedperFileName, loadAllMedperRows, loadMedperRecordPage, sanitizeMedperFiltersForView } from "./modules/medper/MedperHelpers";
@@ -365,6 +367,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     omie: false,
     esios: false,
     pricing: true,
+    gas: false,
     informes: false
   });
   const [openSidebarItems, setOpenSidebarItems] = useState<Record<string, boolean>>({
@@ -1693,6 +1696,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                     ? "OMIE Transacciones"
                   : section === "omieDescargas"
                     ? "OMIE Control de descargas"
+                    : section === "gasMibgas"
+                      ? "GAS MIBGAS"
                     : section === "annualReport"
                       ? "Informe Anual"
                     : section === "pricingBase"
@@ -1780,6 +1785,10 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 
     if (isEsiosSection(section)) {
       setEsiosRefreshKey((current) => current + 1);
+      return;
+    }
+
+    if (isGasSection(section)) {
       return;
     }
 
@@ -2158,6 +2167,20 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       ]
     },
     {
+      key: "gas",
+      title: "GAS",
+      active: isGasSection(section),
+      items: [
+        {
+          key: "gas-mibgas-menu",
+          label: "MIBGAS",
+          description: "precios diarios de gas",
+          active: section === "gasMibgas",
+          onSelect: () => changeSection("gasMibgas")
+        }
+      ]
+    },
+    {
       key: "informes",
       title: "Informes",
       active: isInformesSection(section),
@@ -2439,6 +2462,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           {section === "pricingMeff" && <PricingMeffModule />}
           {section === "pricingHedges" && <PricingHedgesModule />}
           {section === "pricingMir" && <MirPortfolioModule />}
+          {section === "gasMibgas" && <GasMibgasModule />}
 
           {section === "reeDownloads" && (
             <ReeDownloadCenterModule

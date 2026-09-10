@@ -4121,6 +4121,266 @@ select:disabled {
   font-weight: 800;
 }
 
+.gas-mibgas-header {
+  display: grid;
+  gap: 12px;
+}
+
+.gas-mibgas-header-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.gas-mibgas-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.gas-mibgas-status-line {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(130px, 1fr));
+  gap: 8px;
+}
+
+.gas-mibgas-status-item {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 9px 10px;
+  background: #f7fbfc;
+  border: 1px solid #d7e6eb;
+  border-radius: 8px;
+}
+
+.gas-mibgas-status-item span {
+  overflow: hidden;
+  color: #607482;
+  font-size: 0.66rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.gas-mibgas-status-item strong {
+  overflow: hidden;
+  color: #17313f;
+  font-size: 0.82rem;
+  font-weight: 950;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gas-mibgas-status-item.success strong,
+.gas-mibgas-run-status.success {
+  color: #067647;
+}
+
+.gas-mibgas-status-item.error strong,
+.gas-mibgas-run-status.error {
+  color: #b42318;
+}
+
+.gas-mibgas-status-item.info strong,
+.gas-mibgas-run-status.info {
+  color: #1d4ed8;
+}
+
+.gas-mibgas-toolbar {
+  grid-template-columns: repeat(7, minmax(128px, 1fr)) auto;
+}
+
+.gas-mibgas-chart-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.gas-mibgas-chart-grid > .panel {
+  min-width: 0;
+}
+
+.gas-mibgas-forward-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  align-items: start;
+  gap: 12px;
+}
+
+.gas-mibgas-forward-selectors {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.8fr) minmax(140px, 1.2fr);
+  gap: 8px;
+}
+
+.gas-mibgas-forward-selectors select {
+  width: 100%;
+}
+
+.gas-mibgas-chart {
+  min-height: 360px;
+  margin-top: 12px;
+}
+
+.gas-mibgas-table {
+  min-width: 1180px;
+}
+
+.gas-mibgas-runs-table {
+  min-width: 1260px;
+}
+
+.gas-mibgas-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  color: #496673;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.gas-mibgas-pagination span,
+.gas-mibgas-pagination small {
+  font-variant-numeric: tabular-nums;
+}
+
+.gas-mibgas-pagination label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gas-mibgas-pagination select {
+  min-height: 34px;
+  padding: 0 8px;
+  color: #17212b;
+  background: #ffffff;
+  border: 1px solid #cbd8df;
+  border-radius: 7px;
+}
+
+.gas-mibgas-sort-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-weight: inherit;
+  text-transform: inherit;
+}
+
+.gas-mibgas-sort-button span {
+  color: #7a8d98;
+  font-size: 0.62rem;
+}
+
+.gas-mibgas-run-status {
+  font-weight: 950;
+}
+
+.gas-mibgas-history-modal {
+  width: min(760px, 100%);
+}
+
+.gas-mibgas-history-form {
+  grid-template-columns: repeat(2, minmax(120px, 1fr)) auto;
+  margin: 0;
+}
+
+.gas-mibgas-history-result {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.gas-mibgas-history-year {
+  display: grid;
+  grid-template-columns: 70px 90px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 9px 10px;
+  background: #f8fafc;
+  border: 1px solid #d8e2e8;
+  border-radius: 8px;
+  color: #263d48;
+  font-size: 0.8rem;
+}
+
+.gas-mibgas-history-year strong,
+.gas-mibgas-history-year span {
+  font-weight: 950;
+}
+
+.gas-mibgas-history-year small {
+  min-width: 0;
+  overflow: hidden;
+  color: #607482;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gas-mibgas-history-year.success span {
+  color: #067647;
+}
+
+.gas-mibgas-history-year.error span {
+  color: #b42318;
+}
+
+@media (max-width: 1366px) {
+  .gas-mibgas-chart-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .gas-mibgas-status-line {
+    grid-template-columns: repeat(3, minmax(130px, 1fr));
+  }
+
+  .gas-mibgas-toolbar {
+    grid-template-columns: repeat(4, minmax(128px, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .gas-mibgas-header-main {
+    display: grid;
+  }
+
+  .gas-mibgas-actions,
+  .gas-mibgas-actions button {
+    width: 100%;
+  }
+
+  .gas-mibgas-status-line,
+  .gas-mibgas-toolbar,
+  .gas-mibgas-forward-head,
+  .gas-mibgas-forward-selectors,
+  .gas-mibgas-history-form {
+    grid-template-columns: 1fr;
+  }
+
+  .gas-mibgas-history-year {
+    grid-template-columns: 58px minmax(70px, auto);
+  }
+
+  .gas-mibgas-history-year small {
+    grid-column: 1 / -1;
+  }
+}
+
 .pricing-meff-history {
   min-width: 0;
   padding: 2px 0 0;

@@ -1128,6 +1128,123 @@ export type PricingMeffHistoryResponse = {
   rows: PricingMeffHistoryPoint[];
 };
 
+export type GasMibgasPriceRow = {
+  id: string;
+  tradingDay: string;
+  product: string;
+  placeOfDelivery: string;
+  area: string;
+  firstDayDelivery: string;
+  lastDayDelivery: string;
+  deliveryPeriodLabel: string | null;
+  priceEurMwh: number | null;
+  sourceYear: number;
+  sourceFilename: string;
+  sourceEmissionDatetime: string | null;
+  updatedAt: string;
+};
+
+export type GasMibgasFilters = {
+  tradingDayFrom?: string;
+  tradingDayTo?: string;
+  deliveryFrom?: string;
+  deliveryTo?: string;
+  product?: string[];
+  placeOfDelivery?: string[];
+  area?: string[];
+  skip?: number;
+  take?: number;
+};
+
+export type GasMibgasPricesResponse = {
+  total: number;
+  rows: GasMibgasPriceRow[];
+  filterOptions: {
+    products: string[];
+    placesOfDelivery: string[];
+    areas: string[];
+  };
+};
+
+export type GasMibgasHistoryFilters = {
+  product: string;
+  placeOfDelivery?: string;
+  area?: string;
+  firstDayDelivery?: string;
+  lastDayDelivery?: string;
+};
+
+export type GasMibgasHistoryResponse = {
+  product: string;
+  rows: GasMibgasPriceRow[];
+};
+
+export type GasMibgasProduct = {
+  product: string;
+  placeOfDelivery: string;
+  area: string;
+  firstDayDelivery: string;
+  lastDayDelivery: string;
+  deliveryPeriodLabel: string | null;
+};
+
+export type GasMibgasSyncRun = {
+  id: string;
+  year: number;
+  runType: "MANUAL" | "AUTO" | "HISTORICAL";
+  status: "STARTED" | "SUCCESS" | "PARTIAL" | "ERROR";
+  startedAt: string;
+  finishedAt: string | null;
+  url: string | null;
+  sourceFilename: string | null;
+  sourceEmissionDatetime: string | null;
+  rowsRead: number;
+  insertedRows: number;
+  updatedRows: number;
+  unchangedRows: number;
+  nullPriceRows: number;
+  errorRows: number;
+  errorMessage: string | null;
+};
+
+export type GasMibgasStatus = {
+  latestRun: GasMibgasSyncRun | null;
+  latestSuccess: GasMibgasSyncRun | null;
+  totalRows: number;
+  latestTradingDay: string | null;
+  nullPrices: number;
+};
+
+export type GasMibgasSyncResponse = {
+  runId: string;
+  year: number;
+  runType: "MANUAL" | "AUTO" | "HISTORICAL";
+  status: "STARTED" | "SUCCESS" | "PARTIAL" | "ERROR";
+  url: string | null;
+  sourceFilename: string | null;
+  sourceEmissionDatetime: string | null;
+  rowsRead: number;
+  inserted: number;
+  updated: number;
+  unchanged: number;
+  nullPrices: number;
+  errors: Array<{ row: number; message: string }>;
+  errorMessage: string | null;
+};
+
+export type GasMibgasSyncHistoryResponse = {
+  fromYear: number;
+  toYear: number;
+  success: number;
+  errors: number;
+  results: GasMibgasSyncResponse[];
+};
+
+export type GasMibgasSyncRunsResponse = {
+  total: number;
+  rows: GasMibgasSyncRun[];
+};
+
 export type PricingHedgeOperationType = "COMPRA" | "VENTA";
 
 export type PricingHedgeProduct = {
@@ -3261,6 +3378,34 @@ export async function uploadPricingMeffFile(file: File, onProgress?: (progress: 
   return sendMultipart<PricingMeffImportResponse>(`${API_URL}/pricing/meff/import`, formData, onProgress);
 }
 
+export async function getGasMibgasPrices(filters: GasMibgasFilters = {}): Promise<GasMibgasPricesResponse> {
+  return getJson(`/gas/mibgas/prices${toQuery(filters)}`);
+}
+
+export async function getGasMibgasHistory(filters: GasMibgasHistoryFilters): Promise<GasMibgasHistoryResponse> {
+  return getJson(`/gas/mibgas/history${toQuery(filters)}`);
+}
+
+export async function getGasMibgasProducts(): Promise<GasMibgasProduct[]> {
+  return getJson(`/gas/mibgas/products`);
+}
+
+export async function getGasMibgasStatus(): Promise<GasMibgasStatus> {
+  return getJson(`/gas/mibgas/status`);
+}
+
+export async function getGasMibgasSyncRuns(filters: { skip?: number; take?: number } = {}): Promise<GasMibgasSyncRunsResponse> {
+  return getJson(`/gas/mibgas/sync-runs${toQuery(filters)}`);
+}
+
+export async function syncGasMibgas(year?: number): Promise<GasMibgasSyncResponse> {
+  return sendJsonWithoutGlobalLoading(`/gas/mibgas/sync`, "POST", REQUEST_TIMEOUT_MS * 10, year ? { year } : {});
+}
+
+export async function syncGasMibgasHistory(fromYear: number, toYear: number): Promise<GasMibgasSyncHistoryResponse> {
+  return sendJsonWithoutGlobalLoading(`/gas/mibgas/sync-history`, "POST", REQUEST_TIMEOUT_MS * 30, { fromYear, toYear });
+}
+
 export async function getPricingHedges(): Promise<PricingHedgesResponse> {
   return getJson(`/pricing/hedges`);
 }
@@ -3442,6 +3587,36 @@ async function sendJson<T>(path: string, method: "POST" | "PUT" | "DELETE", labe
       window.clearTimeout(timeout);
     }
   }, { label });
+}
+
+async function sendJsonWithoutGlobalLoading<T>(path: string, method: "POST" | "PUT" | "DELETE", timeoutMs = REQUEST_TIMEOUT_MS, body?: unknown): Promise<T> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(`${API_URL}${path}`, {
+      method,
+      signal: controller.signal,
+      headers: {
+        ...authHeaders(),
+        "X-User": getAuditUser(),
+        ...(body === undefined ? {} : { "Content-Type": "application/json" })
+      },
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(await readError(response, "Error procesando la accion."));
+    }
+
+    return response.json();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("Tiempo de espera agotado procesando la accion.");
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 function sendMultipart<TResponse = ImportResponse>(
