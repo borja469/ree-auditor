@@ -7,6 +7,7 @@ from energy_forecast.backtesting.io import append_predictions
 from energy_forecast.backtesting.run import build_database_indicator_mapping, wide_to_canonical
 from energy_forecast.data.aliases import load_aliases, recognize_columns
 from energy_forecast.data.contracts import MADRID_TZ
+from energy_forecast.data.esios_database_provider import SystemDatabaseProvider
 from energy_forecast.data.excel_adapter import ExcelAdapter, parse_date_hour
 from energy_forecast.data.validation import DataValidationError, validate_availability
 from energy_forecast.features.electricity_features import build_electricity_features
@@ -262,3 +263,20 @@ def test_database_wide_frame_marks_mibgas_as_forecast_available_previous_day_13(
     assert rows.loc["mibgas", "data_type"] == "forecast"
     assert rows.loc["mibgas", "available_at"] == pd.Timestamp("2026-01-01 13:00", tz=MADRID_TZ)
     assert rows.loc["gas", "data_type"] == "forecast"
+
+
+def test_database_provider_keeps_mibgas_disabled_by_default(monkeypatch):
+    called = False
+
+    def fail_if_called(*_args):
+        nonlocal called
+        called = True
+        return pd.DataFrame()
+
+    provider = SystemDatabaseProvider(connection=object(), indicator_mapping={}, include_omie=False)
+    monkeypatch.setattr(provider, "_load_esios", lambda *_args: pd.DataFrame())
+    monkeypatch.setattr(provider, "_load_mibgas_d1", fail_if_called)
+
+    provider.load_hourly_indicators("2026-01-01", "2026-01-02")
+
+    assert called is False

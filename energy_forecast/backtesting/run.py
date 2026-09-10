@@ -34,6 +34,7 @@ def main() -> int:
     parser.add_argument("--hourly-bias-alpha", type=float, default=0.5)
     parser.add_argument("--calibration-fraction", type=float, default=0.4)
     parser.add_argument("--allow-incomplete-data", action="store_true")
+    parser.add_argument("--include-mibgas", action="store_true", help="Include MIBGAS GDAES_D+1 gas prices as experimental forecast features.")
     args = parser.parse_args()
 
     dataset, preview = load_backtest_dataset(args)
@@ -100,10 +101,10 @@ def load_backtest_dataset(args) -> tuple[CanonicalDataset, dict[str, object]]:
         return adapter.load_canonical(args.input), preview
     if not args.database_url:
         raise SystemExit("DATABASE_URL_REQUIRED: pass --input for Excel or DATABASE_URL/--database-url for PostgreSQL.")
-    return load_database_dataset(args.database_url, args.from_date, args.to_date)
+    return load_database_dataset(args.database_url, args.from_date, args.to_date, include_mibgas=args.include_mibgas)
 
 
-def load_database_dataset(database_url: str, from_date: str, to_date: str) -> tuple[CanonicalDataset, dict[str, object]]:
+def load_database_dataset(database_url: str, from_date: str, to_date: str, *, include_mibgas: bool = False) -> tuple[CanonicalDataset, dict[str, object]]:
     try:
         import psycopg
     except Exception as exc:
@@ -113,7 +114,7 @@ def load_database_dataset(database_url: str, from_date: str, to_date: str) -> tu
     indicator_mapping = build_database_indicator_mapping(audit_rows)
     data_kinds = {str(row["variable"]): str(row.get("data_kind") or "") for row in audit_rows}
     with psycopg.connect(database_url) as connection:
-        provider = SystemDatabaseProvider(connection=connection, indicator_mapping=indicator_mapping)
+        provider = SystemDatabaseProvider(connection=connection, indicator_mapping=indicator_mapping, include_mibgas=include_mibgas)
         wide = provider.load_hourly_indicators(from_date, to_date)
     dataset = wide_to_canonical(wide, data_kinds=data_kinds)
     preview = {
@@ -124,6 +125,7 @@ def load_database_dataset(database_url: str, from_date: str, to_date: str) -> tu
         "start": wide.index.min().isoformat() if not wide.empty else None,
         "end": wide.index.max().isoformat() if not wide.empty else None,
         "timezone": MADRID_TZ,
+        "include_mibgas": include_mibgas,
     }
     return dataset, preview
 

@@ -19,6 +19,7 @@ class SystemDatabaseProvider:
     connection: object
     indicator_mapping: dict[str, int]
     include_omie: bool = True
+    include_mibgas: bool = False
 
     def load_hourly_indicators(self, start, end, indicators=None) -> pd.DataFrame:
         selected = indicators or self.indicator_mapping
@@ -26,7 +27,8 @@ class SystemDatabaseProvider:
         frames = [esios]
         if self.include_omie:
             frames.append(self._load_omie(start, end))
-        frames.append(self._load_mibgas_d1(start, end))
+        if self.include_mibgas:
+            frames.append(self._load_mibgas_d1(start, end))
         frame = pd.concat(frames, axis=1).sort_index()
         frame = frame.loc[:, ~frame.columns.duplicated(keep="last")]
         return frame
