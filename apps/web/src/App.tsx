@@ -68,6 +68,10 @@ import { PricingHedgesModule } from "./modules/pricing/PricingHedgesModule";
 import { MirPortfolioModule } from "./modules/pricing/MirPortfolioModule";
 import { PricingMeffModule } from "./modules/pricing/PricingMeffModule";
 import { GasMibgasModule } from "./modules/gas/GasMibgasModule";
+import { MibgasDeliveryTransactionsModule } from "./modules/gas/MibgasDeliveryTransactionsModule";
+import { MibgasLiquidationCheckModule } from "./modules/gas/MibgasLiquidationCheckModule";
+import { MibgasNetPositionsModule } from "./modules/gas/MibgasNetPositionsModule";
+import { MibgasPrivateModule } from "./modules/gas/MibgasPrivateModule";
 import { MedperFilterBand, MedperViewPanel } from "./modules/medper/MedperModule";
 import { HistoryView } from "./modules/import-history/ImportHistoryModule";
 import { isLikelyMedperFileName, loadAllMedperRows, loadMedperRecordPage, sanitizeMedperFiltersForView } from "./modules/medper/MedperHelpers";
@@ -140,6 +144,7 @@ import {
   type OmieComprobacionLiquidacionesResponse,
   type OmieAutomationConfig,
   type OmieAutomationRunResponse,
+  type MibgasPrivateLiquidationCheckResponse,
   type OmiePrecioPeriodo,
   type OmiePreciosResponse,
   type OmieProgramaEvolucionPeriodo,
@@ -184,6 +189,7 @@ import {
   getMedperSummary,
   getOmieAnalisisMensual,
   getOmieComprobacionLiquidaciones,
+  getMibgasPrivateLiquidationCheck,
   getOmieDescargaDetalle,
   getOmieDescargasControl,
   getOmieAutomationConfig,
@@ -346,6 +352,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   const [omieAnalisisMonth, setOmieAnalisisMonth] = useState(() => getTodayInputValue().slice(5, 7));
   const [omieAnalisisMensual, setOmieAnalisisMensual] = useState<OmieAnalisisMensualResponse>();
   const [omieComprobacionLiquidaciones, setOmieComprobacionLiquidaciones] = useState<OmieComprobacionLiquidacionesResponse>();
+  const [mibgasLiquidationCheck, setMibgasLiquidationCheck] = useState<MibgasPrivateLiquidationCheckResponse>();
   const [omieDescargas, setOmieDescargas] = useState<OmieDownloadControlRow[]>([]);
   const [omieAutomationConfig, setOmieAutomationConfig] = useState<OmieAutomationConfig>();
   const [latestOmieAutomationRun, setLatestOmieAutomationRun] = useState<OmieAutomationRunResponse>();
@@ -733,6 +740,25 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       setOmieComprobacionLiquidaciones(await getOmieComprobacionLiquidaciones(year, month));
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando comprobación de liquidaciones OMIE." });
+    } finally {
+      stopLoading();
+    }
+  }
+
+  async function refreshMibgasLiquidationCheck(year = omieAnalisisYear, month = omieAnalisisMonth) {
+    const stopLoading = beginDataRefresh();
+    if (!stopLoading) {
+      return;
+    }
+
+    try {
+      if (!year || !month) {
+        setMessage({ tone: "error", text: "Selecciona mes y anio para la comprobacion MIBGAS." });
+        return;
+      }
+      setMibgasLiquidationCheck(await getMibgasPrivateLiquidationCheck(year, month));
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando comprobacion de liquidaciones MIBGAS." });
     } finally {
       stopLoading();
     }
@@ -1363,6 +1389,11 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       return;
     }
 
+    if (section === "gasMibgasLiquidationCheck") {
+      void refreshMibgasLiquidationCheck();
+      return;
+    }
+
     if (section === "omieGarantias") {
       return;
     }
@@ -1455,6 +1486,10 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     }
     if (nextSection === "omieComprobacionLiquidaciones") {
       void refreshOmieComprobacionLiquidaciones();
+      return;
+    }
+    if (nextSection === "gasMibgasLiquidationCheck") {
+      void refreshMibgasLiquidationCheck();
       return;
     }
     if (nextSection === "omieTransacciones") {
@@ -1698,6 +1733,14 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                     ? "OMIE Control de descargas"
                     : section === "gasMibgas"
                       ? "GAS MIBGAS"
+                    : section === "gasMibgasMarket"
+                      ? "MIBGAS Market Descargas"
+                    : section === "gasMibgasDeliveryTransactions"
+                      ? "MIBGAS Transacciones"
+                    : section === "gasMibgasNetPositions"
+                      ? "MIBGAS Posicion neta"
+                    : section === "gasMibgasLiquidationCheck"
+                      ? "MIBGAS Comprobacion Liquidaciones"
                     : section === "annualReport"
                       ? "Informe Anual"
                     : section === "pricingBase"
@@ -1770,6 +1813,11 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 
     if (section === "omieComprobacionLiquidaciones") {
       void refreshOmieComprobacionLiquidaciones();
+      return;
+    }
+
+    if (section === "gasMibgasLiquidationCheck") {
+      void refreshMibgasLiquidationCheck();
       return;
     }
 
@@ -2177,6 +2225,42 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           description: "precios diarios de gas",
           active: section === "gasMibgas",
           onSelect: () => changeSection("gasMibgas")
+        },
+        {
+          key: "gas-mibgas-market-menu",
+          label: "MIBGAS Market",
+          description: "conexion privada y posiciones",
+          active: section === "gasMibgasMarket" || section === "gasMibgasDeliveryTransactions" || section === "gasMibgasNetPositions" || section === "gasMibgasLiquidationCheck",
+          children: [
+            {
+              key: "gas-mibgas-market-downloads-menu",
+              label: "Descargas",
+              description: "3140 y 3144",
+              active: section === "gasMibgasMarket",
+              onSelect: () => changeSection("gasMibgasMarket")
+            },
+            {
+              key: "gas-mibgas-delivery-transactions-menu",
+              label: "Transacciones",
+              description: "3140 por periodo de entrega",
+              active: section === "gasMibgasDeliveryTransactions",
+              onSelect: () => changeSection("gasMibgasDeliveryTransactions")
+            },
+            {
+              key: "gas-mibgas-net-positions-menu",
+              label: "Posicion neta",
+              description: "3144 por periodo de entrega",
+              active: section === "gasMibgasNetPositions",
+              onSelect: () => changeSection("gasMibgasNetPositions")
+            },
+            {
+              key: "gas-mibgas-liquidation-check-menu",
+              label: "Comprobacion liquidaciones",
+              description: "cuadre diario de gas",
+              active: section === "gasMibgasLiquidationCheck",
+              onSelect: () => changeSection("gasMibgasLiquidationCheck")
+            }
+          ]
         }
       ]
     },
@@ -2463,6 +2547,27 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           {section === "pricingHedges" && <PricingHedgesModule />}
           {section === "pricingMir" && <MirPortfolioModule />}
           {section === "gasMibgas" && <GasMibgasModule />}
+          {section === "gasMibgasMarket" && <MibgasPrivateModule />}
+          {section === "gasMibgasDeliveryTransactions" && <MibgasDeliveryTransactionsModule />}
+          {section === "gasMibgasNetPositions" && <MibgasNetPositionsModule />}
+          {section === "gasMibgasLiquidationCheck" && (
+            <MibgasLiquidationCheckModule
+              year={omieAnalisisYear}
+              month={omieAnalisisMonth}
+              comprobacion={mibgasLiquidationCheck}
+              loading={loading}
+              onYearChange={(value) => {
+                setOmieAnalisisYear(value);
+                void refreshMibgasLiquidationCheck(value, omieAnalisisMonth);
+              }}
+              onMonthChange={(value) => {
+                setOmieAnalisisMonth(value);
+                void refreshMibgasLiquidationCheck(omieAnalisisYear, value);
+              }}
+              onRefresh={() => refreshMibgasLiquidationCheck()}
+              onGoToDownloads={() => changeSection("gasMibgasMarket")}
+            />
+          )}
 
           {section === "reeDownloads" && (
             <ReeDownloadCenterModule

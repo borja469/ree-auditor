@@ -100,8 +100,20 @@ export function activeSidebarItemKeys(section: Section): string[] {
   if (isPricingSection(section)) {
     return [];
   }
-  if (isGasSection(section)) {
+  if (section === "gasMibgas") {
     return ["gas-mibgas-menu"];
+  }
+  if (section === "gasMibgasMarket") {
+    return ["gas-mibgas-market-menu", "gas-mibgas-market-downloads-menu"];
+  }
+  if (section === "gasMibgasDeliveryTransactions") {
+    return ["gas-mibgas-market-menu", "gas-mibgas-delivery-transactions-menu"];
+  }
+  if (section === "gasMibgasNetPositions") {
+    return ["gas-mibgas-market-menu", "gas-mibgas-net-positions-menu"];
+  }
+  if (section === "gasMibgasLiquidationCheck") {
+    return ["gas-mibgas-market-menu", "gas-mibgas-liquidation-check-menu"];
   }
   if (isInformesSection(section)) {
     return [];
@@ -136,7 +148,7 @@ export function isPricingSection(section: Section) {
 }
 
 export function isGasSection(section: Section) {
-  return section === "gasMibgas";
+  return section === "gasMibgas" || section === "gasMibgasMarket" || section === "gasMibgasDeliveryTransactions" || section === "gasMibgasNetPositions" || section === "gasMibgasLiquidationCheck";
 }
 
 export function isInformesSection(section: Section) {

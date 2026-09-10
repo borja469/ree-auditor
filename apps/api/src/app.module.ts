@@ -7,6 +7,7 @@ import { GasMibgasModule } from "./gas-mibgas/gas-mibgas.module";
 import { HealthModule } from "./health/health.module";
 import { ImportsModule } from "./imports/imports.module";
 import { MirModule } from "./mir/mir.module";
+import { MibgasPrivateModule } from "./mibgas-private/mibgas-private.module";
 import { OmieAnalisisModule } from "./omie-analisis/omie-analisis.module";
 import { OmieDescargasModule } from "./omie-descargas/omie-descargas.module";
 import { OmieGuaranteesModule } from "./omie-guarantees/omie-guarantees.module";
@@ -37,6 +38,7 @@ import { ReeSeieModule } from "./ree-seie/ree-seie.module";
     OmieGuaranteesModule,
     OmieDescargasModule,
     GasMibgasModule,
+    MibgasPrivateModule,
     MirModule,
     PricingBaseModule,
     PricingMeffModule,

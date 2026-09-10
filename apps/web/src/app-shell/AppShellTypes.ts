@@ -22,6 +22,10 @@ export type Section =
   | "pricingHedges"
   | "pricingMir"
   | "gasMibgas"
+  | "gasMibgasMarket"
+  | "gasMibgasDeliveryTransactions"
+  | "gasMibgasNetPositions"
+  | "gasMibgasLiquidationCheck"
   | "annualReport";
 
 export type ReganecuView = "history" | "summary" | "hourly" | "qh";

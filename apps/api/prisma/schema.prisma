@@ -58,6 +58,28 @@ enum OmieTipoPrecio {
   XBID
 }
 
+enum MibgasPrivateEnvironment {
+  PREPROD
+  PROD
+}
+
+enum MibgasPrivateDownloadStatus {
+  PENDIENTE
+  DESCARGANDO
+  PROCESADO
+  SIN_DATOS
+  ERROR
+}
+
+enum MibgasPrivateQueryKind {
+  DATOS_USUARIO
+  DIRECTORIO
+  CONFIGURACION
+  TRANSACCIONES
+  ANOTACIONES
+  POSICIONES_PERIODO
+}
+
 enum AnnualReportRetributionType {
   OS
   OM
@@ -842,6 +864,231 @@ model GasMibgasAutomationConfig {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   @@map("gas_mibgas_automation_config")
+}
+
+model MibgasPrivateConnectionConfig {
+  id                       Int                      @id @default(1)
+  environment              MibgasPrivateEnvironment @default(PREPROD)
+  endpoint                 String                   @db.VarChar(1000)
+  timeoutMs                Int                      @default(30000) @map("timeout_ms")
+  status                   String                   @default("SIN_COMPROBAR") @db.VarChar(40)
+  lastSuccessfulConnection DateTime?                @map("last_successful_connection")
+  agentCode                String?                  @map("agent_code") @db.VarChar(80)
+  agentDescription         String?                  @map("agent_description") @db.VarChar(255)
+  certificateCode          String?                  @map("certificate_code") @db.VarChar(160)
+  certificateSubject       String?                  @map("certificate_subject") @db.VarChar(1000)
+  lastError                String?                  @map("last_error") @db.Text
+  createdAt                DateTime                 @default(now()) @map("created_at")
+  updatedAt                DateTime                 @updatedAt @map("updated_at")
+
+  @@map("mibgas_private_connection_config")
+}
+
+model MibgasPrivateAutomationConfig {
+  id          Int      @id @default(1)
+  active      Boolean  @default(false)
+  daysBack    Int      @default(1) @map("days_back")
+  daysForward Int      @default(3) @map("days_forward")
+  session1    String?  @db.VarChar(5)
+  session2    String?  @db.VarChar(5)
+  session3    String?  @db.VarChar(5)
+  lastRunKey  String?  @map("last_run_key") @db.VarChar(30)
+  lastRunAt   DateTime? @map("last_run_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("mibgas_private_automation_config")
+}
+
+model MibgasQueryDirectoryEntry {
+  id            String                   @id @default(uuid()) @db.Uuid
+  environment   MibgasPrivateEnvironment
+  queryCode     String                   @map("query_code") @db.VarChar(20)
+  title         String?                  @db.VarChar(500)
+  section       String?                  @db.VarChar(255)
+  queryType     String?                  @map("query_type") @db.VarChar(40)
+  fetchedAt     DateTime                 @default(now()) @map("fetched_at")
+  rawPayloadJson Json                    @map("raw_payload_json")
+  createdAt     DateTime                 @default(now()) @map("created_at")
+  updatedAt     DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([environment, queryCode], map: "ux_mibgas_query_directory_environment_code")
+  @@index([environment])
+  @@index([queryType])
+  @@index([section])
+  @@map("mibgas_query_directory")
+}
+
+model MibgasQueryConfiguration {
+  id             String                   @id @default(uuid()) @db.Uuid
+  environment    MibgasPrivateEnvironment
+  queryCode      String                   @map("query_code") @db.VarChar(20)
+  title          String?                  @db.VarChar(500)
+  section        String?                  @db.VarChar(255)
+  queryType      String?                  @map("query_type") @db.VarChar(40)
+  parametersJson Json                     @map("parameters_json")
+  columnsJson    Json                     @map("columns_json")
+  fetchedAt      DateTime                 @default(now()) @map("fetched_at")
+  rawXml         String?                  @map("raw_xml") @db.Text
+  rawPayloadJson Json                     @map("raw_payload_json")
+  createdAt      DateTime                 @default(now()) @map("created_at")
+  updatedAt      DateTime                 @updatedAt @map("updated_at")
+
+  @@unique([environment, queryCode], map: "ux_mibgas_query_config_environment_code")
+  @@index([environment])
+  @@index([queryType])
+  @@index([section])
+  @@map("mibgas_query_configurations")
+}
+
+model MibgasPrivateDownload {
+  id              String                      @id @default(uuid()) @db.Uuid
+  environment     MibgasPrivateEnvironment
+  queryKind       MibgasPrivateQueryKind      @map("query_kind")
+  queryCode       String?                     @map("query_code") @db.VarChar(20)
+  queryTitle      String?                     @map("query_title") @db.VarChar(500)
+  sessionDate     DateTime?                   @map("session_date") @db.Date
+  parametersJson  Json                        @map("parameters_json")
+  status          MibgasPrivateDownloadStatus @default(PENDIENTE)
+  records         Int                         @default(0)
+  durationMs      Int?                        @map("duration_ms")
+  publishedAt     DateTime?                   @map("published_at")
+  executedBy      String                      @default("MANUAL") @map("executed_by") @db.VarChar(80)
+  contentHash     String?                     @map("content_hash") @db.VarChar(128)
+  fileName        String?                     @map("file_name") @db.VarChar(255)
+  errorMessage    String?                     @map("error_message") @db.Text
+  rawXml          String?                     @map("raw_xml") @db.Text
+  rawPayloadJson  Json?                       @map("raw_payload_json")
+  createdAt       DateTime                    @default(now()) @map("created_at")
+  updatedAt       DateTime                    @updatedAt @map("updated_at")
+  transactions    MibgasTransaction[]
+  annotations     MibgasAnnotation[]
+  netPositions    MibgasNetPosition[]
+
+  @@index([environment])
+  @@index([queryKind])
+  @@index([queryCode])
+  @@index([sessionDate])
+  @@index([status])
+  @@index([createdAt])
+  @@map("mibgas_private_downloads")
+}
+
+model MibgasTransaction {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  downloadId           String                 @map("download_id") @db.Uuid
+  download             MibgasPrivateDownload  @relation(fields: [downloadId], references: [id], onDelete: Cascade)
+  environment          MibgasPrivateEnvironment
+  tradingDay           DateTime               @map("trading_day") @db.Date
+  messageId            String?                @map("message_id") @db.VarChar(160)
+  messageVersion       String?                @map("message_version") @db.VarChar(40)
+  messageDatetime      DateTime?              @map("message_datetime")
+  senderId             String?                @map("sender_id") @db.VarChar(80)
+  receiverId           String?                @map("receiver_id") @db.VarChar(80)
+  contractId           String                 @map("contract_id") @db.VarChar(160)
+  messageScope         String?                @map("message_scope") @db.VarChar(20)
+  marketParticipantId  String?                @map("market_participant_id") @db.VarChar(80)
+  portfolioId          String?                @map("portfolio_id") @db.VarChar(160)
+  contractType         String?                @map("contract_type") @db.VarChar(20)
+  auctionNumber        String?                @map("auction_number") @db.VarChar(40)
+  orderId              String?                @map("order_id") @db.VarChar(80)
+  transactionId        String                 @map("transaction_id") @db.VarChar(120)
+  buySellIndicator     String?                @map("buy_sell_indicator") @db.VarChar(5)
+  price                Decimal?               @db.Decimal(20, 8)
+  quantity             Decimal?               @db.Decimal(24, 8)
+  transactionDatetime  DateTime?              @map("transaction_datetime")
+  rawPayloadJson       Json                   @map("raw_payload_json")
+  sourceXmlHash        String?                @map("source_xml_hash") @db.VarChar(128)
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+
+  @@unique([environment, transactionId], map: "ux_mibgas_transactions_environment_transaction")
+  @@index([downloadId])
+  @@index([tradingDay])
+  @@index([contractId])
+  @@index([portfolioId])
+  @@index([transactionDatetime])
+  @@map("mibgas_transactions")
+}
+
+model MibgasAnnotation {
+  id                   String                 @id @default(uuid()) @db.Uuid
+  downloadId           String                 @map("download_id") @db.Uuid
+  download             MibgasPrivateDownload  @relation(fields: [downloadId], references: [id], onDelete: Cascade)
+  environment          MibgasPrivateEnvironment
+  tradingDay           DateTime               @map("trading_day") @db.Date
+  messageId            String?                @map("message_id") @db.VarChar(160)
+  messageVersion       String?                @map("message_version") @db.VarChar(40)
+  messageDatetime      DateTime?              @map("message_datetime")
+  senderId             String?                @map("sender_id") @db.VarChar(80)
+  receiverId           String?                @map("receiver_id") @db.VarChar(80)
+  contractId           String                 @map("contract_id") @db.VarChar(160)
+  messageScope         String?                @map("message_scope") @db.VarChar(20)
+  marketParticipantId  String?                @map("market_participant_id") @db.VarChar(80)
+  portfolioId          String?                @map("portfolio_id") @db.VarChar(160)
+  registryAccountId    String?                @map("registry_account_id") @db.VarChar(160)
+  clearingAccountId    String?                @map("clearing_account_id") @db.VarChar(160)
+  contractType         String?                @map("contract_type") @db.VarChar(20)
+  auctionNumber        String?                @map("auction_number") @db.VarChar(40)
+  annotationId         String                 @map("annotation_id") @db.VarChar(120)
+  annotationType       String?                @map("annotation_type") @db.VarChar(20)
+  orderId              String?                @map("order_id") @db.VarChar(80)
+  transactionId        String?                @map("transaction_id") @db.VarChar(120)
+  firstGasDay          DateTime?              @map("first_gas_day") @db.Date
+  lastGasDay           DateTime?              @map("last_gas_day") @db.Date
+  buySellIndicator     String?                @map("buy_sell_indicator") @db.VarChar(5)
+  price                Decimal?               @db.Decimal(20, 8)
+  quantity             Decimal?               @db.Decimal(24, 8)
+  quantitySign         String?                @map("quantity_sign") @db.VarChar(5)
+  delivery             Decimal?               @db.Decimal(24, 8)
+  amount               Decimal?               @db.Decimal(24, 8)
+  amountSign           String?                @map("amount_sign") @db.VarChar(5)
+  taxAmount            Decimal?               @map("tax_amount") @db.Decimal(24, 8)
+  taxAmountSign        String?                @map("tax_amount_sign") @db.VarChar(5)
+  rawPayloadJson       Json                   @map("raw_payload_json")
+  sourceXmlHash        String?                @map("source_xml_hash") @db.VarChar(128)
+  createdAt            DateTime               @default(now()) @map("created_at")
+  updatedAt            DateTime               @updatedAt @map("updated_at")
+
+  @@unique([environment, annotationId], map: "ux_mibgas_annotations_environment_annotation")
+  @@index([downloadId])
+  @@index([tradingDay])
+  @@index([contractId])
+  @@index([portfolioId])
+  @@index([transactionId])
+  @@index([firstGasDay])
+  @@index([lastGasDay])
+  @@map("mibgas_annotations")
+}
+
+model MibgasNetPosition {
+  id              String                 @id @default(uuid()) @db.Uuid
+  downloadId      String                 @map("download_id") @db.Uuid
+  download        MibgasPrivateDownload  @relation(fields: [downloadId], references: [id], onDelete: Cascade)
+  environment     MibgasPrivateEnvironment
+  rowKey          String                 @map("row_key") @db.VarChar(500)
+  tradingDay      DateTime               @map("trading_day") @db.Date
+  installation    String?                @db.VarChar(40)
+  portfolioId     String?                @map("portfolio_id") @db.VarChar(160)
+  productId       String?                @map("product_id") @db.VarChar(160)
+  segmentId       String?                @map("segment_id") @db.VarChar(80)
+  saleQuantity    Decimal?               @map("sale_quantity") @db.Decimal(24, 8)
+  purchaseQuantity Decimal?              @map("purchase_quantity") @db.Decimal(24, 8)
+  netQuantity     Decimal?               @map("net_quantity") @db.Decimal(24, 8)
+  isTotal         Boolean                @default(false) @map("is_total")
+  rawPayloadJson  Json                   @map("raw_payload_json")
+  sourceXmlHash   String?                @map("source_xml_hash") @db.VarChar(128)
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+
+  @@unique([environment, rowKey], map: "ux_mibgas_net_positions_environment_row_key")
+  @@index([downloadId])
+  @@index([tradingDay])
+  @@index([installation])
+  @@index([portfolioId])
+  @@index([productId])
+  @@index([isTotal])
+  @@map("mibgas_net_positions")
 }
 
 model PricingHedgeOperation {

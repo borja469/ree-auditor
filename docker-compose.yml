@@ -38,12 +38,20 @@ services:
       OMIE_SIOM2_DNS_SERVERS: ${OMIE_SIOM2_DNS_SERVERS:-1.1.1.1,8.8.8.8}
       OMIE_SIOM2_TIMEOUT_MS: ${OMIE_SIOM2_TIMEOUT_MS:-30000}
       OMIE_CATALOGO_PATH: ${OMIE_CATALOGO_PATH:-/app/data/omie-catalogo.json}
+      MIBGAS_PRIVATE_ENVIRONMENT: ${MIBGAS_PRIVATE_ENVIRONMENT:-PREPROD}
+      MIBGAS_PRIVATE_ENDPOINT: ${MIBGAS_PRIVATE_ENDPOINT:-}
+      MIBGAS_PRIVATE_P12_PATH: /app/mibgas-private.p12
+      MIBGAS_PRIVATE_P12_BASE64: ${MIBGAS_PRIVATE_P12_BASE64:-}
+      MIBGAS_PRIVATE_P12_PASSPHRASE: ${MIBGAS_PRIVATE_P12_PASSPHRASE:-}
+      MIBGAS_PRIVATE_REJECT_UNAUTHORIZED: ${MIBGAS_PRIVATE_REJECT_UNAUTHORIZED:-true}
+      MIBGAS_PRIVATE_TIMEOUT_MS: ${MIBGAS_PRIVATE_TIMEOUT_MS:-30000}
       DATA_DIR: ${DATA_DIR:-/app/data}
       UPLOAD_TMP_DIR: ${UPLOAD_TMP_DIR:-/app/data/tmp/uploads}
     ports:
       - "3000:3000"
     volumes:
       - ${OMIE_SIOM2_P12_HOST_PATH:-./certs/omie-siom2.p12}:/app/omie-siom2.p12:ro
+      - ${MIBGAS_PRIVATE_P12_HOST_PATH:-./certs/mibgas-private.p12}:/app/mibgas-private.p12:ro
       - ./data:/app/data
     depends_on:
       postgres:

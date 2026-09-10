@@ -1245,6 +1245,244 @@ export type GasMibgasSyncRunsResponse = {
   rows: GasMibgasSyncRun[];
 };
 
+export type MibgasPrivateEnvironment = "PREPROD" | "PROD";
+export type MibgasPrivateDownloadStatus = "PENDIENTE" | "DESCARGANDO" | "PROCESADO" | "SIN_DATOS" | "ERROR";
+export type MibgasPrivateQueryKind = "DATOS_USUARIO" | "DIRECTORIO" | "CONFIGURACION" | "TRANSACCIONES" | "ANOTACIONES" | "POSICIONES_PERIODO";
+
+export type MibgasPrivateStatus = {
+  connection: {
+    environment: MibgasPrivateEnvironment;
+    endpoint: string;
+    timeoutMs: number;
+    certificateConfigured: boolean;
+    certificateSource: string | null;
+    rejectUnauthorized: boolean;
+    status: string;
+    lastSuccessfulConnection: string | null;
+    agentCode: string | null;
+    agentDescription: string | null;
+    certificateCode: string | null;
+    certificateSubject: string | null;
+    lastError: string | null;
+  };
+  latestDownload: MibgasPrivateDownloadRow | null;
+  latestSuccess: MibgasPrivateDownloadRow | null;
+  counts: {
+    directory: number;
+    configurations: number;
+    transactions: number;
+    annotations: number;
+    netPositions: number;
+  };
+};
+
+export type MibgasPrivateTestResponse = {
+  ok: boolean;
+  message: string;
+  environment: MibgasPrivateEnvironment;
+  endpoint: string;
+  durationMs: number;
+  checkedAt: string;
+  user: {
+    agentCode: string | null;
+    agentDescription: string | null;
+    agentProfile: string | null;
+    certificateCode: string | null;
+    registryProfile: string | null;
+    tradingProfile: string | null;
+    holderName: string | null;
+    holderSurnames: string | null;
+    holderEmail: string | null;
+    validFrom: string | null;
+    validTo: string | null;
+  };
+  certificate: {
+    subject: string;
+    issuer: string;
+    serialNumber: string;
+    notBefore: string;
+    notAfter: string;
+    selectedForTls?: boolean;
+  };
+};
+
+export type MibgasDirectoryEntry = {
+  queryCode: string;
+  title: string | null;
+  section: string | null;
+  queryType: string | null;
+  fetchedAt?: string;
+};
+
+export type MibgasQueryConfiguration = {
+  queryCode: string | null;
+  title: string | null;
+  section: string | null;
+  queryType: string | null;
+  parameters: unknown;
+  columns: unknown;
+  fetchedAt?: string;
+};
+
+export type MibgasPrivateDownloadRow = {
+  id: string;
+  environment: MibgasPrivateEnvironment;
+  queryKind: MibgasPrivateQueryKind;
+  queryCode: string | null;
+  queryTitle: string | null;
+  sessionDate: string | null;
+  parametersJson: unknown;
+  status: MibgasPrivateDownloadStatus;
+  records: number;
+  durationMs: number | null;
+  publishedAt: string | null;
+  executedBy: string;
+  contentHash: string | null;
+  fileName: string | null;
+  errorMessage: string | null;
+  rawXmlAvailable: boolean;
+  rawJsonAvailable: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MibgasPrivateDownloadDetail = MibgasPrivateDownloadRow & {
+  rawXml: string | null;
+  rawJson: unknown;
+};
+
+export type MibgasPrivateDownloadResponse = {
+  message: string;
+  download: MibgasPrivateDownloadRow;
+  records: number;
+};
+
+export type MibgasPrivateAutomationConfig = {
+  active: boolean;
+  daysBack: number;
+  daysForward: number;
+  sessions: [string, string, string];
+  lastRunKey: string | null;
+  lastRunAt: string | null;
+  lastRunAtUtc: string | null;
+};
+
+export type MibgasPrivateAutomationRunItem = {
+  fecha: string;
+  queryCode: "3140" | "3144";
+  queryKind: "TRANSACCIONES" | "POSICIONES_PERIODO";
+  consulta: string;
+  estado: "PROCESADO" | "SIN_DATOS" | "ERROR";
+  registros: number;
+  mensaje: string;
+  downloadId: string | null;
+};
+
+export type MibgasPrivateAutomationRunResponse = {
+  session: string;
+  startedAt: string;
+  finishedAt: string;
+  force: true;
+  daysBack: number;
+  daysForward: number;
+  dates: string[];
+  totalConsultas: number;
+  totalConsultasEjecutadas: number;
+  procesadas: number;
+  sinDatos: number;
+  errores: number;
+  omitidas: number;
+  tiempoTotalMs: number;
+  resultados: MibgasPrivateAutomationRunItem[];
+};
+
+export type MibgasTransactionRow = {
+  id: string;
+  tradingDay: string;
+  messageId: string | null;
+  messageVersion: string | null;
+  messageDatetime: string | null;
+  contractId: string;
+  marketParticipantId: string | null;
+  portfolioId: string | null;
+  contractType: string | null;
+  auctionNumber: string | null;
+  orderId: string | null;
+  transactionId: string;
+  buySellIndicator: string | null;
+  price: string | null;
+  quantity: string | null;
+  transactionDatetime: string | null;
+};
+
+export type MibgasAnnotationRow = {
+  id: string;
+  tradingDay: string;
+  messageId: string | null;
+  messageVersion: string | null;
+  messageDatetime: string | null;
+  contractId: string;
+  portfolioId: string | null;
+  registryAccountId: string | null;
+  clearingAccountId: string | null;
+  contractType: string | null;
+  auctionNumber: string | null;
+  annotationId: string;
+  annotationType: string | null;
+  orderId: string | null;
+  transactionId: string | null;
+  firstGasDay: string | null;
+  lastGasDay: string | null;
+  buySellIndicator: string | null;
+  price: string | null;
+  quantity: string | null;
+  quantitySign: string | null;
+  delivery: string | null;
+  amount: string | null;
+  amountSign: string | null;
+  taxAmount: string | null;
+  taxAmountSign: string | null;
+};
+
+export type MibgasNetPositionRow = {
+  id: string;
+  tradingDay: string;
+  installation: string | null;
+  portfolioId: string | null;
+  productId: string | null;
+  segmentId: string | null;
+  saleQuantity: string | null;
+  purchaseQuantity: string | null;
+  netQuantity: string | null;
+  isTotal: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MibgasPrivateLiquidationCheckRow = {
+  gasDay: string;
+  bidVolume: string;
+  askVolume: string;
+  totalVolume: string;
+  weightedPrice: string | null;
+  totalAmount: string | null;
+  transactionCount: number;
+};
+
+export type MibgasPrivateLiquidationCheckResponse = {
+  month: string;
+  generatedAt: string;
+  rows: MibgasPrivateLiquidationCheckRow[];
+  totals: {
+    bidVolume: string;
+    askVolume: string;
+    totalVolume: string;
+    weightedPrice: string | null;
+    totalAmount: string | null;
+    transactionCount: number;
+  };
+};
+
 export type PricingHedgeOperationType = "COMPRA" | "VENTA";
 
 export type PricingHedgeProduct = {
@@ -3404,6 +3642,104 @@ export async function syncGasMibgas(year?: number): Promise<GasMibgasSyncRespons
 
 export async function syncGasMibgasHistory(fromYear: number, toYear: number): Promise<GasMibgasSyncHistoryResponse> {
   return sendJsonWithoutGlobalLoading(`/gas/mibgas/sync-history`, "POST", REQUEST_TIMEOUT_MS * 30, { fromYear, toYear });
+}
+
+export async function getMibgasPrivateStatus(): Promise<MibgasPrivateStatus> {
+  return getJson(`/mibgas/private/status`);
+}
+
+export async function testMibgasPrivateConnection(): Promise<MibgasPrivateTestResponse> {
+  return sendJsonWithoutGlobalLoading(`/mibgas/private/test`, "POST", REQUEST_TIMEOUT_MS * 4, {});
+}
+
+export async function refreshMibgasPrivateDirectory(): Promise<{ download: MibgasPrivateDownloadRow; entries: MibgasDirectoryEntry[]; total: number }> {
+  return sendJsonWithoutGlobalLoading(`/mibgas/private/directory/refresh`, "POST", REQUEST_TIMEOUT_MS * 6, {});
+}
+
+export async function getMibgasPrivateDirectory(): Promise<MibgasDirectoryEntry[]> {
+  return getJson(`/mibgas/private/directory`);
+}
+
+export async function getMibgasPrivateAutomationConfig(): Promise<MibgasPrivateAutomationConfig> {
+  return getJson(`/mibgas/private/automation`);
+}
+
+export async function saveMibgasPrivateAutomationConfig(config: Partial<MibgasPrivateAutomationConfig>): Promise<MibgasPrivateAutomationConfig> {
+  return sendJsonWithoutGlobalLoading(`/mibgas/private/automation`, "PUT", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function executeMibgasPrivateAutomation(daysBack: number, daysForward: number): Promise<MibgasPrivateAutomationRunResponse> {
+  return sendJsonWithoutGlobalLoading(`/mibgas/private/automation/run`, "POST", REQUEST_TIMEOUT_MS * 30, {
+    session: "00:00",
+    daysBack,
+    daysForward
+  });
+}
+
+export async function refreshMibgasPrivateQueryConfiguration(queryCode: string): Promise<{ download: MibgasPrivateDownloadRow; configuration: MibgasQueryConfiguration }> {
+  return sendJsonWithoutGlobalLoading(`/mibgas/private/queries/${encodeURIComponent(queryCode)}/configuration/refresh`, "POST", REQUEST_TIMEOUT_MS * 4, {});
+}
+
+export async function getMibgasPrivateQueryConfiguration(queryCode: string): Promise<MibgasQueryConfiguration> {
+  return getJson(`/mibgas/private/queries/${encodeURIComponent(queryCode)}/configuration`);
+}
+
+export async function getMibgasPrivateDownloads(filters: {
+  queryKind?: MibgasPrivateQueryKind;
+  status?: MibgasPrivateDownloadStatus;
+  sessionDateFrom?: string;
+  sessionDateTo?: string;
+} = {}): Promise<MibgasPrivateDownloadRow[]> {
+  return getJson(`/mibgas/private/downloads${toQuery(filters)}`);
+}
+
+export async function getMibgasPrivateDownloadDetail(id: string): Promise<MibgasPrivateDownloadDetail> {
+  return getJson(`/mibgas/private/downloads/${encodeURIComponent(id)}`);
+}
+
+export async function downloadMibgasPrivateTransactions(sessionDate: string, force = false, queryCode?: string): Promise<MibgasPrivateDownloadResponse> {
+  return sendJsonWithoutGlobalLoading(`/mibgas/private/downloads/transactions${force ? "?force=true" : ""}`, "POST", REQUEST_TIMEOUT_MS * 8, {
+    sessionDate,
+    queryCode
+  });
+}
+
+export async function downloadMibgasPrivateAnnotations(sessionDate: string, force = false, queryCode?: string): Promise<MibgasPrivateDownloadResponse> {
+  return sendJsonWithoutGlobalLoading(`/mibgas/private/downloads/annotations${force ? "?force=true" : ""}`, "POST", REQUEST_TIMEOUT_MS * 8, {
+    sessionDate,
+    queryCode
+  });
+}
+
+export async function downloadMibgasPrivateNetPositions(sessionDate: string, force = false, queryCode?: string): Promise<MibgasPrivateDownloadResponse> {
+  return sendJsonWithoutGlobalLoading(`/mibgas/private/downloads/net-positions${force ? "?force=true" : ""}`, "POST", REQUEST_TIMEOUT_MS * 8, {
+    sessionDate,
+    queryCode
+  });
+}
+
+export async function getMibgasPrivateTransactions(filters: { tradingDayFrom?: string; tradingDayTo?: string; buySellIndicator?: string; take?: number } = {}): Promise<MibgasTransactionRow[]> {
+  return getJson(`/mibgas/private/transactions${toQuery(filters)}`);
+}
+
+export async function getMibgasPrivateAnnotations(filters: { tradingDayFrom?: string; tradingDayTo?: string; take?: number } = {}): Promise<MibgasAnnotationRow[]> {
+  return getJson(`/mibgas/private/annotations${toQuery(filters)}`);
+}
+
+export async function getMibgasPrivateNetPositions(filters: {
+  tradingDayFrom?: string;
+  tradingDayTo?: string;
+  installation?: string;
+  portfolioId?: string;
+  productId?: string;
+  includeTotals?: boolean;
+  take?: number;
+} = {}): Promise<MibgasNetPositionRow[]> {
+  return getJson(`/mibgas/private/net-positions${toQuery(filters)}`);
+}
+
+export async function getMibgasPrivateLiquidationCheck(year: number | string, month: number | string): Promise<MibgasPrivateLiquidationCheckResponse> {
+  return getJson(`/mibgas/private/liquidation-check${toQuery({ year, month })}`);
 }
 
 export async function getPricingHedges(): Promise<PricingHedgesResponse> {
