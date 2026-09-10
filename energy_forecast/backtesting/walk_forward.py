@@ -7,6 +7,7 @@ import pandas as pd
 from energy_forecast.data.contracts import canonical_to_wide, ensure_madrid_timestamp
 from energy_forecast.data.validation import validate_availability
 from energy_forecast.models.baselines import PreviousDayBaseline, PreviousWeekBaseline
+from energy_forecast.models.calibration import HourlyBiasCalibrator, split_train_calibration
 from energy_forecast.models.quantiles import enforce_monotonic_quantiles
 
 
@@ -62,6 +63,8 @@ def walk_forward_canonical_dayahead(
     min_train_days: int = 30,
     training_window_days: int | None = None,
     training_window_label: str | None = None,
+    hourly_bias_alpha: float = 0.0,
+    calibration_fraction: float = 0.4,
     quantiles: list[float] | None = None,
 ) -> BacktestResult:
     from energy_forecast.features.electricity_features import build_electricity_features
@@ -109,8 +112,18 @@ def walk_forward_canonical_dayahead(
         X_train = X_train.fillna(fill_values)
         X_test = X_test.reindex(columns=X_train.columns).ffill().bfill().fillna(fill_values)
         model = model_factory()
-        model.fit(X_train, train_target)
+        fit_X, fit_y, calibration_X, calibration_y = split_train_calibration(
+            X_train,
+            train_target,
+            calibration_fraction=calibration_fraction,
+        )
+        model.fit(fit_X, fit_y)
+        calibrator = HourlyBiasCalibrator(alpha=hourly_bias_alpha)
+        if not calibration_y.empty:
+            calibration_frame, _ = enforce_monotonic_quantiles(model.predict_quantiles(calibration_X, quantiles))
+            calibrator.fit(calibration_frame["p50"], calibration_y)
         quantile_frame, crossing_count = enforce_monotonic_quantiles(model.predict_quantiles(X_test, quantiles))
+        quantile_frame = calibrator.apply(quantile_frame)
         frame = quantile_frame.copy()
         frame["actual"] = y_test.reindex(frame.index)
         frame["forecast_origin"] = origin
@@ -120,6 +133,8 @@ def walk_forward_canonical_dayahead(
         frame["quantile_crossings_before_correction"] = crossing_count
         frame["training_window"] = training_window_label or (f"{training_window_days}d" if training_window_days else "expanding")
         frame["n_training_rows"] = int(len(train_target))
+        frame["calibration_alpha"] = float(hourly_bias_alpha)
+        frame["n_calibration_rows"] = int(len(calibration_y))
         frame["baseline_previous_day"] = PreviousDayBaseline().fit(X_train, train_target).predict(X_test)
         frame["baseline_previous_week"] = PreviousWeekBaseline().fit(X_train, train_target).predict(X_test)
         predictions.append(frame)

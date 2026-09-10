@@ -40,6 +40,8 @@ def build_bias_diagnosis(predictions: pd.DataFrame, features: pd.DataFrame) -> p
         "hour",
         "training_window",
         "n_training_rows",
+        "calibration_alpha",
+        "n_calibration_rows",
     ]
     return joined[[column for column in columns if column in joined.columns]]
 

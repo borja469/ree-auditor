@@ -31,6 +31,8 @@ def main() -> int:
     parser.add_argument("--min-train-days", type=int, default=30)
     parser.add_argument("--training-windows", default="30,90,180,expanding")
     parser.add_argument("--n-estimators", type=int, default=60)
+    parser.add_argument("--hourly-bias-alpha", type=float, default=0.5)
+    parser.add_argument("--calibration-fraction", type=float, default=0.4)
     parser.add_argument("--allow-incomplete-data", action="store_true")
     args = parser.parse_args()
 
@@ -54,6 +56,8 @@ def main() -> int:
             min_train_days=args.min_train_days,
             training_window_days=window,
             training_window_label=label,
+            hourly_bias_alpha=args.hourly_bias_alpha,
+            calibration_fraction=args.calibration_fraction,
         )
         results[label] = result
         if not result.predictions.empty:

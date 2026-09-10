@@ -10,6 +10,7 @@ from energy_forecast.data.contracts import MADRID_TZ
 from energy_forecast.data.excel_adapter import ExcelAdapter, parse_date_hour
 from energy_forecast.data.validation import DataValidationError, validate_availability
 from energy_forecast.features.electricity_features import build_electricity_features
+from energy_forecast.models.calibration import HourlyBiasCalibrator, split_train_calibration
 from energy_forecast.models.quantiles import enforce_monotonic_quantiles
 from energy_forecast.scenarios import build_daily_scenarios
 
@@ -142,6 +143,32 @@ def test_quantile_crossing_is_corrected_and_counted():
 
     assert crossings == 1
     assert (corrected[["p10", "p25", "p50", "p75", "p90"]].diff(axis=1).iloc[:, 1:] >= 0).all().all()
+
+
+def test_hourly_bias_calibrator_applies_partial_hourly_shift():
+    index = pd.date_range("2026-01-01", periods=4, freq="h", tz=MADRID_TZ)
+    predictions = pd.Series([20.0, 40.0, 20.0, 40.0], index=index)
+    actual = pd.Series([10.0, 50.0, 10.0, 50.0], index=index)
+    frame = pd.DataFrame({"p10": [15.0] * 4, "p50": [20.0] * 4, "p90": [25.0] * 4}, index=index)
+
+    calibrator = HourlyBiasCalibrator(alpha=0.5).fit(predictions, actual)
+    adjusted = calibrator.apply(frame)
+
+    assert adjusted.loc[index[0], "p50"] == 15.0
+    assert adjusted.loc[index[1], "p50"] == 25.0
+    assert adjusted.loc[index[0], "p90"] - adjusted.loc[index[0], "p10"] == 10.0
+
+
+def test_split_train_calibration_uses_recent_tail_only():
+    index = pd.date_range("2026-01-01", periods=24 * 10, freq="h", tz=MADRID_TZ)
+    X = pd.DataFrame({"feature": range(len(index))}, index=index)
+    y = pd.Series(range(len(index)), index=index)
+
+    fit_X, fit_y, calibration_X, calibration_y = split_train_calibration(X, y, calibration_fraction=0.4)
+
+    assert len(fit_y.index.normalize().unique()) == 6
+    assert len(calibration_y.index.normalize().unique()) == 4
+    assert fit_X.index.max() < calibration_X.index.min()
 
 
 def test_scenario_probabilities_sum_to_100():
