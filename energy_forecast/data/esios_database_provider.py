@@ -26,6 +26,7 @@ class SystemDatabaseProvider:
         frames = [esios]
         if self.include_omie:
             frames.append(self._load_omie(start, end))
+        frames.append(self._load_mibgas_d1(start, end))
         frame = pd.concat(frames, axis=1).sort_index()
         frame = frame.loc[:, ~frame.columns.duplicated(keep="last")]
         return frame
@@ -66,6 +67,38 @@ class SystemDatabaseProvider:
             return pd.DataFrame()
         frame, _metadata = aggregate_omie_periods_to_hourly(raw)
         return frame
+
+    def _load_mibgas_d1(self, start, end) -> pd.DataFrame:
+        sql = """
+            select first_day_delivery, price_eur_mwh::float as price_eur_mwh
+            from gas_mibgas_prices
+            where product = 'GDAES_D+1'
+              and price_eur_mwh is not null
+              and first_day_delivery >= %(start)s::date
+              and first_day_delivery <= %(end)s::date
+            order by first_day_delivery, trading_day desc
+        """
+        try:
+            raw = pd.read_sql_query(sql, self.connection, params={"start": start, "end": end})
+        except Exception:
+            return pd.DataFrame()
+        if raw.empty:
+            return pd.DataFrame()
+        raw["delivery_day"] = pd.to_datetime(raw["first_day_delivery"])
+        raw = raw.drop_duplicates(["delivery_day"], keep="first")
+        rows = []
+        for _, item in raw.iterrows():
+            day = pd.Timestamp(item["delivery_day"])
+            if day.tzinfo is None:
+                day = day.tz_localize(MADRID_TZ, ambiguous=True, nonexistent="shift_forward")
+            else:
+                day = day.tz_convert(MADRID_TZ)
+            horizon = pd.date_range(day.normalize(), day.normalize() + pd.Timedelta(days=1), freq="h", inclusive="left", tz=MADRID_TZ)
+            for timestamp in horizon:
+                rows.append({"timestamp": timestamp, "mibgas": item["price_eur_mwh"], "gas": item["price_eur_mwh"]})
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame(rows).set_index("timestamp").sort_index()
 
 
 def _localize_index(index: pd.DatetimeIndex) -> pd.DatetimeIndex:

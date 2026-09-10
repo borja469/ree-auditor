@@ -87,6 +87,18 @@ def build_electricity_features(df: pd.DataFrame) -> pd.DataFrame:
     result["ccgt_share"] = safe_ratio(ccgt, demand)
     result["ccgt_lag_24h"] = ccgt.shift(24)
 
+    gas = first_present(result, ["mibgas", "gas", "mibgas_d1_price", "gas_d1_price"])
+    result["mibgas"] = gas
+    result["gas"] = gas
+    result["gas_d1_price"] = gas
+    result["gas_lag_24h"] = gas.shift(24)
+    result["gas_lag_168h"] = gas.shift(168)
+    result["gas_rolling_mean_7d"] = gas.shift(24).rolling(24 * 7, min_periods=24).mean()
+    result["gas_change_24h"] = gas - gas.shift(24)
+    result["gas_change_168h"] = gas - gas.shift(168)
+    result["ccgt_variable_cost_proxy"] = gas * 1.9
+    result["gas_residual_load_interaction"] = gas * result["residual_load_pct"]
+
     add_calendar_features(result)
     if "omie_price" in result.columns:
         add_price_features(result)

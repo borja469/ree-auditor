@@ -170,6 +170,8 @@ def wide_to_canonical(wide: pd.DataFrame, *, data_kinds: dict[str, str] | None =
 
 
 def infer_database_data_type(variable: str, data_kind: str | None) -> str:
+    if variable in {"mibgas", "gas"}:
+        return "forecast"
     if data_kind in {"FORECAST", "SCHEDULED", "PROXY"}:
         return "forecast"
     if data_kind == "OBSERVED":

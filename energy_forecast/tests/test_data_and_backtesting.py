@@ -106,6 +106,30 @@ def test_feature_builder_accepts_database_generation_names():
     assert features["residual_load_alt_without_imports"].iloc[0] == 12000
 
 
+def test_feature_builder_adds_mibgas_features():
+    index = pd.date_range("2026-01-01", periods=24 * 8, freq="h", tz=MADRID_TZ)
+    frame = pd.DataFrame(
+        {
+            "demand_forecast": [30000.0] * len(index),
+            "wind_forecast": [5000.0] * len(index),
+            "solar_forecast": [2000.0] * len(index),
+            "hydro_generation": [3000.0] * len(index),
+            "nuclear_generation": [6000.0] * len(index),
+            "net_imports": [1000.0] * len(index),
+            "mibgas": [40.0] * (24 * 4) + [45.0] * (24 * 4),
+        },
+        index=index,
+    )
+
+    features = build_electricity_features(frame)
+
+    assert features["gas_d1_price"].iloc[-1] == 45.0
+    assert features["gas_lag_24h"].iloc[-1] == 45.0
+    assert features["gas_change_24h"].iloc[-1] == 0.0
+    assert features["ccgt_variable_cost_proxy"].iloc[-1] == 85.5
+    assert features["gas_residual_load_interaction"].notna().all()
+
+
 def test_exports_increase_residual_load_when_net_imports_negative():
     index = pd.date_range("2026-01-01", periods=1, freq="h", tz=MADRID_TZ)
     base = pd.DataFrame(
@@ -226,3 +250,15 @@ def test_database_wide_frame_marks_scheduled_values_as_forecast():
     row = dataset.rows.iloc[0]
     assert row["data_type"] == "forecast"
     assert row["available_at"] == pd.Timestamp("2026-01-01 13:00", tz=MADRID_TZ)
+
+
+def test_database_wide_frame_marks_mibgas_as_forecast_available_previous_day_13():
+    index = pd.date_range("2026-01-02", periods=1, freq="h", tz=MADRID_TZ)
+    wide = pd.DataFrame({"mibgas": [42.5], "gas": [42.5]}, index=index)
+
+    dataset = wide_to_canonical(wide)
+
+    rows = dataset.rows.set_index("variable")
+    assert rows.loc["mibgas", "data_type"] == "forecast"
+    assert rows.loc["mibgas", "available_at"] == pd.Timestamp("2026-01-01 13:00", tz=MADRID_TZ)
+    assert rows.loc["gas", "data_type"] == "forecast"

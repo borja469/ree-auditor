@@ -21,6 +21,11 @@ def build_bias_diagnosis(predictions: pd.DataFrame, features: pd.DataFrame) -> p
         "residual_load",
         "forecastable_residual_load",
         "forecastable_residual_load_components_available",
+        "mibgas",
+        "gas",
+        "gas_d1_price",
+        "gas_change_24h",
+        "ccgt_variable_cost_proxy",
     ]
     available = [column for column in feature_columns if column in features.columns]
     joined = joined.join(features[available], how="left")
@@ -37,6 +42,11 @@ def build_bias_diagnosis(predictions: pd.DataFrame, features: pd.DataFrame) -> p
         "residual_load",
         "forecastable_residual_load",
         "forecastable_residual_load_components_available",
+        "mibgas",
+        "gas",
+        "gas_d1_price",
+        "gas_change_24h",
+        "ccgt_variable_cost_proxy",
         "hour",
         "training_window",
         "n_training_rows",
@@ -65,7 +75,7 @@ def summarize_bias_diagnosis(diagnosis: pd.DataFrame) -> dict[str, object]:
         "median_absolute_error": float(error.abs().median()),
         "positive_error_pct": float((error > 0).mean() * 100),
     }
-    for column in ["demand_forecast", "wind_forecast", "solar_expected", "forecastable_residual_load"]:
+    for column in ["demand_forecast", "wind_forecast", "solar_expected", "forecastable_residual_load", "gas_d1_price", "gas_change_24h"]:
         if column in diagnosis and diagnosis[column].notna().any():
             summary[f"corr_error_{column}"] = float(diagnosis[["error", column]].corr().iloc[0, 1])
     return summary
