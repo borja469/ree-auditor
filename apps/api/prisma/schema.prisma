@@ -980,6 +980,9 @@ model MibgasTransaction {
   download             MibgasPrivateDownload  @relation(fields: [downloadId], references: [id], onDelete: Cascade)
   environment          MibgasPrivateEnvironment
   tradingDay           DateTime               @map("trading_day") @db.Date
+  sessionDate          DateTime?              @map("session_date") @db.Date
+  firstGasDay          DateTime?              @map("first_gas_day") @db.Date
+  lastGasDay           DateTime?              @map("last_gas_day") @db.Date
   messageId            String?                @map("message_id") @db.VarChar(160)
   messageVersion       String?                @map("message_version") @db.VarChar(40)
   messageDatetime      DateTime?              @map("message_datetime")
@@ -996,6 +999,7 @@ model MibgasTransaction {
   buySellIndicator     String?                @map("buy_sell_indicator") @db.VarChar(5)
   price                Decimal?               @db.Decimal(20, 8)
   quantity             Decimal?               @db.Decimal(24, 8)
+  amount               Decimal?               @db.Decimal(24, 8)
   transactionDatetime  DateTime?              @map("transaction_datetime")
   rawPayloadJson       Json                   @map("raw_payload_json")
   sourceXmlHash        String?                @map("source_xml_hash") @db.VarChar(128)
@@ -1005,6 +1009,9 @@ model MibgasTransaction {
   @@unique([environment, transactionId], map: "ux_mibgas_transactions_environment_transaction")
   @@index([downloadId])
   @@index([tradingDay])
+  @@index([sessionDate])
+  @@index([firstGasDay])
+  @@index([lastGasDay])
   @@index([contractId])
   @@index([portfolioId])
   @@index([transactionDatetime])

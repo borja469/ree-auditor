@@ -94,6 +94,9 @@ export type MibgasMarketMessageHeader = {
 
 export type MibgasParsedTransaction = MibgasMarketMessageHeader & {
   contractId: string;
+  sessionDate: string | null;
+  firstGasDay: string | null;
+  lastGasDay: string | null;
   messageScope: string | null;
   marketParticipantId: string | null;
   portfolioId: string | null;
@@ -104,6 +107,7 @@ export type MibgasParsedTransaction = MibgasMarketMessageHeader & {
   buySellIndicator: string | null;
   price: string | null;
   quantity: string | null;
+  amount: string | null;
   transactionDatetime: string | null;
   rawPayloadJson: Prisma.InputJsonObject;
 };

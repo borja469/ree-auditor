@@ -438,19 +438,23 @@ export class MibgasPrivateService {
     const rows = await this.prisma.mibgasTransaction.findMany({
       where: {
         environment: this.client.readConfig().environment,
-        tradingDay: buildDateRange(filters.tradingDayFrom, filters.tradingDayTo),
+        firstGasDay: buildDateRange(filters.tradingDayFrom, filters.tradingDayTo),
         ...buildTransactionSideWhere(filters.buySellIndicator)
       },
-      orderBy: [{ tradingDay: "desc" }, { transactionDatetime: "desc" }],
+      orderBy: [{ firstGasDay: "desc" }, { transactionDatetime: "desc" }],
       take
     });
     return rows.map((row) => ({
       ...row,
       tradingDay: formatDate(row.tradingDay),
+      sessionDate: row.sessionDate ? formatDate(row.sessionDate) : null,
+      firstGasDay: row.firstGasDay ? formatDate(row.firstGasDay) : null,
+      lastGasDay: row.lastGasDay ? formatDate(row.lastGasDay) : null,
       messageDatetime: row.messageDatetime?.toISOString() ?? null,
       transactionDatetime: row.transactionDatetime?.toISOString() ?? null,
       price: decimalToString(row.price),
       quantity: decimalToString(row.quantity),
+      amount: decimalToString(row.amount),
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString()
     }));
@@ -523,7 +527,7 @@ export class MibgasPrivateService {
     >`
       WITH normalized AS (
         SELECT
-          trading_day,
+          gas_day::date AS gas_day,
           COALESCE(quantity, 0)::numeric AS quantity,
           ABS(COALESCE(quantity, 0)::numeric) AS absolute_quantity,
           price::numeric AS price,
@@ -532,14 +536,21 @@ export class MibgasPrivateService {
             WHEN UPPER(COALESCE(buy_sell_indicator, '')) IN ('S', 'SELL', 'ASK', 'V', 'VENTA') THEN 'ASK'
             ELSE 'OTHER'
           END AS side
-        FROM mibgas_transactions
+        FROM mibgas_transactions t
+        CROSS JOIN LATERAL generate_series(
+          COALESCE(t.first_gas_day, t.trading_day),
+          COALESCE(t.last_gas_day, t.first_gas_day, t.trading_day),
+          interval '1 day'
+        ) AS gas_day
         WHERE environment = ${environment}::"MibgasPrivateEnvironment"
-          AND trading_day >= ${from}
-          AND trading_day < ${to}
+          AND COALESCE(t.first_gas_day, t.trading_day) <= ${new Date(to.getTime() - 86400000)}
+          AND COALESCE(t.last_gas_day, t.first_gas_day, t.trading_day) >= ${from}
+          AND gas_day >= ${from}
+          AND gas_day < ${to}
       ),
       daily AS (
         SELECT
-          trading_day AS gas_day,
+          gas_day,
           SUM(CASE WHEN side = 'BID' THEN absolute_quantity ELSE 0 END) AS bid_volume,
           SUM(CASE WHEN side = 'ASK' THEN absolute_quantity ELSE 0 END) AS ask_volume,
           SUM(CASE WHEN side = 'BID' THEN absolute_quantity WHEN side = 'ASK' THEN -absolute_quantity ELSE quantity END) AS total_volume,
@@ -549,7 +560,7 @@ export class MibgasPrivateService {
           END AS weighted_price,
           COUNT(*) AS transaction_count
         FROM normalized
-        GROUP BY trading_day
+        GROUP BY gas_day
       )
       SELECT
         gas_day,
@@ -950,6 +961,9 @@ function toTransactionCreate(environment: MibgasPrivateEnvironment, downloadId: 
     environment,
     downloadId,
     tradingDay: parseRequiredDate(row.tradingDay, "TradingDay"),
+    sessionDate: parseOptionalDate(row.sessionDate),
+    firstGasDay: parseOptionalDate(row.firstGasDay) ?? parseRequiredDate(row.tradingDay, "TradingDay"),
+    lastGasDay: parseOptionalDate(row.lastGasDay) ?? parseOptionalDate(row.firstGasDay) ?? parseRequiredDate(row.tradingDay, "TradingDay"),
     messageId: row.messageId,
     messageVersion: row.messageVersion,
     messageDatetime: parseOptionalDateTime(row.messageDatetime),
@@ -966,6 +980,7 @@ function toTransactionCreate(environment: MibgasPrivateEnvironment, downloadId: 
     buySellIndicator: row.buySellIndicator,
     price: row.price,
     quantity: row.quantity,
+    amount: row.amount,
     transactionDatetime: parseOptionalDateTime(row.transactionDatetime),
     rawPayloadJson: row.rawPayloadJson,
     sourceXmlHash: contentHash
@@ -976,6 +991,9 @@ function toTransactionUpdate(downloadId: string, row: MibgasParsedTransaction, c
   return {
     downloadId,
     tradingDay: parseRequiredDate(row.tradingDay, "TradingDay"),
+    sessionDate: parseOptionalDate(row.sessionDate),
+    firstGasDay: parseOptionalDate(row.firstGasDay) ?? parseRequiredDate(row.tradingDay, "TradingDay"),
+    lastGasDay: parseOptionalDate(row.lastGasDay) ?? parseOptionalDate(row.firstGasDay) ?? parseRequiredDate(row.tradingDay, "TradingDay"),
     messageId: row.messageId,
     messageVersion: row.messageVersion,
     messageDatetime: parseOptionalDateTime(row.messageDatetime),
@@ -991,6 +1009,7 @@ function toTransactionUpdate(downloadId: string, row: MibgasParsedTransaction, c
     buySellIndicator: row.buySellIndicator,
     price: row.price,
     quantity: row.quantity,
+    amount: row.amount,
     transactionDatetime: parseOptionalDateTime(row.transactionDatetime),
     rawPayloadJson: row.rawPayloadJson,
     sourceXmlHash: contentHash

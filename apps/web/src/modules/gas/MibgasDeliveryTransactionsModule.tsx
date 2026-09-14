@@ -130,13 +130,22 @@ function buildMibgasTransactionColumns(): Array<TechnicalColumn<MibgasTransactio
   return [
     {
       id: "tradingDay",
-      label: "Dia gas",
+      label: "Dia gas inicio",
       width: 108,
       sticky: true,
       type: "date",
       filter: "text",
-      value: (row) => row.tradingDay,
-      render: (row) => formatFullDate(row.tradingDay)
+      value: (row) => row.firstGasDay ?? row.tradingDay,
+      render: (row) => formatFullDate(row.firstGasDay ?? row.tradingDay)
+    },
+    {
+      id: "lastGasDay",
+      label: "Dia gas fin",
+      width: 108,
+      type: "date",
+      filter: "text",
+      value: (row) => row.lastGasDay ?? row.tradingDay,
+      render: (row) => formatFullDate(row.lastGasDay ?? row.tradingDay)
     },
     {
       id: "contractId",
@@ -184,6 +193,16 @@ function buildMibgasTransactionColumns(): Array<TechnicalColumn<MibgasTransactio
       render: (row) => formatDecimalText(row.quantity)
     },
     {
+      id: "amount",
+      label: "Importe",
+      width: 112,
+      align: "right",
+      type: "number",
+      filter: "number",
+      value: (row) => row.amount,
+      render: (row) => formatDecimalText(row.amount)
+    },
+    {
       id: "contractType",
       label: "Segmento",
       width: 118,
@@ -206,6 +225,16 @@ function buildMibgasTransactionColumns(): Array<TechnicalColumn<MibgasTransactio
       filter: "text",
       value: (row) => row.orderId,
       render: (row) => formatText(row.orderId),
+      visibility: "advanced"
+    },
+    {
+      id: "sessionDate",
+      label: "Sesion",
+      width: 108,
+      type: "date",
+      filter: "text",
+      value: (row) => row.sessionDate,
+      render: (row) => (row.sessionDate ? formatFullDate(row.sessionDate) : "-"),
       visibility: "advanced"
     },
     {
@@ -271,6 +300,8 @@ function buildMibgasTransactionQuality(row: MibgasTransactionRow): RowQuality {
   const labels = [
     row.transactionId ? undefined : "Sin transaccion",
     row.contractId ? undefined : "Sin contrato",
+    row.firstGasDay || row.tradingDay ? undefined : "Sin dia gas inicio",
+    row.lastGasDay || row.tradingDay ? undefined : "Sin dia gas fin",
     row.quantity ? undefined : "Sin cantidad",
     row.price ? undefined : "Sin precio"
   ].filter(Boolean) as string[];

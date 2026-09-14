@@ -1399,6 +1399,9 @@ export type MibgasPrivateAutomationRunResponse = {
 export type MibgasTransactionRow = {
   id: string;
   tradingDay: string;
+  sessionDate: string | null;
+  firstGasDay: string | null;
+  lastGasDay: string | null;
   messageId: string | null;
   messageVersion: string | null;
   messageDatetime: string | null;
@@ -1412,6 +1415,7 @@ export type MibgasTransactionRow = {
   buySellIndicator: string | null;
   price: string | null;
   quantity: string | null;
+  amount: string | null;
   transactionDatetime: string | null;
 };
 

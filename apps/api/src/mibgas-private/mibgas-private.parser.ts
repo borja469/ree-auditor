@@ -153,6 +153,9 @@ export function parseMibgasTransactions(xml: string): { header: ReturnType<typeo
       rows.push({
         ...header,
         contractId,
+        sessionDate: header.tradingDay,
+        firstGasDay: header.tradingDay,
+        lastGasDay: header.tradingDay,
         messageScope,
         marketParticipantId: childAttr(transaction, "MarketParticipantId"),
         portfolioId: childAttr(transaction, "PortfolioId"),
@@ -163,6 +166,7 @@ export function parseMibgasTransactions(xml: string): { header: ReturnType<typeo
         buySellIndicator: childAttr(transaction, "BuySellIndicator"),
         price: childAttr(transaction, "Price"),
         quantity: childAttr(transaction, "Quantity"),
+        amount: null,
         transactionDatetime: childAttr(transaction, "TransactionDateTime"),
         rawPayloadJson: elementToJsonObject(transaction, { ContractId: contractId, MessageScope: messageScope ?? "" })
       });
@@ -183,12 +187,18 @@ function parseMibgasEncolumnadaTransactions(root: XmlElement): { header: ReturnT
     if (!transactionId) {
       continue;
     }
-    const tradingDay = values.dgasini ?? values.DGasIni ?? values.fesesion ?? parameters.dgasini ?? parameters.dgasfin;
+    const firstGasDay = values.dgasini ?? values.DGasIni ?? parameters.dgasini ?? parameters.dgasfin ?? null;
+    const lastGasDay = values.dgasfin ?? values.DGasFin ?? parameters.dgasfin ?? firstGasDay;
+    const sessionDate = values.fesesion ?? values.FeSesion ?? parameters.fesesion ?? null;
+    const tradingDay = firstGasDay ?? sessionDate;
     rows.push({
       messageId: queryCode,
       messageVersion: null,
       messageDatetime: values.fealta ?? values.FeAlta ?? null,
       tradingDay: tradingDay ?? null,
+      sessionDate,
+      firstGasDay,
+      lastGasDay,
       senderId: null,
       receiverId: null,
       contractId: values.cdprod ?? values.CdProd ?? values.cdinstal ?? values.cdzona ?? queryCode ?? "ENCOL",
@@ -202,6 +212,7 @@ function parseMibgasEncolumnadaTransactions(root: XmlElement): { header: ReturnT
       buySellIndicator: values.intipofe ?? values.tcasac ?? values.origen ?? null,
       price: values.precio ?? null,
       quantity: values.cant ?? null,
+      amount: values.importe ?? null,
       transactionDatetime: values.fealta ?? null,
       rawPayloadJson: { ...values, queryCode: queryCode ?? "" }
     });
