@@ -1,7 +1,7 @@
-import { type ReactNode, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { BarChart3, ChevronDown, Clipboard, Download, FileDown, FileSpreadsheet, Search } from "lucide-react";
 import { InlineLoading } from "../../GlobalLoadingOverlay";
-import type { MibgasPrivateLiquidationCheckResponse, MibgasPrivateLiquidationCheckRow } from "../../api";
+import { getMibgasPrivateLiquidationCheck, type MibgasPrivateLiquidationCheckResponse, type MibgasPrivateLiquidationCheckRow } from "../../api";
 
 const MONTH_OPTIONS = [
   { value: "01", label: "Enero" },
@@ -26,6 +26,26 @@ type Column = {
   render: (row: MibgasPrivateLiquidationCheckRow) => string;
 };
 
+type MibgasWeeklyGroup = {
+  key: string;
+  rows: MibgasPrivateLiquidationCheckRow[];
+  summary: MibgasWeeklySummary;
+};
+
+type MibgasWeeklySummary = MibgasPrivateLiquidationCheckResponse["totals"] & {
+  key: string;
+  weekLabel: string;
+  startDateLabel: string;
+  endDateLabel: string;
+};
+
+type MibgasAnnualSummaryCell = {
+  totalVolume: string | null;
+  weightedPrice: string | null;
+  totalAmount: string | null;
+  grossVolume: string | null;
+};
+
 export function MibgasLiquidationCheckModule({
   year,
   month,
@@ -47,8 +67,10 @@ export function MibgasLiquidationCheckModule({
 }) {
   const [hiddenColumns, setHiddenColumns] = useState<Set<string>>(() => new Set());
   const [columnsOpen, setColumnsOpen] = useState(false);
+  const [annualChecks, setAnnualChecks] = useState<Array<MibgasPrivateLiquidationCheckResponse | null>>([]);
+  const [annualLoading, setAnnualLoading] = useState(false);
   const columnsMenuRef = useRef<HTMLDivElement | null>(null);
-  const rows = useMemo(() => comprobacion?.rows ?? [], [comprobacion]);
+  const rows = useMemo(() => [...(comprobacion?.rows ?? [])].sort((left, right) => left.gasDay.localeCompare(right.gasDay)), [comprobacion]);
   const columns = useMemo<Column[]>(
     () => [
       { id: "gasDayLabel", label: "Fecha dia de gas", value: (row) => row.gasDay, render: (row) => formatFullDate(row.gasDay) },
@@ -62,6 +84,35 @@ export function MibgasLiquidationCheckModule({
     []
   );
   const activeColumns = useMemo(() => columns.filter((column) => !hiddenColumns.has(column.id)), [columns, hiddenColumns]);
+  const weeklyGroups = useMemo(() => buildMibgasWeeklyGroups(rows), [rows]);
+  const annualSummary = useMemo(() => buildMibgasAnnualSummary(annualChecks), [annualChecks]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const numericYear = Number(year);
+    if (!Number.isFinite(numericYear) || numericYear < 2000 || numericYear > 2100) {
+      setAnnualChecks([]);
+      return undefined;
+    }
+
+    setAnnualLoading(true);
+    Promise.allSettled(MONTH_OPTIONS.map((option) => getMibgasPrivateLiquidationCheck(numericYear, option.value)))
+      .then((results) => {
+        if (cancelled) {
+          return;
+        }
+        setAnnualChecks(results.map((result) => (result.status === "fulfilled" ? result.value : null)));
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAnnualLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [year]);
 
   function toggleColumn(columnId: string) {
     setHiddenColumns((current) => {
@@ -113,6 +164,8 @@ export function MibgasLiquidationCheckModule({
 
       {comprobacion && (
         <>
+          <MibgasAnnualSummaryTable loading={annualLoading} month={month} summary={annualSummary} year={year} />
+
           <div className="omie-summary-grid omie-liquidation-grid">
             <div className="panel omie-liquidation-panel">
               <MibgasLiquidationPanelTitle icon={<FileSpreadsheet size={18} />} title="Resumen mensual" />
@@ -196,15 +249,15 @@ export function MibgasLiquidationCheckModule({
                     </div>
                   )}
                 </div>
-                <button className="secondary-button" disabled={loading || rows.length === 0} onClick={() => exportRows(comprobacion, activeColumns, "csv")} type="button">
+                <button className="secondary-button" disabled={loading || rows.length === 0} onClick={() => exportRows(comprobacion, weeklyGroups, activeColumns, "csv")} type="button">
                   <Download size={16} />
                   CSV
                 </button>
-                <button className="secondary-button" disabled={loading || rows.length === 0} onClick={() => exportRows(comprobacion, activeColumns, "xls")} type="button">
+                <button className="secondary-button" disabled={loading || rows.length === 0} onClick={() => exportRows(comprobacion, weeklyGroups, activeColumns, "xls")} type="button">
                   <FileDown size={16} />
                   Excel
                 </button>
-                <button className="secondary-button" disabled={loading || rows.length === 0} onClick={() => copyRows(rows, activeColumns)} type="button">
+                <button className="secondary-button" disabled={loading || rows.length === 0} onClick={() => copyRows(weeklyGroups, activeColumns)} type="button">
                   <Clipboard size={16} />
                   Copiar
                 </button>
@@ -223,15 +276,37 @@ export function MibgasLiquidationCheckModule({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.gasDay}>
-                      {activeColumns.map((column) => (
-                        <td className={column.align ?? "left"} key={column.id}>
-                          {column.render(row)}
-                        </td>
-                      ))}
+                  {weeklyGroups.flatMap((group) => [
+                    ...group.rows.map((row) => (
+                      <tr key={row.gasDay}>
+                        {activeColumns.map((column) => (
+                          <td className={column.align ?? "left"} key={column.id}>
+                            {column.render(row)}
+                          </td>
+                        ))}
+                      </tr>
+                    )),
+                    <tr className="omie-liquidation-week-row ok" key={`week-${group.key}`}>
+                      <td colSpan={activeColumns.length}>
+                        <div className="omie-week-summary">
+                          <div className="omie-week-summary-heading">
+                            <strong>{group.summary.weekLabel}</strong>
+                            <span>
+                              {group.summary.startDateLabel} - {group.summary.endDateLabel}
+                            </span>
+                          </div>
+                          <div className="omie-week-summary-values">
+                            <span>Volumen Bid: {formatGasVolume(group.summary.bidVolume)}</span>
+                            <span>Volumen ASK: {formatGasVolume(group.summary.askVolume)}</span>
+                            <span>Volumen neto: {formatGasVolume(group.summary.totalVolume)}</span>
+                            <span>Precio ponderado: {formatGasPrice(group.summary.weightedPrice)}</span>
+                            <span>Importe total: {formatEuroAmount(group.summary.totalAmount)}</span>
+                            <span>Transacciones: {group.summary.transactionCount.toLocaleString("es-ES")}</span>
+                          </div>
+                        </div>
+                      </td>
                     </tr>
-                  ))}
+                  ])}
                   {rows.length === 0 && (
                     <tr>
                       <td colSpan={activeColumns.length}>Sin transacciones MIBGAS descargadas para el mes seleccionado.</td>
@@ -245,6 +320,181 @@ export function MibgasLiquidationCheckModule({
       )}
     </div>
   );
+}
+
+function MibgasAnnualSummaryTable({
+  year,
+  month,
+  summary,
+  loading
+}: {
+  year: string;
+  month: string;
+  summary: MibgasAnnualSummaryCell[];
+  loading: boolean;
+}) {
+  const total = useMemo(() => buildMibgasAnnualSummaryTotal(summary), [summary]);
+  const rows: Array<{ id: keyof Pick<MibgasAnnualSummaryCell, "totalVolume" | "weightedPrice" | "totalAmount">; label: string }> = [
+    { id: "totalVolume", label: "Volumen total" },
+    { id: "weightedPrice", label: "Precio ponderado" },
+    { id: "totalAmount", label: "Coste total" }
+  ];
+
+  return (
+    <section className="panel wide omie-annual-summary-panel">
+      <div className="technical-data-head">
+        <MibgasLiquidationPanelTitle
+          icon={<BarChart3 size={18} />}
+          title={`Resumen anual ${year || "-"}`}
+          subtitle={loading ? "Cargando meses" : "Meses del año seleccionado"}
+        />
+      </div>
+      <div className="table-scroll omie-annual-summary-scroll">
+        <table className="omie-liquidation-table omie-annual-summary-table">
+          <thead>
+            <tr>
+              <th>Metrica</th>
+              {MONTH_OPTIONS.map((monthOption) => (
+                <th className={monthOption.value === month ? "selected-month" : ""} key={monthOption.value}>
+                  {monthOption.label.slice(0, 3)}
+                </th>
+              ))}
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.id}>
+                <th scope="row">{row.label}</th>
+                {summary.map((cell, index) => (
+                  <td className={`right ${MONTH_OPTIONS[index].value === month ? "selected-month" : ""}`} key={`${row.id}-${MONTH_OPTIONS[index].value}`}>
+                    {formatMibgasAnnualSummaryValue(row.id, cell[row.id])}
+                  </td>
+                ))}
+                <td className="omie-annual-summary-total right">{formatMibgasAnnualSummaryValue(row.id, total[row.id])}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {loading && <InlineLoading label="Cargando resumen anual MIBGAS" />}
+      </div>
+    </section>
+  );
+}
+
+function buildMibgasAnnualSummary(checks: Array<MibgasPrivateLiquidationCheckResponse | null>): MibgasAnnualSummaryCell[] {
+  return MONTH_OPTIONS.map((_, index) => {
+    const check = checks[index];
+    if (!check) {
+      return emptyAnnualSummaryCell();
+    }
+
+    const totals = check.totals;
+    return {
+      totalVolume: totals.totalVolume,
+      weightedPrice: totals.weightedPrice,
+      totalAmount: totals.totalAmount,
+      grossVolume: formatNumericString(Math.abs(numberOrNull(totals.bidVolume) ?? 0) + Math.abs(numberOrNull(totals.askVolume) ?? 0))
+    };
+  });
+}
+
+function buildMibgasAnnualSummaryTotal(summary: MibgasAnnualSummaryCell[]): MibgasAnnualSummaryCell {
+  const totalVolume = sumNullableNumberStrings(summary.map((cell) => cell.totalVolume));
+  const totalAmount = sumNullableNumberStrings(summary.map((cell) => cell.totalAmount));
+  const grossVolume = sumNullableNumberStrings(summary.map((cell) => cell.grossVolume));
+  const weightedAmount = summary.reduce((sum, cell) => {
+    const price = numberOrNull(cell.weightedPrice);
+    const volume = numberOrNull(cell.grossVolume);
+    return price === null || volume === null ? sum : sum + price * volume;
+  }, 0);
+  const weightedPrice = grossVolume === null || grossVolume === 0 ? null : weightedAmount / grossVolume;
+
+  return {
+    totalVolume: totalVolume === null ? null : formatNumericString(totalVolume),
+    weightedPrice: weightedPrice === null ? null : formatNumericString(weightedPrice),
+    totalAmount: totalAmount === null ? null : formatNumericString(totalAmount),
+    grossVolume: grossVolume === null ? null : formatNumericString(grossVolume)
+  };
+}
+
+function emptyAnnualSummaryCell(): MibgasAnnualSummaryCell {
+  return {
+    totalVolume: null,
+    weightedPrice: null,
+    totalAmount: null,
+    grossVolume: null
+  };
+}
+
+function formatMibgasAnnualSummaryValue(metric: keyof Pick<MibgasAnnualSummaryCell, "totalVolume" | "weightedPrice" | "totalAmount">, value: string | null) {
+  if (metric === "totalVolume") {
+    return formatGasVolume(value);
+  }
+  if (metric === "weightedPrice") {
+    return formatGasPrice(value);
+  }
+  return formatEuroAmount(value);
+}
+
+function buildMibgasWeeklyGroups(rows: MibgasPrivateLiquidationCheckRow[]): MibgasWeeklyGroup[] {
+  const groups = new Map<string, MibgasPrivateLiquidationCheckRow[]>();
+
+  for (const row of rows) {
+    const week = getIsoWeekInfo(row.gasDay);
+    const current = groups.get(week.key);
+    if (current) {
+      current.push(row);
+    } else {
+      groups.set(week.key, [row]);
+    }
+  }
+
+  return [...groups.entries()].map(([key, groupRows]) => ({
+    key,
+    rows: groupRows,
+    summary: buildMibgasWeeklySummary(key, groupRows)
+  }));
+}
+
+function buildMibgasWeeklySummary(key: string, rows: MibgasPrivateLiquidationCheckRow[]): MibgasWeeklySummary {
+  const startRow = rows[0];
+  const endRow = rows[rows.length - 1];
+  const totals = buildMibgasTotals(rows);
+  const weekInfo = getIsoWeekInfo(startRow?.gasDay ?? key);
+  return {
+    key,
+    weekLabel: weekInfo.label,
+    startDateLabel: startRow ? formatFullDate(startRow.gasDay) : "-",
+    endDateLabel: endRow ? formatFullDate(endRow.gasDay) : "-",
+    ...totals
+  };
+}
+
+function buildMibgasTotals(rows: MibgasPrivateLiquidationCheckRow[]): MibgasPrivateLiquidationCheckResponse["totals"] {
+  const bidVolume = sumNumberStrings(rows.map((row) => row.bidVolume));
+  const askVolume = sumNumberStrings(rows.map((row) => row.askVolume));
+  const totalVolume = sumNumberStrings(rows.map((row) => row.totalVolume));
+  const weightedBase = rows.reduce((sum, row) => {
+    const price = numberOrNull(row.weightedPrice);
+    const grossVolume = Math.abs(numberOrNull(row.bidVolume) ?? 0) + Math.abs(numberOrNull(row.askVolume) ?? 0);
+    return price === null ? sum : sum + grossVolume;
+  }, 0);
+  const weightedAmount = rows.reduce((sum, row) => {
+    const price = numberOrNull(row.weightedPrice);
+    const grossVolume = Math.abs(numberOrNull(row.bidVolume) ?? 0) + Math.abs(numberOrNull(row.askVolume) ?? 0);
+    return price === null ? sum : sum + grossVolume * price;
+  }, 0);
+  const weightedPrice = weightedBase === 0 ? null : weightedAmount / weightedBase;
+  const totalAmount = weightedPrice === null ? null : totalVolume * weightedPrice;
+  return {
+    bidVolume: formatNumericString(bidVolume),
+    askVolume: formatNumericString(askVolume),
+    totalVolume: formatNumericString(totalVolume),
+    weightedPrice: weightedPrice === null ? null : formatNumericString(weightedPrice),
+    totalAmount: totalAmount === null ? null : formatNumericString(totalAmount),
+    transactionCount: rows.reduce((sum, row) => sum + row.transactionCount, 0)
+  };
 }
 
 function MibgasLiquidationPanelTitle({ icon, title, subtitle }: { icon: ReactNode; title: string; subtitle?: string }) {
@@ -272,26 +522,88 @@ function MibgasNoDownloadedData({ onGoToDownloads }: { onGoToDownloads: () => vo
   );
 }
 
-function exportRows(comprobacion: MibgasPrivateLiquidationCheckResponse, columns: Column[], format: "csv" | "xls") {
-  const rows = [
-    columns.map((column) => column.label),
-    ...comprobacion.rows.map((row) => columns.map((column) => column.render(row)))
-  ];
+function exportRows(comprobacion: MibgasPrivateLiquidationCheckResponse, weeklyGroups: MibgasWeeklyGroup[], columns: Column[], format: "csv" | "xls") {
+  const sections = buildMibgasExportSections(comprobacion, weeklyGroups, columns);
   const fileName = `mibgas-comprobacion-liquidaciones-${comprobacion.month}.${format}`;
   if (format === "xls") {
-    const html = `<table>${rows.map((line, index) => `<tr>${line.map((cell) => `<${index === 0 ? "th" : "td"}>${escapeHtml(cell)}</${index === 0 ? "th" : "td"}>`).join("")}</tr>`).join("")}</table>`;
+    const html = sections
+      .map(
+        (section) =>
+          `<h2>${escapeHtml(section.title)}</h2><table>${section.rows.map((line, index) => `<tr>${line.map((cell) => `<${index === 0 ? "th" : "td"}>${escapeHtml(cell)}</${index === 0 ? "th" : "td"}>`).join("")}</tr>`).join("")}</table>`
+      )
+      .join("<br/>");
     downloadBlob(fileName, html, "application/vnd.ms-excel;charset=utf-8");
     return;
   }
-  downloadBlob(fileName, rows.map((line) => line.map(csvCell).join(";")).join("\n"), "text/csv;charset=utf-8");
+  const csv = sections
+    .flatMap((section) => [[section.title], ...section.rows, []])
+    .map((line) => line.map(csvCell).join(";"))
+    .join("\n");
+  downloadBlob(fileName, csv, "text/csv;charset=utf-8");
 }
 
-async function copyRows(rows: MibgasPrivateLiquidationCheckRow[], columns: Column[]) {
+async function copyRows(weeklyGroups: MibgasWeeklyGroup[], columns: Column[]) {
+  const rows = weeklyGroups.flatMap((group) => group.rows);
+  const weeklyRows = weeklyGroups.map((group) => formatWeeklySummaryRow(group.summary));
   const text = [
+    "Detalle diario",
     columns.map((column) => column.label).join("\t"),
-    ...rows.map((row) => columns.map((column) => column.render(row)).join("\t"))
+    ...rows.map((row) => columns.map((column) => column.render(row)).join("\t")),
+    "",
+    "Resumen semanal",
+    weeklySummaryHeaders().join("\t"),
+    ...weeklyRows.map((row) => row.join("\t"))
   ].join("\n");
   await navigator.clipboard?.writeText(text);
+}
+
+function buildMibgasExportSections(comprobacion: MibgasPrivateLiquidationCheckResponse, weeklyGroups: MibgasWeeklyGroup[], columns: Column[]) {
+  const rows = weeklyGroups.flatMap((group) => group.rows);
+  return [
+    {
+      title: "Resumen mensual",
+      rows: [
+        ["Concepto", "Valor"],
+        ["Volumen Bid", formatGasVolume(comprobacion.totals.bidVolume)],
+        ["Volumen ASK", formatGasVolume(comprobacion.totals.askVolume)],
+        ["Volumen neto", formatGasVolume(comprobacion.totals.totalVolume)],
+        ["Precio ponderado", formatGasPrice(comprobacion.totals.weightedPrice)],
+        ["Importe total", formatEuroAmount(comprobacion.totals.totalAmount)],
+        ["Transacciones", comprobacion.totals.transactionCount.toLocaleString("es-ES")]
+      ]
+    },
+    {
+      title: "Detalle diario",
+      rows: [
+        columns.map((column) => column.label),
+        ...rows.map((row) => columns.map((column) => column.render(row)))
+      ]
+    },
+    {
+      title: "Resumen semanal",
+      rows: [
+        weeklySummaryHeaders(),
+        ...weeklyGroups.map((group) => formatWeeklySummaryRow(group.summary))
+      ]
+    }
+  ];
+}
+
+function weeklySummaryHeaders() {
+  return ["Semana", "Periodo", "Volumen Bid", "Volumen ASK", "Volumen neto", "Precio ponderado", "Importe total", "Transacciones"];
+}
+
+function formatWeeklySummaryRow(summary: MibgasWeeklySummary) {
+  return [
+    summary.weekLabel,
+    `${summary.startDateLabel} - ${summary.endDateLabel}`,
+    formatGasVolume(summary.bidVolume),
+    formatGasVolume(summary.askVolume),
+    formatGasVolume(summary.totalVolume),
+    formatGasPrice(summary.weightedPrice),
+    formatEuroAmount(summary.totalAmount),
+    summary.transactionCount.toLocaleString("es-ES")
+  ];
 }
 
 function downloadBlob(fileName: string, content: string, type: string) {
@@ -315,6 +627,23 @@ function escapeHtml(value: string) {
 function formatFullDate(value: string) {
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year}`;
+}
+
+function getIsoWeekInfo(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return { key: value, label: "SEMANA" };
+  }
+
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const week = Math.ceil(((date.getTime() - yearStart.getTime()) / 86400000 + 1) / 7);
+  return {
+    key: `${date.getUTCFullYear()}-W${pad2(week)}`,
+    label: `SEMANA ${week}`
+  };
 }
 
 function formatGasVolume(value: string | null) {
@@ -343,4 +672,23 @@ function numberOrNull(value: string | null) {
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function sumNumberStrings(values: string[]) {
+  return values.reduce((sum, value) => sum + (Number(value) || 0), 0);
+}
+
+function sumNullableNumberStrings(values: Array<string | null>) {
+  const present = values
+    .map((value) => (value === null ? null : Number(value)))
+    .filter((value): value is number => value !== null && Number.isFinite(value));
+  return present.length === 0 ? null : present.reduce((sum, value) => sum + value, 0);
+}
+
+function formatNumericString(value: number) {
+  return value.toFixed(8).replace(/\.?0+$/, "");
+}
+
+function pad2(value: number) {
+  return String(value).padStart(2, "0");
 }
