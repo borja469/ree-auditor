@@ -90,8 +90,11 @@ const LINEAR_BASELINE_FEATURES = new Set([
   "isWeekend",
   "festivoNacional",
   "demandaPrevista",
+  "demandaResidual",
   "eolica",
+  "eolicaSobreDemandaPct",
   "fotovoltaica",
+  "solarSobreDemandaPct",
   "precioGasMibgas",
   "rampaDemanda",
   "rampaEolica",
@@ -356,14 +359,14 @@ function decimalToNumber(value: Prisma.Decimal) {
 function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
   const ordered = [...rows].sort((left, right) => left.timestampUtc.localeCompare(right.timestampUtc));
   const enriched = ordered.map((row): EnrichedForecastRow => {
-    const solar = sumNullable(row.fotovoltaica, row.termosolar);
+    const solar = solarGeneration(row);
     const hidraulica = sumNullable(row.hidraulicaUGH, row.hidraulicaNoUGH);
     const renovable = sumNullable(row.eolica, row.fotovoltaica, row.termosolar, row.hidraulicaUGH, row.hidraulicaNoUGH);
     return {
       ...row,
       festivoNacional: false,
       huecoTermico: subtractIfPresent(row.demandaPrevista, row.eolica, row.fotovoltaica, row.termosolar, row.nuclear, row.hidraulicaUGH, row.hidraulicaNoUGH),
-      demandaResidual: subtractIfPresent(row.demandaPrevista, row.eolica, row.fotovoltaica, row.termosolar),
+      demandaResidual: subtractIfPresent(row.demandaPrevista, row.eolica, solar),
       coberturaRenovablePct: ratioPct(renovable, row.demandaPrevista),
       eolicaSobreDemandaPct: ratioPct(row.eolica, row.demandaPrevista),
       solarSobreDemandaPct: ratioPct(solar, row.demandaPrevista),
