@@ -203,15 +203,16 @@ export class ForecastDatasetBuilderService {
   }
 
   async buildPredictionRangeDataset(options: ForecastDatasetOptions & { featureNames: string[] }): Promise<ForecastDataset> {
+    const contextFechaDesde = subtractOneDay(options.fechaDesde);
     const [dataset, gasPriceByDate] = await Promise.all([
       this.mercadoDatasetService.buildHourlyDataset({
-        fechaDesde: options.fechaDesde,
+        fechaDesde: contextFechaDesde,
         fechaHasta: options.fechaHasta,
         geoId: options.geoId
       }) as Promise<{ filters: { fechaDesde: string; fechaHasta: string }; totalRows: number; rows: MercadoBaseRow[] }>,
-      this.loadGasMibgasPrices(options.fechaDesde, options.fechaHasta)
+      this.loadGasMibgasPrices(contextFechaDesde, options.fechaHasta)
     ]);
-    const enrichedRows = enrichRows(withGasPrices(dataset.rows, gasPriceByDate));
+    const enrichedRows = enrichRows(withGasPrices(dataset.rows, gasPriceByDate)).filter((row) => isRequestedDate(row.date, options.fechaDesde, options.fechaHasta));
     const featureMatrix = enrichedRows.map((row) => buildFeatureValues(row));
     const featureCoverage = new Map(options.featureNames.map((feature) => [feature, coveragePct(featureMatrix, feature)]));
     const requiredFeatures = options.featureNames.filter((feature) => !TARGET_LEAKAGE_FEATURES.has(feature));
@@ -251,9 +252,9 @@ export class ForecastDatasetBuilderService {
       featureNames: usableFeatures,
       excludedFeatures,
       metadata: {
-        fechaDesde: dataset.filters.fechaDesde,
-        fechaHasta: dataset.filters.fechaHasta,
-        totalRows: dataset.totalRows,
+        fechaDesde: options.fechaDesde ?? dataset.filters.fechaDesde,
+        fechaHasta: options.fechaHasta ?? dataset.filters.fechaHasta,
+        totalRows: enrichedRows.length,
         targetRows: enrichedRows.filter((row) => isFiniteNumber(row.precioOmie)).length,
         trainingRows: rows.length,
         mappingVariables: options.featureNames.length
@@ -336,6 +337,19 @@ function withGasPrices(rows: MercadoBaseRow[], gasPriceByDate: Map<string, numbe
 
 function parseUtcDate(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
+}
+
+function subtractOneDay(value?: string) {
+  if (!value) {
+    return value;
+  }
+  const date = parseUtcDate(value);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return dateKey(date);
+}
+
+function isRequestedDate(date: string, fechaDesde?: string, fechaHasta?: string) {
+  return (!fechaDesde || date >= fechaDesde) && (!fechaHasta || date <= fechaHasta);
 }
 
 function dateKey(date: Date) {

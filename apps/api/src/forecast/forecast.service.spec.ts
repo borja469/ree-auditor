@@ -157,6 +157,22 @@ void describe("Forecast prediction engine", () => {
     assert.equal(dataset.rows.length, 24);
   });
 
+  void it("incluye la primera hora de un rango de prediccion cuando el modelo usa rampas", async () => {
+    const builder = new ForecastDatasetBuilderService(mockMercadoDatasetServiceByDateRange(), mockMappingService());
+
+    const dataset = await builder.buildPredictionRangeDataset({
+      fechaDesde: "2026-01-02",
+      fechaHasta: "2026-01-02",
+      featureNames: ["rampaDemanda"]
+    });
+
+    assert.equal(dataset.rows.length, 24);
+    assert.equal(dataset.rows[0].timestampUtc, "2026-01-02T00:00:00.000Z");
+    assert.equal(Number.isFinite(dataset.rows[0].features.rampaDemanda), true);
+    assert.equal(dataset.metadata.fechaDesde, "2026-01-02");
+    assert.equal(dataset.metadata.totalRows, 24);
+  });
+
   void it("bloquea prediccion si falta una variable requerida no derivada del precio real", async () => {
     const builder = new ForecastDatasetBuilderService(mockMercadoDatasetService(), mockMappingService());
 
@@ -304,6 +320,22 @@ function mockMercadoDatasetServiceWithoutFuturePrice() {
       const rows = Array.from({ length: total }, (_, index) => ({ ...row(index), precioOmie: null }));
       return {
         filters: { fechaDesde: options?.fechaDesde ?? "2026-01-01", fechaHasta: options?.fechaHasta ?? "2026-01-02", geoId: null },
+        totalRows: rows.length,
+        returnedRows: rows.length,
+        rows
+      };
+    }
+  };
+}
+
+function mockMercadoDatasetServiceByDateRange() {
+  return {
+    buildHourlyDataset: async (options?: { fechaDesde?: string; fechaHasta?: string }) => {
+      const fechaDesde = options?.fechaDesde ?? "2026-01-01";
+      const fechaHasta = options?.fechaHasta ?? fechaDesde;
+      const rows = rowsForDateRange(fechaDesde, fechaHasta);
+      return {
+        filters: { fechaDesde, fechaHasta, geoId: null },
         totalRows: rows.length,
         returnedRows: rows.length,
         rows
@@ -536,6 +568,47 @@ function row(index: number) {
     day: index < 24 ? 1 : 2,
     hour,
     weekday: index < 24 ? 4 : 5,
+    season: "winter",
+    isWeekend: false,
+    precioOmie: 20 + demandaPrevista * 0.01,
+    demandaPrevista,
+    eolica: 100 + hour,
+    fotovoltaica: hour >= 8 && hour <= 18 ? 60 : 0,
+    termosolar: hour >= 9 && hour <= 17 ? 20 : 0,
+    nuclear: null,
+    hidraulicaUGH: 40,
+    hidraulicaNoUGH: 10,
+    bombeo: 5,
+    intercambios: -20,
+    missingVariables: ["nuclear"],
+    dataQualityStatus: "partial"
+  };
+}
+
+function rowsForDateRange(fechaDesde: string, fechaHasta: string) {
+  const rows = [];
+  const start = new Date(`${fechaDesde}T00:00:00.000Z`);
+  const end = new Date(`${fechaHasta}T00:00:00.000Z`);
+  for (let date = new Date(start), dayIndex = 0; date <= end; date.setUTCDate(date.getUTCDate() + 1), dayIndex += 1) {
+    const dateText = date.toISOString().slice(0, 10);
+    for (let hour = 0; hour < 24; hour += 1) {
+      rows.push(rowForDateHour(dateText, dayIndex, hour));
+    }
+  }
+  return rows;
+}
+
+function rowForDateHour(date: string, dayIndex: number, hour: number) {
+  const demandaPrevista = 1000 + dayIndex * 240 + hour * 10;
+  return {
+    timestampUtc: `${date}T${String(hour).padStart(2, "0")}:00:00.000Z`,
+    datetimeLocal: `${date}T${String(hour).padStart(2, "0")}:00:00`,
+    date,
+    year: Number(date.slice(0, 4)),
+    month: Number(date.slice(5, 7)),
+    day: Number(date.slice(8, 10)),
+    hour,
+    weekday: 4,
     season: "winter",
     isWeekend: false,
     precioOmie: 20 + demandaPrevista * 0.01,
