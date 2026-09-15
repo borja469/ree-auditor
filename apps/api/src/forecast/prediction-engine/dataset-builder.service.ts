@@ -253,32 +253,54 @@ export class ForecastDatasetBuilderService {
     if (!this.prisma || !fechaDesde || !fechaHasta) {
       return new Map<string, number>();
     }
-    const rows = await this.prisma.gasMibgasPrice.findMany({
-      where: {
-        firstDayDelivery: {
-          gte: parseUtcDate(fechaDesde),
-          lte: parseUtcDate(fechaHasta)
+    const range = {
+      gte: parseUtcDate(fechaDesde),
+      lte: parseUtcDate(fechaHasta)
+    };
+    const [officialRows, manualRows] = await Promise.all([
+      this.prisma.gasMibgasPrice.findMany({
+        where: {
+          firstDayDelivery: range,
+          priceEurMwh: { not: null }
         },
-        priceEurMwh: { not: null }
-      },
-      select: {
-        firstDayDelivery: true,
-        product: true,
-        placeOfDelivery: true,
-        area: true,
-        priceEurMwh: true
-      },
-      orderBy: [{ firstDayDelivery: "asc" }, { product: "asc" }]
-    });
+        select: {
+          firstDayDelivery: true,
+          product: true,
+          placeOfDelivery: true,
+          area: true,
+          priceEurMwh: true
+        },
+        orderBy: [{ firstDayDelivery: "asc" }, { product: "asc" }]
+      }),
+      this.prisma.gasMibgasManualPriceOverride.findMany({
+        where: {
+          firstDayDelivery: range
+        },
+        select: {
+          firstDayDelivery: true,
+          product: true,
+          placeOfDelivery: true,
+          area: true,
+          priceEurMwh: true
+        },
+        orderBy: [{ firstDayDelivery: "asc" }, { product: "asc" }]
+      })
+    ]);
 
     const grouped = new Map<string, Array<{ score: number; value: number }>>();
-    for (const row of rows) {
+    for (const row of officialRows) {
       if (row.priceEurMwh === null) {
         continue;
       }
       const date = dateKey(row.firstDayDelivery);
       const values = grouped.get(date) ?? [];
-      values.push({ score: gasProductScore(row), value: decimalToNumber(row.priceEurMwh) });
+      values.push({ score: 1_000 + gasProductScore(row), value: decimalToNumber(row.priceEurMwh) });
+      grouped.set(date, values);
+    }
+    for (const row of manualRows) {
+      const date = dateKey(row.firstDayDelivery);
+      const values = grouped.get(date) ?? [];
+      values.push({ score: 500 + gasProductScore(row), value: decimalToNumber(row.priceEurMwh) });
       grouped.set(date, values);
     }
 

@@ -9,6 +9,17 @@ const DEFAULT_PAGE_SIZE = 500;
 const MAX_PAGE_SIZE = 10_000;
 const DEFAULT_SCHEDULE_TIME = "22:30";
 
+export type GasMibgasManualPriceInput = {
+  product?: string;
+  placeOfDelivery?: string;
+  area?: string;
+  firstDayDelivery?: string;
+  lastDayDelivery?: string;
+  priceEurMwh?: unknown;
+  source?: string;
+  comment?: string;
+};
+
 @Injectable()
 export class GasMibgasService {
   private readonly parser = new MibgasParser();
@@ -152,6 +163,60 @@ export class GasMibgasService {
       lastDayDelivery: dateKey(row.lastDayDelivery),
       deliveryPeriodLabel: row.deliveryPeriodLabel
     }));
+  }
+
+  async listManualPrices(query: { deliveryFrom?: string; deliveryTo?: string; product?: string[]; placeOfDelivery?: string[]; area?: string[]; skip?: number; take?: number }) {
+    const take = parseBoundedInteger(query.take, DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE);
+    const skip = parseBoundedInteger(query.skip, 0, 0, 1_000_000);
+    const where = {
+      firstDayDelivery: dateRange(query.deliveryFrom, query.deliveryTo),
+      product: inValues(query.product),
+      placeOfDelivery: inValues(query.placeOfDelivery),
+      area: inValues(query.area)
+    };
+    const [total, rows] = await Promise.all([
+      this.prisma.gasMibgasManualPriceOverride.count({ where }),
+      this.prisma.gasMibgasManualPriceOverride.findMany({
+        where,
+        orderBy: [{ firstDayDelivery: "desc" }, { product: "asc" }],
+        skip,
+        take
+      })
+    ]);
+    return { total, rows: rows.map(toManualPriceRow) };
+  }
+
+  async saveManualPrice(input: GasMibgasManualPriceInput, usuario?: string) {
+    const product = normalizeTextValue(input.product ?? "GDAES_D+1", "Producto");
+    const placeOfDelivery = normalizeTextValue(input.placeOfDelivery ?? "PVB", "Punto de entrega");
+    const area = normalizeTextValue(input.area ?? "ES", "Area");
+    const firstDayDelivery = parseDate(requiredString(input.firstDayDelivery, "Fecha inicio entrega"));
+    const lastDayDelivery = parseDate(input.lastDayDelivery?.trim() || dateKey(firstDayDelivery));
+    if (firstDayDelivery.getTime() > lastDayDelivery.getTime()) {
+      throw new BadRequestException("La fecha inicio de entrega no puede ser posterior a la fecha fin.");
+    }
+    const priceEurMwh = parsePrice(input.priceEurMwh);
+    const source = normalizeOptionalText(input.source) ?? "SUBASTA_MANUAL";
+    const comment = normalizeOptionalText(input.comment);
+    const existing = await this.prisma.gasMibgasManualPriceOverride.findFirst({
+      where: { product, placeOfDelivery, area, firstDayDelivery, lastDayDelivery },
+      select: { id: true }
+    });
+    const data = {
+      product,
+      placeOfDelivery,
+      area,
+      firstDayDelivery,
+      lastDayDelivery,
+      priceEurMwh: new Prisma.Decimal(priceEurMwh),
+      source,
+      comment,
+      usuario
+    };
+    const row = existing
+      ? await this.prisma.gasMibgasManualPriceOverride.update({ where: { id: existing.id }, data })
+      : await this.prisma.gasMibgasManualPriceOverride.create({ data });
+    return toManualPriceRow(row);
   }
 
   async history(query: { product: string; placeOfDelivery?: string; area?: string; firstDayDelivery?: string; lastDayDelivery?: string }) {
@@ -401,6 +466,36 @@ function toPriceRow(row: {
   };
 }
 
+function toManualPriceRow(row: {
+  id: string;
+  product: string;
+  placeOfDelivery: string;
+  area: string;
+  firstDayDelivery: Date;
+  lastDayDelivery: Date;
+  priceEurMwh: Prisma.Decimal;
+  source: string;
+  comment: string | null;
+  usuario: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: row.id,
+    product: row.product,
+    placeOfDelivery: row.placeOfDelivery,
+    area: row.area,
+    firstDayDelivery: dateKey(row.firstDayDelivery),
+    lastDayDelivery: dateKey(row.lastDayDelivery),
+    priceEurMwh: decimalToNumber(row.priceEurMwh),
+    source: row.source,
+    comment: row.comment,
+    usuario: row.usuario,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString()
+  };
+}
+
 function toSyncResponse(row: {
   id: string;
   year: number;
@@ -523,6 +618,34 @@ function stringArrayValue(value: unknown) {
   const source = Array.isArray(value) ? value : value === undefined ? [] : [value];
   const values = source.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
   return values.length ? [...new Set(values)] : undefined;
+}
+
+function requiredString(value: unknown, label: string) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new BadRequestException(`${label} obligatorio.`);
+  }
+  return value.trim();
+}
+
+function normalizeTextValue(value: unknown, label: string) {
+  const text = requiredString(value, label);
+  if (text.length > 120) {
+    throw new BadRequestException(`${label} demasiado largo.`);
+  }
+  return text.toUpperCase();
+}
+
+function normalizeOptionalText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function parsePrice(value: unknown) {
+  const normalized = typeof value === "string" ? value.replace(",", ".") : value;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed < -500 || parsed > 5000) {
+    throw new BadRequestException("Precio MIBGAS manual no valido.");
+  }
+  return parsed;
 }
 
 function parseBoundedInteger(value: unknown, fallback: number, min: number, max: number) {

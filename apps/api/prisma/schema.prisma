@@ -826,6 +826,26 @@ model GasMibgasPrice {
   @@map("gas_mibgas_prices")
 }
 
+model GasMibgasManualPriceOverride {
+  id               String   @id @default(uuid()) @db.Uuid
+  product          String   @db.VarChar(120)
+  placeOfDelivery  String   @map("place_of_delivery") @db.VarChar(80)
+  area             String   @db.VarChar(40)
+  firstDayDelivery DateTime @map("first_day_delivery") @db.Date
+  lastDayDelivery  DateTime @map("last_day_delivery") @db.Date
+  priceEurMwh      Decimal  @map("price_eur_mwh") @db.Decimal(20, 8)
+  source           String   @default("SUBASTA_MANUAL") @db.VarChar(80)
+  comment          String?  @db.Text
+  usuario          String?  @db.VarChar(160)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@unique([product, placeOfDelivery, area, firstDayDelivery, lastDayDelivery], map: "ux_gas_mibgas_manual_price_natural_key")
+  @@index([firstDayDelivery])
+  @@index([product])
+  @@map("gas_mibgas_manual_price_overrides")
+}
+
 model GasMibgasSyncRun {
   id                     String   @id @default(uuid()) @db.Uuid
   year                   Int

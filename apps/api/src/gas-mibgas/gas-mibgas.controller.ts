@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from "@nestjs/common";
-import { defaultGasMibgasQuery, GasMibgasService } from "./gas-mibgas.service";
+import { Body, Controller, Get, Headers, Param, Post, Put, Query } from "@nestjs/common";
+import { defaultGasMibgasQuery, GasMibgasManualPriceInput, GasMibgasService } from "./gas-mibgas.service";
 
 @Controller("gas/mibgas")
 export class GasMibgasController {
@@ -13,6 +13,24 @@ export class GasMibgasController {
   @Get("products")
   products() {
     return this.service.products();
+  }
+
+  @Get("manual-prices")
+  manualPrices(@Query() query: Record<string, unknown>) {
+    return this.service.listManualPrices({
+      deliveryFrom: typeof query.deliveryFrom === "string" ? query.deliveryFrom : undefined,
+      deliveryTo: typeof query.deliveryTo === "string" ? query.deliveryTo : undefined,
+      product: Array.isArray(query.product) ? query.product.map(String) : typeof query.product === "string" ? [query.product] : undefined,
+      placeOfDelivery: Array.isArray(query.placeOfDelivery) ? query.placeOfDelivery.map(String) : typeof query.placeOfDelivery === "string" ? [query.placeOfDelivery] : undefined,
+      area: Array.isArray(query.area) ? query.area.map(String) : typeof query.area === "string" ? [query.area] : undefined,
+      skip: Number(query.skip),
+      take: Number(query.take)
+    });
+  }
+
+  @Post("manual-prices")
+  saveManualPrice(@Body() body: GasMibgasManualPriceInput, @Headers("x-user") usuario?: string) {
+    return this.service.saveManualPrice(body, usuario);
   }
 
   @Get("history")
