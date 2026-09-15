@@ -63,6 +63,7 @@ import { OmieProgramasModule } from "./modules/omie/programas/OmieProgramasModul
 import { OmieTransaccionesModule } from "./modules/omie/transacciones/OmieTransaccionesModule";
 import { EsiosModule, type EsiosViewKey } from "./modules/esios/EsiosModule";
 import { AnnualReportModule } from "./modules/annual-report/AnnualReportModule";
+import { FuturesEvolutionReportModule } from "./modules/reports/FuturesEvolutionReportModule";
 import { PricingBaseModule } from "./modules/pricing/PricingBaseModule";
 import { PricingHedgesModule } from "./modules/pricing/PricingHedgesModule";
 import { MirPortfolioModule } from "./modules/pricing/MirPortfolioModule";
@@ -1743,6 +1744,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                       ? "MIBGAS Comprobacion Liquidaciones"
                     : section === "annualReport"
                       ? "Informe Anual"
+                    : section === "futuresReport"
+                      ? "Informe Futuros"
                     : section === "pricingBase"
                       ? "Pricing base apuntamientos"
 	                      : section === "pricingMeff"
@@ -2270,6 +2273,13 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       active: isInformesSection(section),
       items: [
         {
+          key: "informes-futuros",
+          label: "Evolucion futuros",
+          description: "contratos MEFF y MIBGAS",
+          active: section === "futuresReport",
+          onSelect: () => changeSection("futuresReport")
+        },
+        {
           key: "informes-informe-anual",
           label: "Informe Anual",
           description: "resumen mensual consolidado",
@@ -2541,6 +2551,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 
           {isEsiosSection(section) && <EsiosModule key={`${section}-${esiosRefreshKey}`} view={esiosViewFromSection(section)} />}
 
+          {section === "futuresReport" && <FuturesEvolutionReportModule />}
           {section === "annualReport" && <AnnualReportModule />}
           {section === "pricingBase" && <PricingBaseModule />}
           {section === "pricingMeff" && <PricingMeffModule />}

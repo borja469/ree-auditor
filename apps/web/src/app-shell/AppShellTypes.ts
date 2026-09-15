@@ -26,6 +26,7 @@ export type Section =
   | "gasMibgasDeliveryTransactions"
   | "gasMibgasNetPositions"
   | "gasMibgasLiquidationCheck"
+  | "futuresReport"
   | "annualReport";
 
 export type ReganecuView = "history" | "summary" | "hourly" | "qh";

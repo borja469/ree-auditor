@@ -69,6 +69,12 @@ const SUMMARY_VERSIONS: ReeVersion[] = ["C3", "C4", "C5"];
 const VERSION_PALETTE = ["#64748b", "#2563eb", "#16a34a", "#7c3aed", "#f97316", "#0f766e"];
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 500] as const;
 const SEARCHABLE_SELECT_THRESHOLD = 24;
+type MedperCompletionFilter = "missing" | "completed" | "all";
+const MEDPER_COMPLETION_FILTERS: Array<{ key: MedperCompletionFilter; label: string }> = [
+  { key: "missing", label: "Falta C3/C4/C5" },
+  { key: "completed", label: "Completados" },
+  { key: "all", label: "Todos" }
+];
 function FilterSelect({
   label,
   value,
@@ -383,10 +389,24 @@ function MedperSummaryMetricsView(props: {
   monthlyConsumption: MedperMonthlyConsumptionRow[];
   selectedMonth: string | null;
 }) {
+  const [completionFilter, setCompletionFilter] = useState<MedperCompletionFilter>("missing");
   const rows = useMemo(() => buildMedperMonthlyOperationalSummary(props.monthlyConsumption), [props.monthlyConsumption]);
+  const visibleRows = useMemo(
+    () =>
+      rows.filter((row) => {
+        if (completionFilter === "completed") {
+          return row.missingVersions.length === 0;
+        }
+        if (completionFilter === "missing") {
+          return row.missingVersions.length > 0;
+        }
+        return true;
+      }),
+    [completionFilter, rows]
+  );
   const totals = useMemo(
     () =>
-      rows.reduce(
+      visibleRows.reduce(
         (acc, row) => ({
           pf: acc.pf + row.totalPf,
           bc: acc.bc + row.totalBc,
@@ -396,7 +416,7 @@ function MedperSummaryMetricsView(props: {
         }),
         { pf: 0, bc: 0, danger: 0, warning: 0, missing: 0 }
       ),
-    [rows]
+    [visibleRows]
   );
     return (
     <section className="content-grid">
@@ -405,8 +425,8 @@ function MedperSummaryMetricsView(props: {
         <div className="technical-kpis medper-operational-kpis">
           <div className="technical-kpi neutral">
             <span>Meses</span>
-            <strong>{formatNumber(rows.length)}</strong>
-            <small>rango disponible</small>
+            <strong>{formatNumber(visibleRows.length)}</strong>
+            <small>{visibleRows.length === rows.length ? "rango disponible" : `${formatNumber(rows.length)} totales`}</small>
           </div>
           <div className="technical-kpi good">
             <span>Total PF</span>
@@ -429,6 +449,18 @@ function MedperSummaryMetricsView(props: {
             <small>{formatNumber(totals.danger)} criticas</small>
           </div>
         </div>
+        <div className="medper-completion-filter" role="group" aria-label="Filtro de completado C3 C4 C5">
+          {MEDPER_COMPLETION_FILTERS.map((item) => (
+            <button
+              className={`range-button ${completionFilter === item.key ? "active" : ""}`}
+              key={item.key}
+              onClick={() => setCompletionFilter(item.key)}
+              type="button"
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
         <div className="table-scroll medper-operational-summary-scroll">
           <table className="medper-summary-table medper-operational-summary-table">
             <thead>
@@ -449,7 +481,12 @@ function MedperSummaryMetricsView(props: {
                   <td colSpan={8}>Sin medidas cargadas.</td>
                 </tr>
               )}
-              {rows.map((row) => (
+              {rows.length > 0 && visibleRows.length === 0 && (
+                <tr>
+                  <td colSpan={8}>Sin meses con el filtro seleccionado.</td>
+                </tr>
+              )}
+              {visibleRows.map((row) => (
                 <tr className={`medper-summary-diff-${row.tone}`} key={row.month}>
                   <th scope="row">
                     <span>{formatMonthKeyLabel(row.month)}</span>
