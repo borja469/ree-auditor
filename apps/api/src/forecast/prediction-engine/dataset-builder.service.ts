@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { MercadoDatasetService } from "../../mercado/mercado-dataset.service";
 import { MercadoIndicatorMappingService } from "../../mercado/mercado-indicator-mapping.service";
+import { PrismaService } from "../../prisma/prisma.service";
 import { ForecastDataset, ForecastFeatureRow } from "./prediction-model.interface";
 
 type ForecastDatasetOptions = {
@@ -30,6 +32,7 @@ type MercadoBaseRow = {
   hidraulicaNoUGH: number | null;
   bombeo: number | null;
   intercambios: number | null;
+  precioGasMibgas?: number | null;
 };
 
 type EnrichedForecastRow = MercadoBaseRow & {
@@ -70,6 +73,7 @@ const NUMERIC_FEATURES = [
   "hidraulicaNoUGH",
   "bombeo",
   "intercambios",
+  "precioGasMibgas",
   "rampaDemanda",
   "rampaEolica",
   "rampaSolar",
@@ -88,6 +92,7 @@ const LINEAR_BASELINE_FEATURES = new Set([
   "demandaPrevista",
   "eolica",
   "fotovoltaica",
+  "precioGasMibgas",
   "rampaDemanda",
   "rampaEolica",
   "rampaSolar",
@@ -103,20 +108,22 @@ const MIN_TRAINING_ROWS = 24;
 export class ForecastDatasetBuilderService {
   constructor(
     private readonly mercadoDatasetService: MercadoDatasetService,
-    private readonly mercadoIndicatorMappingService: MercadoIndicatorMappingService
+    private readonly mercadoIndicatorMappingService: MercadoIndicatorMappingService,
+    private readonly prisma?: PrismaService
   ) {}
 
   async buildTrainingDataset(options: ForecastDatasetOptions): Promise<ForecastDataset> {
-    const [dataset, mappings] = await Promise.all([
+    const [dataset, mappings, gasPriceByDate] = await Promise.all([
       this.mercadoDatasetService.buildHourlyDataset({
         fechaDesde: options.fechaDesde,
         fechaHasta: options.fechaHasta,
         geoId: options.geoId
       }) as Promise<{ filters: { fechaDesde: string; fechaHasta: string }; totalRows: number; rows: MercadoBaseRow[] }>,
-      this.mercadoIndicatorMappingService.resolveMappings()
+      this.mercadoIndicatorMappingService.resolveMappings(),
+      this.loadGasMibgasPrices(options.fechaDesde, options.fechaHasta)
     ]);
 
-    const enrichedRows = enrichRows(dataset.rows);
+    const enrichedRows = enrichRows(withGasPrices(dataset.rows, gasPriceByDate));
     const targetRows = enrichedRows.filter((row) => isFiniteNumber(row.precioOmie));
     if (targetRows.length < MIN_TRAINING_ROWS) {
       throw new BadRequestException(`No hay suficientes observaciones con precio OMIE. Minimo requerido: ${MIN_TRAINING_ROWS}.`);
@@ -184,12 +191,15 @@ export class ForecastDatasetBuilderService {
   }
 
   async buildPredictionRangeDataset(options: ForecastDatasetOptions & { featureNames: string[] }): Promise<ForecastDataset> {
-    const dataset = (await this.mercadoDatasetService.buildHourlyDataset({
-      fechaDesde: options.fechaDesde,
-      fechaHasta: options.fechaHasta,
-      geoId: options.geoId
-    })) as { filters: { fechaDesde: string; fechaHasta: string }; totalRows: number; rows: MercadoBaseRow[] };
-    const enrichedRows = enrichRows(dataset.rows);
+    const [dataset, gasPriceByDate] = await Promise.all([
+      this.mercadoDatasetService.buildHourlyDataset({
+        fechaDesde: options.fechaDesde,
+        fechaHasta: options.fechaHasta,
+        geoId: options.geoId
+      }) as Promise<{ filters: { fechaDesde: string; fechaHasta: string }; totalRows: number; rows: MercadoBaseRow[] }>,
+      this.loadGasMibgasPrices(options.fechaDesde, options.fechaHasta)
+    ]);
+    const enrichedRows = enrichRows(withGasPrices(dataset.rows, gasPriceByDate));
     const featureMatrix = enrichedRows.map((row) => buildFeatureValues(row));
     const featureCoverage = new Map(options.featureNames.map((feature) => [feature, coveragePct(featureMatrix, feature)]));
     const requiredFeatures = options.featureNames.filter((feature) => !TARGET_LEAKAGE_FEATURES.has(feature));
@@ -238,6 +248,87 @@ export class ForecastDatasetBuilderService {
       }
     };
   }
+
+  private async loadGasMibgasPrices(fechaDesde?: string, fechaHasta?: string) {
+    if (!this.prisma || !fechaDesde || !fechaHasta) {
+      return new Map<string, number>();
+    }
+    const rows = await this.prisma.gasMibgasPrice.findMany({
+      where: {
+        firstDayDelivery: {
+          gte: parseUtcDate(fechaDesde),
+          lte: parseUtcDate(fechaHasta)
+        },
+        priceEurMwh: { not: null }
+      },
+      select: {
+        firstDayDelivery: true,
+        product: true,
+        placeOfDelivery: true,
+        area: true,
+        priceEurMwh: true
+      },
+      orderBy: [{ firstDayDelivery: "asc" }, { product: "asc" }]
+    });
+
+    const grouped = new Map<string, Array<{ score: number; value: number }>>();
+    for (const row of rows) {
+      if (row.priceEurMwh === null) {
+        continue;
+      }
+      const date = dateKey(row.firstDayDelivery);
+      const values = grouped.get(date) ?? [];
+      values.push({ score: gasProductScore(row), value: decimalToNumber(row.priceEurMwh) });
+      grouped.set(date, values);
+    }
+
+    return new Map(
+      [...grouped.entries()].map(([date, values]) => {
+        const sorted = [...values].sort((left, right) => right.score - left.score);
+        const bestScore = sorted[0]?.score ?? 0;
+        const selected = bestScore > 0 ? sorted.filter((item) => item.score === bestScore) : sorted;
+        return [date, round(selected.reduce((sum, item) => sum + item.value, 0) / selected.length)];
+      })
+    );
+  }
+}
+
+function withGasPrices(rows: MercadoBaseRow[], gasPriceByDate: Map<string, number>): MercadoBaseRow[] {
+  return rows.map((row) => ({
+    ...row,
+    precioGasMibgas: gasPriceByDate.get(row.date) ?? gasPriceByDate.get(row.timestampUtc.slice(0, 10)) ?? null
+  }));
+}
+
+function parseUtcDate(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function dateKey(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function gasProductScore(row: { product: string; placeOfDelivery: string; area: string }) {
+  const product = row.product.toUpperCase();
+  const place = row.placeOfDelivery.toUpperCase();
+  const area = row.area.toUpperCase();
+  let score = 0;
+  if (product === "GDAES_D+1") {
+    score += 100;
+  } else if (product.startsWith("GDAES")) {
+    score += 50;
+  }
+  if (place === "PVB") {
+    score += 10;
+  }
+  if (area === "ES") {
+    score += 5;
+  }
+  return score;
+}
+
+function decimalToNumber(value: Prisma.Decimal) {
+  return Number(value.toString());
 }
 
 function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
@@ -280,7 +371,7 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
 function buildFeatureValues(row: EnrichedForecastRow) {
   const features: Record<string, number | null> = {};
   for (const feature of NUMERIC_FEATURES) {
-    const value = row[feature];
+    const value = row[feature] ?? null;
     features[feature] = typeof value === "boolean" ? (value ? 1 : 0) : value;
   }
   for (const feature of SEASON_FEATURES) {
