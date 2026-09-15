@@ -3,9 +3,11 @@ import { AnnualReportModule } from "./annual-report/annual-report.module";
 import { AuthMiddleware } from "./auth/auth.middleware";
 import { AuthModule } from "./auth/auth.module";
 import { EsiosModule } from "./esios/esios.module";
+import { ForecastModule } from "./forecast/forecast.module";
 import { GasMibgasModule } from "./gas-mibgas/gas-mibgas.module";
 import { HealthModule } from "./health/health.module";
 import { ImportsModule } from "./imports/imports.module";
+import { MercadoModule } from "./mercado/mercado.module";
 import { MirModule } from "./mir/mir.module";
 import { MibgasPrivateModule } from "./mibgas-private/mibgas-private.module";
 import { OmieAnalisisModule } from "./omie-analisis/omie-analisis.module";
@@ -39,6 +41,8 @@ import { ReeSeieModule } from "./ree-seie/ree-seie.module";
     OmieDescargasModule,
     GasMibgasModule,
     MibgasPrivateModule,
+    MercadoModule,
+    ForecastModule,
     MirModule,
     PricingBaseModule,
     PricingMeffModule,

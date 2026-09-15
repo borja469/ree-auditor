@@ -1133,6 +1133,7 @@ model PricingHedgeAllocation {
   @@index([sellOperationId])
   @@map("pricing_hedge_allocations")
 }
+
 model PricingCalculatorManualValue {
   id        String   @id @default(uuid()) @db.Uuid
   concepto  String   @db.VarChar(80)
@@ -1146,6 +1147,71 @@ model PricingCalculatorManualValue {
   @@index([tarifa])
   @@index([periodo])
   @@map("pricing_calculator_manual_values")
+}
+
+model MercadoIndicatorMappingConfirmation {
+  id          String         @id @default(uuid()) @db.Uuid
+  variable    String         @unique @db.VarChar(80)
+  indicatorId Int            @map("indicator_id")
+  indicator   EsiosIndicator @relation(fields: [indicatorId], references: [indicatorId], onDelete: Cascade)
+  geoId       Int?           @map("geo_id")
+  geoKey      Int?           @map("geo_key")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  @@index([indicatorId])
+  @@map("mercado_indicator_mapping_confirmations")
+}
+
+model ForecastModel {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  nombre                String                  @db.VarChar(160)
+  tipoModelo            String                  @map("tipo_modelo") @db.VarChar(60)
+  version               Int
+  activo                Boolean                 @default(false)
+  fechaEntrenamiento    DateTime                @map("fecha_entrenamiento")
+  fechaDesde            DateTime                @map("fecha_desde") @db.Date
+  fechaHasta            DateTime                @map("fecha_hasta") @db.Date
+  variablesUtilizadas   Json                    @map("variables_utilizadas")
+  variablesDescartadas  Json                    @map("variables_descartadas")
+  coeficientes          Json
+  featureStats          Json?                   @map("feature_stats")
+  intercepto            Decimal                 @db.Decimal(24, 12)
+  metricas              Json
+  walkForwardMetricas   Json?                   @map("walk_forward_metricas")
+  featureImportance     Json?                   @map("feature_importance")
+  numeroRegistros       Int                     @map("numero_registros")
+  duracionMs            Int                     @default(0) @map("duracion_ms")
+  usuario               String?                 @db.VarChar(160)
+  createdAt             DateTime                @default(now()) @map("created_at")
+  updatedAt             DateTime                @updatedAt @map("updated_at")
+  predictionRuns        ForecastPredictionRun[]
+
+  @@unique([tipoModelo, version])
+  @@index([tipoModelo])
+  @@index([activo])
+  @@index([fechaEntrenamiento])
+  @@map("forecast_models")
+}
+
+model ForecastPredictionRun {
+  id             String        @id @default(uuid()) @db.Uuid
+  modeloId       String        @map("modelo_id") @db.Uuid
+  modelo         ForecastModel @relation(fields: [modeloId], references: [id], onDelete: Cascade)
+  fechaEjecucion DateTime      @default(now()) @map("fecha_ejecucion")
+  fechaDesde     DateTime      @map("fecha_desde") @db.Date
+  fechaHasta     DateTime      @map("fecha_hasta") @db.Date
+  tipoPrediccion String        @map("tipo_prediccion") @db.VarChar(40)
+  input          Json
+  output         Json
+  usuario        String?       @db.VarChar(160)
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@index([modeloId])
+  @@index([fechaEjecucion])
+  @@index([fechaDesde, fechaHasta])
+  @@index([tipoPrediccion])
+  @@map("forecast_prediction_runs")
 }
 
 model AnnualReportRetributionPrice {
@@ -1204,6 +1270,7 @@ model EsiosIndicator {
   updatedAt   DateTime             @updatedAt @map("updated_at")
   values      EsiosIndicatorValue[]
   logs        EsiosDownloadLog[]
+  mappingConfirmations MercadoIndicatorMappingConfirmation[]
 
   @@map("esios_indicators")
 }

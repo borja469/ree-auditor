@@ -1,0 +1,340 @@
+import { BadRequestException, Injectable } from "@nestjs/common";
+import { MercadoDatasetService } from "../../mercado/mercado-dataset.service";
+import { MercadoIndicatorMappingService } from "../../mercado/mercado-indicator-mapping.service";
+import { ForecastDataset, ForecastFeatureRow } from "./prediction-model.interface";
+
+type ForecastDatasetOptions = {
+  fechaDesde?: string;
+  fechaHasta?: string;
+  geoId?: number;
+};
+
+type MercadoBaseRow = {
+  timestampUtc: string;
+  datetimeLocal: string;
+  date: string;
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  weekday: number;
+  season: "winter" | "spring" | "summer" | "autumn";
+  isWeekend: boolean;
+  precioOmie: number | null;
+  demandaPrevista: number | null;
+  eolica: number | null;
+  fotovoltaica: number | null;
+  termosolar: number | null;
+  nuclear: number | null;
+  hidraulicaUGH: number | null;
+  hidraulicaNoUGH: number | null;
+  bombeo: number | null;
+  intercambios: number | null;
+};
+
+type EnrichedForecastRow = MercadoBaseRow & {
+  festivoNacional: boolean;
+  demandaResidual: number | null;
+  huecoTermico: number | null;
+  coberturaRenovablePct: number | null;
+  eolicaSobreDemandaPct: number | null;
+  solarSobreDemandaPct: number | null;
+  hidraulicaSobreDemandaPct: number | null;
+  nuclearSobreDemandaPct: number | null;
+  rampaDemanda: number | null;
+  rampaEolica: number | null;
+  rampaSolar: number | null;
+  rampaHuecoTermico: number | null;
+  rampaPrecioOmie: number | null;
+};
+
+const NUMERIC_FEATURES = [
+  "hour",
+  "month",
+  "weekday",
+  "isWeekend",
+  "festivoNacional",
+  "demandaPrevista",
+  "demandaResidual",
+  "huecoTermico",
+  "coberturaRenovablePct",
+  "eolicaSobreDemandaPct",
+  "solarSobreDemandaPct",
+  "hidraulicaSobreDemandaPct",
+  "nuclearSobreDemandaPct",
+  "eolica",
+  "fotovoltaica",
+  "termosolar",
+  "nuclear",
+  "hidraulicaUGH",
+  "hidraulicaNoUGH",
+  "bombeo",
+  "intercambios",
+  "rampaDemanda",
+  "rampaEolica",
+  "rampaSolar",
+  "rampaHuecoTermico",
+  "rampaPrecioOmie"
+] as const;
+
+const SEASON_FEATURES = ["season_winter", "season_spring", "season_summer", "season_autumn"] as const;
+const TARGET_LEAKAGE_FEATURES = new Set(["rampaPrecioOmie"]);
+const LINEAR_BASELINE_FEATURES = new Set([
+  "hour",
+  "month",
+  "weekday",
+  "isWeekend",
+  "festivoNacional",
+  "demandaPrevista",
+  "eolica",
+  "rampaDemanda",
+  "rampaEolica",
+  "season_winter",
+  "season_spring",
+  "season_summer",
+  "season_autumn"
+]);
+const MIN_FEATURE_COVERAGE_PCT = 50;
+const MIN_TRAINING_ROWS = 24;
+
+@Injectable()
+export class ForecastDatasetBuilderService {
+  constructor(
+    private readonly mercadoDatasetService: MercadoDatasetService,
+    private readonly mercadoIndicatorMappingService: MercadoIndicatorMappingService
+  ) {}
+
+  async buildTrainingDataset(options: ForecastDatasetOptions): Promise<ForecastDataset> {
+    const [dataset, mappings] = await Promise.all([
+      this.mercadoDatasetService.buildHourlyDataset({
+        fechaDesde: options.fechaDesde,
+        fechaHasta: options.fechaHasta,
+        geoId: options.geoId
+      }) as Promise<{ filters: { fechaDesde: string; fechaHasta: string }; totalRows: number; rows: MercadoBaseRow[] }>,
+      this.mercadoIndicatorMappingService.resolveMappings()
+    ]);
+
+    const enrichedRows = enrichRows(dataset.rows);
+    const targetRows = enrichedRows.filter((row) => isFiniteNumber(row.precioOmie));
+    if (targetRows.length < MIN_TRAINING_ROWS) {
+      throw new BadRequestException(`No hay suficientes observaciones con precio OMIE. Minimo requerido: ${MIN_TRAINING_ROWS}.`);
+    }
+
+    const featureMatrix = targetRows.map((row) => buildFeatureValues(row));
+    const candidates = Object.keys(featureMatrix[0] ?? {});
+    const excludedFeatures: ForecastDataset["excludedFeatures"] = [];
+    const selectedFeatures: string[] = [];
+
+    for (const feature of candidates) {
+      if (TARGET_LEAKAGE_FEATURES.has(feature)) {
+        excludedFeatures.push({ variable: feature, reason: "Variable no utilizable en prediccion porque depende del precio OMIE real.", coveragePct: coveragePct(featureMatrix, feature) });
+        continue;
+      }
+      if (!LINEAR_BASELINE_FEATURES.has(feature)) {
+        excludedFeatures.push({
+          variable: feature,
+          reason: "Variable excluida del baseline lineal para evitar colinealidad e inestabilidad numerica.",
+          coveragePct: coveragePct(featureMatrix, feature)
+        });
+        continue;
+      }
+      const coverage = coveragePct(featureMatrix, feature);
+      if (coverage < MIN_FEATURE_COVERAGE_PCT) {
+        excludedFeatures.push({ variable: feature, reason: "Cobertura insuficiente.", coveragePct: coverage });
+        continue;
+      }
+      const projectedFeatures = [...selectedFeatures, feature];
+      const projectedRows = buildCompleteTrainingRows(targetRows, featureMatrix, projectedFeatures);
+      if (projectedRows.length < MIN_TRAINING_ROWS) {
+        excludedFeatures.push({ variable: feature, reason: "Reduce demasiado las observaciones completas.", coveragePct: coverage });
+        continue;
+      }
+      selectedFeatures.push(feature);
+    }
+
+    const rows = buildCompleteTrainingRows(targetRows, featureMatrix, selectedFeatures);
+    if (selectedFeatures.length === 0 || rows.length < MIN_TRAINING_ROWS) {
+      throw new BadRequestException("No se pudo construir un dataset de entrenamiento con variables explicativas suficientes.");
+    }
+
+    return {
+      rows,
+      featureNames: selectedFeatures,
+      excludedFeatures,
+      metadata: {
+        fechaDesde: dataset.filters.fechaDesde,
+        fechaHasta: dataset.filters.fechaHasta,
+        totalRows: dataset.totalRows,
+        targetRows: targetRows.length,
+        trainingRows: rows.length,
+        mappingVariables: mappings.length
+      }
+    };
+  }
+
+  async buildPredictionDataset(options: ForecastDatasetOptions & { fecha: string; featureNames: string[] }): Promise<ForecastDataset> {
+    return this.buildPredictionRangeDataset({
+      fechaDesde: options.fecha,
+      fechaHasta: options.fecha,
+      geoId: options.geoId,
+      featureNames: options.featureNames
+    });
+  }
+
+  async buildPredictionRangeDataset(options: ForecastDatasetOptions & { featureNames: string[] }): Promise<ForecastDataset> {
+    const dataset = (await this.mercadoDatasetService.buildHourlyDataset({
+      fechaDesde: options.fechaDesde,
+      fechaHasta: options.fechaHasta,
+      geoId: options.geoId
+    })) as { filters: { fechaDesde: string; fechaHasta: string }; totalRows: number; rows: MercadoBaseRow[] };
+    const enrichedRows = enrichRows(dataset.rows);
+    const featureMatrix = enrichedRows.map((row) => buildFeatureValues(row));
+    const featureCoverage = new Map(options.featureNames.map((feature) => [feature, coveragePct(featureMatrix, feature)]));
+    const requiredFeatures = options.featureNames.filter((feature) => !TARGET_LEAKAGE_FEATURES.has(feature));
+    const missingRequiredFeatures = requiredFeatures.filter((feature) => (featureCoverage.get(feature) ?? 0) === 0);
+    if (missingRequiredFeatures.length > 0) {
+      throw new BadRequestException(
+        `El modelo requiere variables sin cobertura para la fecha solicitada: ${missingRequiredFeatures.join(", ")}. Revisa la carga de datos o entrena una nueva version con variables disponibles.`
+      );
+    }
+    const usableFeatures = requiredFeatures;
+    const excludedFeatures = options.featureNames
+      .filter((feature) => !usableFeatures.includes(feature))
+      .map((feature) => ({
+        variable: feature,
+        reason: TARGET_LEAKAGE_FEATURES.has(feature) ? "Variable omitida en prediccion porque depende del precio OMIE real." : "Variable sin cobertura para la fecha solicitada.",
+        coveragePct: featureCoverage.get(feature) ?? 0
+      }));
+    if (usableFeatures.length === 0) {
+      throw new BadRequestException(`No hay variables del modelo disponibles para la fecha solicitada. Variables requeridas: ${options.featureNames.join(", ")}.`);
+    }
+    const rows = enrichedRows
+      .map((row, index) => {
+        const features = Object.fromEntries(usableFeatures.map((feature) => [feature, featureMatrix[index][feature]]));
+        return { timestampUtc: row.timestampUtc, target: isFiniteNumber(row.precioOmie) ? row.precioOmie : 0, features };
+      })
+      .filter((row): row is ForecastFeatureRow => usableFeatures.every((feature) => isFiniteNumber(row.features[feature])));
+
+    if (rows.length === 0) {
+      const missingFeatures = usableFeatures.filter((feature) => (featureCoverage.get(feature) ?? 0) === 0);
+      throw new BadRequestException(
+        `No hay filas con las variables disponibles del modelo para la fecha solicitada. Variables sin cobertura: ${missingFeatures.join(", ") || options.featureNames.join(", ")}.`
+      );
+    }
+
+    return {
+      rows,
+      featureNames: usableFeatures,
+      excludedFeatures,
+      metadata: {
+        fechaDesde: dataset.filters.fechaDesde,
+        fechaHasta: dataset.filters.fechaHasta,
+        totalRows: dataset.totalRows,
+        targetRows: enrichedRows.filter((row) => isFiniteNumber(row.precioOmie)).length,
+        trainingRows: rows.length,
+        mappingVariables: options.featureNames.length
+      }
+    };
+  }
+}
+
+function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
+  const ordered = [...rows].sort((left, right) => left.timestampUtc.localeCompare(right.timestampUtc));
+  const enriched = ordered.map((row): EnrichedForecastRow => {
+    const solar = sumNullable(row.fotovoltaica, row.termosolar);
+    const hidraulica = sumNullable(row.hidraulicaUGH, row.hidraulicaNoUGH);
+    const renovable = sumNullable(row.eolica, row.fotovoltaica, row.termosolar, row.hidraulicaUGH, row.hidraulicaNoUGH);
+    return {
+      ...row,
+      festivoNacional: false,
+      huecoTermico: subtractIfPresent(row.demandaPrevista, row.eolica, row.fotovoltaica, row.termosolar, row.nuclear, row.hidraulicaUGH, row.hidraulicaNoUGH),
+      demandaResidual: subtractIfPresent(row.demandaPrevista, row.eolica, row.fotovoltaica, row.termosolar),
+      coberturaRenovablePct: ratioPct(renovable, row.demandaPrevista),
+      eolicaSobreDemandaPct: ratioPct(row.eolica, row.demandaPrevista),
+      solarSobreDemandaPct: ratioPct(solar, row.demandaPrevista),
+      hidraulicaSobreDemandaPct: ratioPct(hidraulica, row.demandaPrevista),
+      nuclearSobreDemandaPct: ratioPct(row.nuclear, row.demandaPrevista),
+      rampaDemanda: null,
+      rampaEolica: null,
+      rampaSolar: null,
+      rampaHuecoTermico: null,
+      rampaPrecioOmie: null
+    };
+  });
+
+  for (let index = 1; index < enriched.length; index += 1) {
+    const previous = enriched[index - 1];
+    const current = enriched[index];
+    current.rampaDemanda = difference(current.demandaPrevista, previous.demandaPrevista);
+    current.rampaEolica = difference(current.eolica, previous.eolica);
+    current.rampaSolar = difference(sumNullable(current.fotovoltaica, current.termosolar), sumNullable(previous.fotovoltaica, previous.termosolar));
+    current.rampaHuecoTermico = difference(current.huecoTermico, previous.huecoTermico);
+    current.rampaPrecioOmie = difference(current.precioOmie, previous.precioOmie);
+  }
+
+  return enriched;
+}
+
+function buildFeatureValues(row: EnrichedForecastRow) {
+  const features: Record<string, number | null> = {};
+  for (const feature of NUMERIC_FEATURES) {
+    const value = row[feature];
+    features[feature] = typeof value === "boolean" ? (value ? 1 : 0) : value;
+  }
+  for (const feature of SEASON_FEATURES) {
+    features[feature] = feature === `season_${row.season}` ? 1 : 0;
+  }
+  return features;
+}
+
+function buildCompleteTrainingRows(rows: EnrichedForecastRow[], featureMatrix: Array<Record<string, number | null>>, featureNames: string[]): ForecastFeatureRow[] {
+  return rows
+    .map((row, index) => {
+      const features = Object.fromEntries(featureNames.map((feature) => [feature, featureMatrix[index][feature]]));
+      return { timestampUtc: row.timestampUtc, target: row.precioOmie as number, features };
+    })
+    .filter((row): row is ForecastFeatureRow => featureNames.every((feature) => isFiniteNumber(row.features[feature])));
+}
+
+function coveragePct(rows: Array<Record<string, number | null>>, feature: string) {
+  if (rows.length === 0) {
+    return 0;
+  }
+  return round((rows.filter((row) => isFiniteNumber(row[feature])).length / rows.length) * 100);
+}
+
+function subtractIfPresent(base: number | null, ...values: Array<number | null>) {
+  if (!isFiniteNumber(base) || values.some((value) => !isFiniteNumber(value))) {
+    return null;
+  }
+  return round(values.reduce((result: number, value) => result - (value as number), base));
+}
+
+function sumNullable(...values: Array<number | null>) {
+  if (values.some((value) => !isFiniteNumber(value))) {
+    return null;
+  }
+  return round(values.reduce((sum: number, value) => sum + (value as number), 0));
+}
+
+function ratioPct(numerator: number | null, denominator: number | null) {
+  if (!isFiniteNumber(numerator) || !isFiniteNumber(denominator) || denominator === 0) {
+    return null;
+  }
+  return round((numerator / denominator) * 100);
+}
+
+function difference(current: number | null, previous: number | null) {
+  if (!isFiniteNumber(current) || !isFiniteNumber(previous)) {
+    return null;
+  }
+  return round(current - previous);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function round(value: number) {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}

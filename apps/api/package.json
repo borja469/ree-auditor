@@ -5,6 +5,8 @@
   "scripts": {
     "prebuild": "prisma generate",
     "build": "nest build",
+    "test:mercado": "node --test -r ts-node/register/transpile-only src/mercado/mercado-indicator-mapping.service.spec.ts src/mercado/mercado-analytics.service.spec.ts src/mercado/mercado-dataset.service.spec.ts",
+    "test:forecast": "node --test -r ts-node/register/transpile-only src/forecast/forecast.service.spec.ts",
     "format": "prettier --write \"src/**/*.ts\" \"prisma/**/*.prisma\"",
     "lint": "eslint \"src/**/*.ts\"",
     "start": "nest start",
