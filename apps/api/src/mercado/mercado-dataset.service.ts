@@ -4,6 +4,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { MERCADO_ESIOS_VARIABLES, MercadoEsiosVariable, MercadoIndicatorMappingService, MercadoResolvedIndicatorMapping } from "./mercado-indicator-mapping.service";
 
 const DATASET_VARIABLES = MERCADO_ESIOS_VARIABLES;
+const NUCLEAR_AVAILABLE_POWER_INDICATOR_ID = 474;
 
 type MercadoDatasetVariable = MercadoEsiosVariable;
 
@@ -44,6 +45,7 @@ type MercadoDatasetRow = {
   fotovoltaica: number | null;
   termosolar: number | null;
   nuclear: number | null;
+  nuclearDisponibleMw: number | null;
   hidraulicaUGH: number | null;
   hidraulicaNoUGH: number | null;
   bombeo: number | null;
@@ -63,12 +65,13 @@ export class MercadoDatasetService {
     const { startDate, endDate } = resolveDateRange(options);
     const mapping = await this.mercadoIndicatorMappingService.resolveDatasetMapping();
     const timestamps = buildHourlyTimestamps(startDate, endDate);
-    const [priceMap, esiosMap] = await Promise.all([
+    const [priceMap, esiosMap, nuclearAvailabilityMap] = await Promise.all([
       this.loadOmieDailyMarketPrices(startDate, endDate),
-      this.loadEsiosVariables(startDate, endDate, mapping, options.geoId)
+      this.loadEsiosVariables(startDate, endDate, mapping, options.geoId),
+      this.loadNuclearAvailablePower(startDate, endDate)
     ]);
 
-    const rows = timestamps.map((timestamp) => buildDatasetRow(timestamp, priceMap, esiosMap));
+    const rows = timestamps.map((timestamp) => buildDatasetRow(timestamp, priceMap, esiosMap, nuclearAvailabilityMap));
     const limitedRows = options.take && options.take > 0 ? rows.slice(0, options.take) : rows;
 
     return {
@@ -80,7 +83,7 @@ export class MercadoDatasetService {
       mapping: serializeMapping(mapping),
       columns: {
         originales: ["precioOmie", ...DATASET_VARIABLES],
-        derivadas: [],
+        derivadas: ["nuclearDisponibleMw"],
         calendario: ["timestampUtc", "datetimeLocal", "date", "year", "month", "day", "hour", "weekday", "season", "isWeekend"],
         calidad: ["missingVariables", "dataQualityStatus"]
       },
@@ -303,12 +306,40 @@ export class MercadoDatasetService {
     }
     return values;
   }
+
+  private async loadNuclearAvailablePower(startDate: Date, endDate: Date) {
+    const rows = await this.prisma.esiosIndicatorValue.findMany({
+      where: {
+        indicatorId: NUCLEAR_AVAILABLE_POWER_INDICATOR_ID,
+        datetimeUtc: {
+          gte: startDate,
+          lt: addDays(endDate, 1)
+        }
+      },
+      select: {
+        datetimeUtc: true,
+        value: true
+      },
+      orderBy: [{ datetimeUtc: "asc" }, { geoKey: "asc" }]
+    });
+
+    const values = new Map<string, number>();
+    for (const row of rows) {
+      if (!row.datetimeUtc || row.value === null) {
+        continue;
+      }
+      const hourKey = truncateToUtcHour(row.datetimeUtc).toISOString();
+      values.set(hourKey, round((values.get(hourKey) ?? 0) + Number(row.value.toString())));
+    }
+    return values;
+  }
 }
 
 function buildDatasetRow(
   timestamp: Date,
   priceMap: Map<string, number>,
-  esiosMap: Map<string, Partial<Record<MercadoDatasetVariable, number>>>
+  esiosMap: Map<string, Partial<Record<MercadoDatasetVariable, number>>>,
+  nuclearAvailabilityMap: Map<string, number>
 ): MercadoDatasetRow {
   const timestampUtc = timestamp.toISOString();
   const local = utcToMadridDateParts(timestamp);
@@ -330,6 +361,7 @@ function buildDatasetRow(
     fotovoltaica: esiosValues.fotovoltaica ?? null,
     termosolar: esiosValues.termosolar ?? null,
     nuclear: esiosValues.nuclear ?? null,
+    nuclearDisponibleMw: nuclearAvailabilityMap.get(timestampUtc) ?? null,
     hidraulicaUGH: esiosValues.hidraulicaUGH ?? null,
     hidraulicaNoUGH: esiosValues.hidraulicaNoUGH ?? null,
     bombeo: esiosValues.bombeo ?? null,

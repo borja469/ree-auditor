@@ -28,6 +28,7 @@ type MercadoBaseRow = {
   fotovoltaica: number | null;
   termosolar: number | null;
   nuclear: number | null;
+  nuclearDisponibleMw: number | null;
   hidraulicaUGH: number | null;
   hidraulicaNoUGH: number | null;
   bombeo: number | null;
@@ -44,6 +45,8 @@ type EnrichedForecastRow = MercadoBaseRow & {
   solarSobreDemandaPct: number | null;
   hidraulicaSobreDemandaPct: number | null;
   nuclearSobreDemandaPct: number | null;
+  nuclearDisponibleSobreDemandaPct: number | null;
+  nuclearPressureLow: number | null;
   renewablePressurePct: number | null;
   residualDemandLow: number | null;
   solarPressureHigh: number | null;
@@ -68,6 +71,9 @@ const NUMERIC_FEATURES = [
   "solarSobreDemandaPct",
   "hidraulicaSobreDemandaPct",
   "nuclearSobreDemandaPct",
+  "nuclearDisponibleMw",
+  "nuclearDisponibleSobreDemandaPct",
+  "nuclearPressureLow",
   "renewablePressurePct",
   "residualDemandLow",
   "solarPressureHigh",
@@ -104,6 +110,9 @@ const LINEAR_BASELINE_FEATURES = new Set([
   "renewablePressurePct",
   "residualDemandLow",
   "solarPressureHigh",
+  "nuclearDisponibleMw",
+  "nuclearDisponibleSobreDemandaPct",
+  "nuclearPressureLow",
   "precioGasMibgas",
   "rampaDemanda",
   "rampaEolica",
@@ -115,6 +124,7 @@ const LINEAR_BASELINE_FEATURES = new Set([
 ]);
 const MIN_FEATURE_COVERAGE_PCT = 50;
 const MIN_TRAINING_ROWS = 24;
+const NUCLEAR_AVAILABLE_LOW_THRESHOLD_MW = 7_000;
 
 @Injectable()
 export class ForecastDatasetBuilderService {
@@ -402,6 +412,8 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       solarSobreDemandaPct,
       hidraulicaSobreDemandaPct: ratioPct(hidraulica, row.demandaPrevista),
       nuclearSobreDemandaPct: ratioPct(row.nuclear, row.demandaPrevista),
+      nuclearDisponibleSobreDemandaPct: ratioPct(row.nuclearDisponibleMw, row.demandaPrevista),
+      nuclearPressureLow: positiveGap(row.nuclearDisponibleMw, NUCLEAR_AVAILABLE_LOW_THRESHOLD_MW, 100),
       renewablePressurePct: ratioPct(forecastRenewable, row.demandaPrevista),
       residualDemandLow: positiveGap(demandaResidual, 12_000, 1_000),
       solarPressureHigh: positiveExcess(solarSobreDemandaPct, 55),

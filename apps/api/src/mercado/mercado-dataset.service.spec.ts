@@ -3,7 +3,7 @@ const { describe, it } = require("node:test");
 const { MercadoDatasetService } = require("./mercado-dataset.service");
 
 void describe("MercadoDatasetService", () => {
-  void it("incluye fotovoltaica, termosolar y nuclear en el dataset horario cuando hay datos", async () => {
+  void it("incluye fotovoltaica, termosolar, nuclear y disponibilidad nuclear en el dataset horario cuando hay datos", async () => {
     const service = new MercadoDatasetService(mockPrisma(), mockMappingService() as never);
 
     const result = await service.buildHourlyDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-01", take: 1 });
@@ -12,6 +12,7 @@ void describe("MercadoDatasetService", () => {
     assert.equal(first.fotovoltaica, 40);
     assert.equal(first.termosolar, 5);
     assert.equal(first.nuclear, 100);
+    assert.equal(first.nuclearDisponibleMw, 7000);
     assert.equal(first.dataQualityStatus, "complete");
   });
 
@@ -67,6 +68,7 @@ function mockPrisma(options: { partialNuclear?: boolean } = {}) {
     ...indicatorRows(542, 40, 24),
     ...indicatorRows(543, 5, 24),
     ...indicatorRows(549, 100, options.partialNuclear ? 12 : 24),
+    ...nuclearAvailabilityRows(24),
     ...indicatorRows(1, 20, 24),
     ...indicatorRows(2, 10, 24),
     ...indicatorRows(25, 3, 24),
@@ -97,4 +99,23 @@ function indicatorRows(indicatorId: number, value: number, hours: number) {
     geoName: "Peninsula",
     value
   }));
+}
+
+function nuclearAvailabilityRows(hours: number) {
+  const centrales = [
+    { geoId: 35, geoName: "Valencia", value: 2000 },
+    { geoId: 37, geoName: "Caceres", value: 1800 },
+    { geoId: 42, geoName: "Tarragona", value: 1700 },
+    { geoId: 60, geoName: "Guadalajara", value: 1500 }
+  ];
+  return Array.from({ length: hours }, (_, index) =>
+    centrales.map((central) => ({
+      indicatorId: 474,
+      datetimeUtc: new Date(Date.UTC(2026, 0, 1, index)),
+      geoId: central.geoId,
+      geoKey: central.geoId,
+      geoName: central.geoName,
+      value: central.value
+    }))
+  ).flat();
 }
