@@ -51,6 +51,9 @@ void describe("Forecast prediction engine", () => {
     assert.equal(dataset.featureNames.includes("demandaPrevista"), true);
     assert.equal(dataset.featureNames.includes("demandaResidual"), true);
     assert.equal(dataset.featureNames.includes("solarSobreDemandaPct"), true);
+    assert.equal(dataset.featureNames.includes("renewablePressurePct"), true);
+    assert.equal(dataset.featureNames.includes("residualDemandLow"), true);
+    assert.equal(dataset.featureNames.includes("solarPressureHigh"), true);
     assert.equal(dataset.featureNames.includes("nuclear"), false);
     assert.equal(dataset.excludedFeatures.some((item: { variable: string }) => item.variable === "nuclear"), true);
     assert.equal(dataset.rows.every((row: { features: Record<string, number> }) => Number.isFinite(row.features.demandaPrevista)), true);

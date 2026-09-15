@@ -44,6 +44,9 @@ type EnrichedForecastRow = MercadoBaseRow & {
   solarSobreDemandaPct: number | null;
   hidraulicaSobreDemandaPct: number | null;
   nuclearSobreDemandaPct: number | null;
+  renewablePressurePct: number | null;
+  residualDemandLow: number | null;
+  solarPressureHigh: number | null;
   rampaDemanda: number | null;
   rampaEolica: number | null;
   rampaSolar: number | null;
@@ -65,6 +68,9 @@ const NUMERIC_FEATURES = [
   "solarSobreDemandaPct",
   "hidraulicaSobreDemandaPct",
   "nuclearSobreDemandaPct",
+  "renewablePressurePct",
+  "residualDemandLow",
+  "solarPressureHigh",
   "eolica",
   "fotovoltaica",
   "termosolar",
@@ -95,6 +101,9 @@ const LINEAR_BASELINE_FEATURES = new Set([
   "eolicaSobreDemandaPct",
   "fotovoltaica",
   "solarSobreDemandaPct",
+  "renewablePressurePct",
+  "residualDemandLow",
+  "solarPressureHigh",
   "precioGasMibgas",
   "rampaDemanda",
   "rampaEolica",
@@ -362,16 +371,22 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
     const solar = solarGeneration(row);
     const hidraulica = sumNullable(row.hidraulicaUGH, row.hidraulicaNoUGH);
     const renovable = sumNullable(row.eolica, row.fotovoltaica, row.termosolar, row.hidraulicaUGH, row.hidraulicaNoUGH);
+    const forecastRenewable = sumNullable(row.eolica, solar);
+    const demandaResidual = subtractIfPresent(row.demandaPrevista, row.eolica, solar);
+    const solarSobreDemandaPct = ratioPct(solar, row.demandaPrevista);
     return {
       ...row,
       festivoNacional: false,
       huecoTermico: subtractIfPresent(row.demandaPrevista, row.eolica, row.fotovoltaica, row.termosolar, row.nuclear, row.hidraulicaUGH, row.hidraulicaNoUGH),
-      demandaResidual: subtractIfPresent(row.demandaPrevista, row.eolica, solar),
+      demandaResidual,
       coberturaRenovablePct: ratioPct(renovable, row.demandaPrevista),
       eolicaSobreDemandaPct: ratioPct(row.eolica, row.demandaPrevista),
-      solarSobreDemandaPct: ratioPct(solar, row.demandaPrevista),
+      solarSobreDemandaPct,
       hidraulicaSobreDemandaPct: ratioPct(hidraulica, row.demandaPrevista),
       nuclearSobreDemandaPct: ratioPct(row.nuclear, row.demandaPrevista),
+      renewablePressurePct: ratioPct(forecastRenewable, row.demandaPrevista),
+      residualDemandLow: positiveGap(demandaResidual, 12_000, 1_000),
+      solarPressureHigh: positiveExcess(solarSobreDemandaPct, 55),
       rampaDemanda: null,
       rampaEolica: null,
       rampaSolar: null,
@@ -447,6 +462,20 @@ function ratioPct(numerator: number | null, denominator: number | null) {
     return null;
   }
   return round((numerator / denominator) * 100);
+}
+
+function positiveGap(value: number | null, threshold: number, divisor = 1) {
+  if (!isFiniteNumber(value)) {
+    return null;
+  }
+  return round(Math.max(0, threshold - value) / divisor);
+}
+
+function positiveExcess(value: number | null, threshold: number) {
+  if (!isFiniteNumber(value)) {
+    return null;
+  }
+  return round(Math.max(0, value - threshold));
 }
 
 function difference(current: number | null, previous: number | null) {
