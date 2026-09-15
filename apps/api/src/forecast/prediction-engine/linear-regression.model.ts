@@ -40,6 +40,8 @@ export class LinearRegressionModel implements PredictionModel {
       );
       return {
         timestampUtc: row.timestampUtc,
+        date: row.date,
+        datetimeLocal: row.datetimeLocal,
         actual: row.target,
         predicted: round(predicted),
         residual: round(row.target - predicted)

@@ -1,5 +1,7 @@
 export type ForecastFeatureRow = {
   timestampUtc: string;
+  date?: string;
+  datetimeLocal?: string;
   target: number;
   features: Record<string, number>;
 };
@@ -24,6 +26,8 @@ export type ForecastDataset = {
 
 export type PredictionResult = {
   timestampUtc: string;
+  date?: string;
+  datetimeLocal?: string;
   actual: number;
   predicted: number;
   residual: number;

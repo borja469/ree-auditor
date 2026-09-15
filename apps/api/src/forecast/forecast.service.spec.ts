@@ -240,6 +240,21 @@ void describe("Forecast prediction engine", () => {
     assert.equal(runStore.runs[0].usuario, "operaciones");
   });
 
+  void it("agrupa predicciones por fecha local de mercado aunque los timestamps UTC crucen dia", async () => {
+    const evaluation = new ForecastEvaluationService();
+    const factory = new ForecastModelFactory(evaluation);
+    const store = mockModelStore({ variablesUtilizadas: ["demandaPrevista"], intercepto: 1, coeficientes: { demandaPrevista: 0.5 } });
+    const prediction = new ForecastPredictionService(store, new ForecastDatasetBuilderService(mockMercadoDatasetServiceMadridDay(), mockMappingService()), factory, mockPredictionRunStore());
+
+    const result = await prediction.predictRange({ modeloId: "11111111-1111-4111-8111-111111111111", fechaDesde: "2026-09-16", fechaHasta: "2026-09-16" });
+
+    assert.equal(result.predicciones.length, 1);
+    assert.equal(result.predicciones[0].fecha, "2026-09-16");
+    assert.equal(result.predicciones[0].prediccionesHorarias.length, 24);
+    assert.equal(result.predicciones[0].prediccionesHorarias[0].timestampUtc, "2026-09-15T22:00:00.000Z");
+    assert.equal(result.predicciones[0].prediccionesHorarias[0].datetimeLocal, "2026-09-16T00:00:00");
+  });
+
   void it("guarda auditoria de predicciones y filtra historico", async () => {
     const store = new ForecastPredictionRunStoreService(mockPrisma());
 
@@ -334,6 +349,22 @@ function mockMercadoDatasetServiceByDateRange() {
       const fechaDesde = options?.fechaDesde ?? "2026-01-01";
       const fechaHasta = options?.fechaHasta ?? fechaDesde;
       const rows = rowsForDateRange(fechaDesde, fechaHasta);
+      return {
+        filters: { fechaDesde, fechaHasta, geoId: null },
+        totalRows: rows.length,
+        returnedRows: rows.length,
+        rows
+      };
+    }
+  };
+}
+
+function mockMercadoDatasetServiceMadridDay() {
+  return {
+    buildHourlyDataset: async (options?: { fechaDesde?: string; fechaHasta?: string }) => {
+      const fechaDesde = options?.fechaDesde ?? "2026-09-16";
+      const fechaHasta = options?.fechaHasta ?? fechaDesde;
+      const rows = madridRowsForDateRange(fechaDesde, fechaHasta);
       return {
         filters: { fechaDesde, fechaHasta, geoId: null },
         totalRows: rows.length,
@@ -624,4 +655,22 @@ function rowForDateHour(date: string, dayIndex: number, hour: number) {
     missingVariables: ["nuclear"],
     dataQualityStatus: "partial"
   };
+}
+
+function madridRowsForDateRange(fechaDesde: string, fechaHasta: string) {
+  const rows = [];
+  const start = new Date(`${fechaDesde}T00:00:00.000Z`);
+  const end = new Date(`${fechaHasta}T00:00:00.000Z`);
+  for (let date = new Date(start), dayIndex = 0; date <= end; date.setUTCDate(date.getUTCDate() + 1), dayIndex += 1) {
+    const dateText = date.toISOString().slice(0, 10);
+    for (let hour = 0; hour < 24; hour += 1) {
+      const timestamp = new Date(Date.UTC(Number(dateText.slice(0, 4)), Number(dateText.slice(5, 7)) - 1, Number(dateText.slice(8, 10)), hour - 2));
+      rows.push({
+        ...rowForDateHour(dateText, dayIndex, hour),
+        timestampUtc: timestamp.toISOString(),
+        datetimeLocal: `${dateText}T${String(hour).padStart(2, "0")}:00:00`
+      });
+    }
+  }
+  return rows;
 }

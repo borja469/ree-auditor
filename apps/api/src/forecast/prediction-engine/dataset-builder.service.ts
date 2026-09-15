@@ -236,9 +236,13 @@ export class ForecastDatasetBuilderService {
     const rows = enrichedRows
       .map((row, index) => {
         const features = Object.fromEntries(usableFeatures.map((feature) => [feature, featureMatrix[index][feature]]));
-        return { timestampUtc: row.timestampUtc, target: isFiniteNumber(row.precioOmie) ? row.precioOmie : 0, features };
+        return { timestampUtc: row.timestampUtc, date: row.date, datetimeLocal: row.datetimeLocal, target: isFiniteNumber(row.precioOmie) ? row.precioOmie : 0, features };
       })
-      .filter((row): row is ForecastFeatureRow => usableFeatures.every((feature) => isFiniteNumber(row.features[feature])));
+      .filter((row) => usableFeatures.every((feature) => isFiniteNumber(row.features[feature])))
+      .map((row): ForecastFeatureRow => ({
+        ...row,
+        features: Object.fromEntries(usableFeatures.map((feature) => [feature, row.features[feature] as number]))
+      }));
 
     if (rows.length === 0) {
       const missingFeatures = usableFeatures.filter((feature) => (featureCoverage.get(feature) ?? 0) === 0);
@@ -438,9 +442,13 @@ function buildCompleteTrainingRows(rows: EnrichedForecastRow[], featureMatrix: A
   return rows
     .map((row, index) => {
       const features = Object.fromEntries(featureNames.map((feature) => [feature, featureMatrix[index][feature]]));
-      return { timestampUtc: row.timestampUtc, target: row.precioOmie as number, features };
+      return { timestampUtc: row.timestampUtc, date: row.date, datetimeLocal: row.datetimeLocal, target: row.precioOmie as number, features };
     })
-    .filter((row): row is ForecastFeatureRow => featureNames.every((feature) => isFiniteNumber(row.features[feature])));
+    .filter((row) => featureNames.every((feature) => isFiniteNumber(row.features[feature])))
+    .map((row): ForecastFeatureRow => ({
+      ...row,
+      features: Object.fromEntries(featureNames.map((feature) => [feature, row.features[feature] as number]))
+    }));
 }
 
 function coveragePct(rows: Array<Record<string, number | null>>, feature: string) {

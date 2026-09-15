@@ -54,6 +54,7 @@ export class ForecastPredictionService {
       intervalosConfianza: null as ForecastConfidenceInterval,
       prediccionesHorarias: predictions.map((row) => ({
         timestampUtc: row.timestampUtc,
+        datetimeLocal: row.datetimeLocal,
         precioPrevisto: row.predicted
       }))
     };
@@ -84,7 +85,7 @@ export class ForecastPredictionService {
     });
     const predictions = await model.predict(dataset);
     validatePredictionRange(predictions);
-    const grouped = groupPredictionsByDate(predictions.map((row) => ({ timestampUtc: row.timestampUtc, precioPrevisto: row.predicted })));
+    const grouped = groupPredictionsByDate(predictions.map((row) => ({ timestampUtc: row.timestampUtc, date: row.date, datetimeLocal: row.datetimeLocal, precioPrevisto: row.predicted })));
     const output = {
       modeloId: storedModel.id,
       modelo: storedModel.tipo,
@@ -148,11 +149,11 @@ function round(value: number) {
   return Math.round(value * 1_000_000) / 1_000_000;
 }
 
-function groupPredictionsByDate(rows: Array<{ timestampUtc: string; precioPrevisto: number }>) {
-  const grouped = new Map<string, Array<{ timestampUtc: string; precioPrevisto: number }>>();
+function groupPredictionsByDate(rows: Array<{ timestampUtc: string; date?: string; datetimeLocal?: string; precioPrevisto: number }>) {
+  const grouped = new Map<string, Array<{ timestampUtc: string; datetimeLocal?: string; precioPrevisto: number }>>();
   for (const row of rows) {
-    const date = row.timestampUtc.slice(0, 10);
-    grouped.set(date, [...(grouped.get(date) ?? []), row]);
+    const date = row.date ?? row.datetimeLocal?.slice(0, 10) ?? row.timestampUtc.slice(0, 10);
+    grouped.set(date, [...(grouped.get(date) ?? []), { timestampUtc: row.timestampUtc, datetimeLocal: row.datetimeLocal, precioPrevisto: row.precioPrevisto }]);
   }
   return [...grouped.entries()].map(([fecha, prediccionesHorarias]) => ({
     fecha,

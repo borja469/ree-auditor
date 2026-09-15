@@ -75,6 +75,8 @@ export class RandomForestModel implements PredictionModel {
       const predicted = mean(this.trees.map((tree) => predictTree(tree, features)));
       return {
         timestampUtc: row.timestampUtc,
+        date: row.date,
+        datetimeLocal: row.datetimeLocal,
         actual: row.target,
         predicted: round(predicted),
         residual: round(row.target - predicted)
