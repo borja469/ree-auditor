@@ -119,6 +119,17 @@ body {
   border-bottom: 1px solid #d7e2ea;
 }
 
+.topbar-title-block {
+  min-width: 0;
+}
+
+.topbar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .topbar h1 {
   font-size: clamp(1.25rem, 1.6vw, 1.7rem);
   line-height: 1.18;
@@ -128,6 +139,167 @@ body {
   display: flex;
   gap: 8px;
   align-items: center;
+  min-width: 0;
+}
+
+.favorite-toggle,
+.favorites-menu-button,
+.favorite-inline-link,
+.favorites-remove-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  font-weight: 850;
+}
+
+.favorite-toggle {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  color: #b6c7d2;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+}
+
+.favorite-toggle:hover:not(:disabled),
+.favorite-toggle.active {
+  color: #f8d36b;
+  background: rgba(248, 211, 107, 0.14);
+  border-color: rgba(248, 211, 107, 0.34);
+}
+
+.favorites-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+.favorite-inline-link,
+.favorites-menu-button {
+  min-height: 34px;
+  color: #d8e8ef;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  font-size: 0.78rem;
+}
+
+.favorite-inline-link {
+  max-width: 154px;
+  padding: 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorite-inline-link:hover,
+.favorite-inline-link.active,
+.favorites-menu-button:hover:not(:disabled),
+.favorites-menu-button.active {
+  color: #ffffff;
+  background: #1d3a4d;
+  border-color: #31566b;
+}
+
+.favorites-menu-button {
+  gap: 6px;
+  padding: 0 10px;
+}
+
+.favorites-menu-button small {
+  display: inline-grid;
+  min-width: 18px;
+  height: 18px;
+  place-items: center;
+  color: #162633;
+  background: #f8d36b;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 950;
+}
+
+.favorites-dropdown {
+  position: absolute;
+  z-index: 70;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(320px, calc(100vw - 32px));
+  max-height: min(420px, calc(100vh - 96px));
+  overflow-y: auto;
+  padding: 8px;
+  color: #17313f;
+  background: #ffffff;
+  border: 1px solid #d8e2e8;
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgba(7, 20, 25, 0.22);
+}
+
+.favorites-dropdown > strong {
+  padding: 6px 8px 8px;
+  color: #17445c;
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
+.favorites-dropdown-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 5px;
+  border-radius: 7px;
+}
+
+.favorites-dropdown-row.active {
+  background: #e8f1f5;
+}
+
+.favorites-dropdown-link {
+  display: grid;
+  min-width: 0;
+  padding: 8px;
+  color: #17313f;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+
+.favorites-dropdown-link span,
+.favorites-dropdown-link small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.favorites-dropdown-link span {
+  font-size: 0.84rem;
+  font-weight: 900;
+}
+
+.favorites-dropdown-link small {
+  margin-top: 2px;
+  color: #607482;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.favorites-remove-button {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: #607482;
+  background: transparent;
+  border-radius: 7px;
+}
+
+.favorites-remove-button:hover {
+  color: #991b1b;
+  background: #fee2e2;
 }
 
 .session-user {
@@ -583,6 +755,10 @@ body {
 
   .topbar {
     padding: 16px 22px;
+  }
+
+  .favorite-inline-link {
+    display: none;
   }
 
   .ops-kpi-grid,
@@ -4633,6 +4809,29 @@ select:disabled {
 }
 
 @media (max-width: 720px) {
+  .topbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .topbar-actions {
+    justify-content: space-between;
+  }
+
+  .favorites-menu {
+    flex: 1 1 auto;
+  }
+
+  .favorites-menu-button {
+    max-width: 100%;
+  }
+
+  .favorites-menu-button span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .gas-mibgas-header-main {
     display: grid;
   }

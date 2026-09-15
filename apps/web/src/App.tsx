@@ -38,6 +38,7 @@ import {
 import { TechnicalDataTable } from "./components/technical-data-table/TechnicalDataTable";
 import { TechnicalDataRow } from "./components/technical-data-table/TechnicalDataTable";
 import { SidebarSection } from "./app-shell/Sidebar";
+import { FavoriteToggle, FavoritesMenu, buildFavoriteTargets, findActiveFavoriteTarget, useNavigationFavorites } from "./app-shell/Favorites";
 import {
   activeSidebarGroupKeys,
   activeSidebarItemKeys,
@@ -2290,6 +2291,10 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     }
   ];
   const showGlobalUploadBand = false;
+  const favoriteTargets = useMemo(() => buildFavoriteTargets(sidebarGroups), [sidebarGroups]);
+  const activeFavoriteTarget = findActiveFavoriteTarget(favoriteTargets);
+  const navigationFavorites = useNavigationFavorites(user, favoriteTargets);
+  const currentSectionIsFavorite = navigationFavorites.isFavorite(activeFavoriteTarget);
 
   return (
     <div className={`app-layout ${appBusy ? "is-busy" : ""}`} aria-busy={appBusy}>
@@ -2321,11 +2326,28 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 
         <main className="app-shell">
           <header className="topbar">
-            <div>
+            <div className="topbar-title-block">
               <p className="eyebrow">Operacional</p>
-              <h1>{workspaceTitle}</h1>
+              <div className="topbar-title-row">
+                <h1>{workspaceTitle}</h1>
+                <FavoriteToggle
+                  disabled={isBusy}
+                  isFavorite={currentSectionIsFavorite}
+                  target={activeFavoriteTarget}
+                  onToggle={() => {
+                    if (activeFavoriteTarget) {
+                      navigationFavorites.toggleFavorite(activeFavoriteTarget);
+                    }
+                  }}
+                />
+              </div>
             </div>
             <div className="topbar-actions">
+              <FavoritesMenu
+                favorites={navigationFavorites.favorites}
+                onNavigate={(favorite) => favorite.onSelect()}
+                onRemove={(favorite) => navigationFavorites.removeFavorite(favorite.id)}
+              />
               <span className="session-user">{user}</span>
               <button className="icon-button" onClick={refreshCurrent} disabled={isBusy} title="Actualizar">
                 {loading ? <LoadingSquares compact /> : <RefreshCw size={18} />}
