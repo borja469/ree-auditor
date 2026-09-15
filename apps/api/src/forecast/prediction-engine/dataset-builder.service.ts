@@ -87,8 +87,10 @@ const LINEAR_BASELINE_FEATURES = new Set([
   "festivoNacional",
   "demandaPrevista",
   "eolica",
+  "fotovoltaica",
   "rampaDemanda",
   "rampaEolica",
+  "rampaSolar",
   "season_winter",
   "season_spring",
   "season_summer",
@@ -267,7 +269,7 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
     const current = enriched[index];
     current.rampaDemanda = difference(current.demandaPrevista, previous.demandaPrevista);
     current.rampaEolica = difference(current.eolica, previous.eolica);
-    current.rampaSolar = difference(sumNullable(current.fotovoltaica, current.termosolar), sumNullable(previous.fotovoltaica, previous.termosolar));
+    current.rampaSolar = difference(solarGeneration(current), solarGeneration(previous));
     current.rampaHuecoTermico = difference(current.huecoTermico, previous.huecoTermico);
     current.rampaPrecioOmie = difference(current.precioOmie, previous.precioOmie);
   }
@@ -315,6 +317,13 @@ function sumNullable(...values: Array<number | null>) {
     return null;
   }
   return round(values.reduce((sum: number, value) => sum + (value as number), 0));
+}
+
+function solarGeneration(row: Pick<EnrichedForecastRow, "fotovoltaica" | "termosolar">) {
+  if (!isFiniteNumber(row.fotovoltaica)) {
+    return null;
+  }
+  return round(row.fotovoltaica + (isFiniteNumber(row.termosolar) ? row.termosolar : 0));
 }
 
 function ratioPct(numerator: number | null, denominator: number | null) {
