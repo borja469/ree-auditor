@@ -11,6 +11,7 @@ const { ForecastPredictionRunStoreService } = require("./forecast-prediction-run
 const { ForecastPredictionService } = require("./prediction.service");
 const { ForecastTrainingService } = require("./prediction-engine/training.service");
 const { ForecastValidationService } = require("./prediction-engine/validation.service");
+const { RandomForestModel } = require("./prediction-engine/random-forest.model");
 
 void describe("Forecast prediction engine", () => {
   void it("entrena una regresion lineal multiple usando la interfaz comun", async () => {
@@ -75,6 +76,32 @@ void describe("Forecast prediction engine", () => {
     assert.equal(typeof result.walkForwardMetricas.folds, "number");
     assert.equal(typeof result.tiempoEntrenamientoMs, "number");
     assert.equal(typeof result.coeficientes, "object");
+  });
+
+  void it("entrena y recarga randomForest para patrones no lineales", async () => {
+    const evaluation = new ForecastEvaluationService();
+    const model = new RandomForestModel(evaluation);
+    const dataset = makeNonLinearDataset();
+
+    const snapshot = await model.train(dataset);
+    const loaded = new RandomForestModel(evaluation);
+    await loaded.load(snapshot);
+    const predictions = await loaded.predict(dataset);
+
+    assert.equal(snapshot.model, "randomForest");
+    assert.deepEqual(snapshot.variables, ["solarPressureHigh", "demandaResidual", "precioGasMibgas"]);
+    assert.equal(typeof snapshot.coefficients.__rf_treeCount, "number");
+    assert.equal(predictions.length, dataset.rows.length);
+    assert.equal(snapshot.metrics.mae !== null && snapshot.metrics.mae < 15, true);
+  });
+
+  void it("expone randomForest como modelo disponible", () => {
+    const factory = new ForecastModelFactory(new ForecastEvaluationService());
+
+    const definitions = factory.listModels();
+
+    assert.equal(definitions.find((definition: { id: string }) => definition.id === "randomForest").status, "available");
+    assert.equal(factory.create("randomForest").name, "randomForest");
   });
 
   void it("activa modelos dejando solo uno activo", async () => {
@@ -471,6 +498,28 @@ function makeFeatureImportanceDataset() {
     featureNames: ["demandaPrevista", "eolica"],
     excludedFeatures: [],
     metadata: { fechaDesde: "2026-01-01", fechaHasta: "2026-01-02", totalRows: rows.length, targetRows: rows.length, trainingRows: rows.length, mappingVariables: 0 }
+  };
+}
+
+function makeNonLinearDataset() {
+  const rows = Array.from({ length: 240 }, (_, index) => {
+    const hour = index % 24;
+    const day = Math.floor(index / 24);
+    const solarPressureHigh = hour >= 10 && hour <= 17 ? 20 + (day % 3) : 0;
+    const demandaResidual = solarPressureHigh > 0 ? 8000 + day * 8 : 18000 + hour * 120;
+    const precioGasMibgas = 70 + (day % 5);
+    const target = solarPressureHigh > 0 && demandaResidual < 9500 ? 5 + (day % 2) : 80 + precioGasMibgas + hour * 1.5;
+    return {
+      timestampUtc: new Date(Date.UTC(2026, 0, 1, index)).toISOString(),
+      target,
+      features: { solarPressureHigh, demandaResidual, precioGasMibgas }
+    };
+  });
+  return {
+    rows,
+    featureNames: ["solarPressureHigh", "demandaResidual", "precioGasMibgas"],
+    excludedFeatures: [],
+    metadata: { fechaDesde: "2026-01-01", fechaHasta: "2026-01-10", totalRows: rows.length, targetRows: rows.length, trainingRows: rows.length, mappingVariables: 0 }
   };
 }
 
