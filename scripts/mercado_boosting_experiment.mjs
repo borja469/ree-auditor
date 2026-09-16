@@ -123,20 +123,49 @@ async function fetchDataset(args, token, from, to) {
 }
 
 async function fetchGas(args, token, from, to) {
-  const params = query({
+  const officialParams = query({
     product: "GDAES_D+1",
     placeOfDelivery: "PVB",
     area: "ES",
-    firstDayDelivery: from,
-    lastDayDelivery: to
+    deliveryFrom: from,
+    deliveryTo: to,
+    take: 10000
+  });
+  const manualParams = query({
+    product: "GDAES_D+1",
+    placeOfDelivery: "PVB",
+    area: "ES",
+    deliveryFrom: from,
+    deliveryTo: to,
+    take: 10000
   });
   try {
-    const result = await apiJson(args.baseUrl, `/gas/mibgas/history?${params}`, token);
-    const prices = new Map();
-    for (const row of result.rows || []) {
+    const [official, manual] = await Promise.all([
+      apiJson(args.baseUrl, `/gas/mibgas/prices?${officialParams}`, token),
+      apiJson(args.baseUrl, `/gas/mibgas/manual-prices?${manualParams}`, token)
+    ]);
+    const candidates = new Map();
+    for (const row of official.rows || []) {
       if (row.firstDayDelivery && row.priceEurMwh !== null && row.priceEurMwh !== undefined) {
-        prices.set(String(row.firstDayDelivery).slice(0, 10), Number(row.priceEurMwh));
+        const date = String(row.firstDayDelivery).slice(0, 10);
+        const values = candidates.get(date) || [];
+        values.push({ score: 1115, value: Number(row.priceEurMwh) });
+        candidates.set(date, values);
       }
+    }
+    for (const row of manual.rows || []) {
+      if (row.firstDayDelivery && row.priceEurMwh !== null && row.priceEurMwh !== undefined) {
+        const date = String(row.firstDayDelivery).slice(0, 10);
+        const values = candidates.get(date) || [];
+        values.push({ score: 615, value: Number(row.priceEurMwh) });
+        candidates.set(date, values);
+      }
+    }
+    const prices = new Map();
+    for (const [date, values] of candidates.entries()) {
+      const bestScore = Math.max(...values.map((item) => item.score));
+      const selected = values.filter((item) => item.score === bestScore);
+      prices.set(date, mean(selected.map((item) => item.value)));
     }
     return prices;
   } catch (error) {
