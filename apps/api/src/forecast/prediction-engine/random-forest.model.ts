@@ -32,7 +32,7 @@ type TrainingRow = {
 };
 
 export class RandomForestModel implements PredictionModel {
-  readonly name = "randomForest";
+  readonly name: string;
   private featureNames: string[] = [];
   private trees: TreeNode[] = [];
   private baseline = 0;
@@ -40,7 +40,12 @@ export class RandomForestModel implements PredictionModel {
   private metrics: EvaluationMetrics = { r: null, mae: null, rmse: null };
   private featureImportances = new Map<string, number>();
 
-  constructor(private readonly evaluationService: ForecastEvaluationService) {}
+  constructor(
+    private readonly evaluationService: ForecastEvaluationService,
+    modelName = "randomForest"
+  ) {
+    this.name = modelName;
+  }
 
   async train(dataset: ForecastDataset): Promise<TrainedModelSnapshot> {
     validateDataset(dataset);

@@ -9,6 +9,7 @@ type ForecastDatasetOptions = {
   fechaDesde?: string;
   fechaHasta?: string;
   geoId?: number;
+  modelo?: string;
 };
 
 type MercadoBaseRow = {
@@ -131,6 +132,36 @@ const LINEAR_BASELINE_FEATURES = new Set([
   "season_summer",
   "season_autumn"
 ]);
+const D1_SAFE_FEATURES = new Set([
+  "hour",
+  "month",
+  "weekday",
+  "isWeekend",
+  "festivoNacional",
+  "demandaPrevista",
+  "demandaResidual",
+  "eolica",
+  "eolicaSobreDemandaPct",
+  "fotovoltaica",
+  "solarSobreDemandaPct",
+  "renewablePressurePct",
+  "residualDemandLow",
+  "solarPressureHigh",
+  "nuclearDisponibleMw",
+  "nuclearDisponibleSobreDemandaPct",
+  "nuclearPressureLow",
+  "hidraulicaStorageIndex",
+  "hidraulicaStoragePctOfMax",
+  "hidraulicaStorageLow",
+  "precioGasMibgas",
+  "rampaDemanda",
+  "rampaEolica",
+  "rampaSolar",
+  "season_winter",
+  "season_spring",
+  "season_summer",
+  "season_autumn"
+]);
 const MIN_FEATURE_COVERAGE_PCT = 50;
 const MIN_TRAINING_ROWS = 24;
 const NUCLEAR_AVAILABLE_LOW_THRESHOLD_MW = 7_000;
@@ -164,6 +195,7 @@ export class ForecastDatasetBuilderService {
 
     const featureMatrix = targetRows.map((row) => buildFeatureValues(row));
     const candidates = Object.keys(featureMatrix[0] ?? {});
+    const allowedFeatures = featureAllowList(options.modelo);
     const excludedFeatures: ForecastDataset["excludedFeatures"] = [];
     const selectedFeatures: string[] = [];
 
@@ -172,10 +204,12 @@ export class ForecastDatasetBuilderService {
         excludedFeatures.push({ variable: feature, reason: "Variable no utilizable en prediccion porque depende del precio OMIE real.", coveragePct: coveragePct(featureMatrix, feature) });
         continue;
       }
-      if (!LINEAR_BASELINE_FEATURES.has(feature)) {
+      if (!allowedFeatures.has(feature)) {
         excludedFeatures.push({
           variable: feature,
-          reason: "Variable excluida del baseline lineal para evitar colinealidad e inestabilidad numerica.",
+          reason: isD1Model(options.modelo)
+            ? "Variable excluida del modelo D+1 porque no esta garantizada antes de la prediccion de manana."
+            : "Variable excluida del baseline lineal para evitar colinealidad e inestabilidad numerica.",
           coveragePct: coveragePct(featureMatrix, feature)
         });
         continue;
@@ -351,6 +385,14 @@ export class ForecastDatasetBuilderService {
       })
     );
   }
+}
+
+function featureAllowList(modelo?: string) {
+  return isD1Model(modelo) ? D1_SAFE_FEATURES : LINEAR_BASELINE_FEATURES;
+}
+
+function isD1Model(modelo?: string) {
+  return modelo?.trim().toLowerCase() === "randomforestd1";
 }
 
 function withGasPrices(rows: MercadoBaseRow[], gasPriceByDate: Map<string, number>): MercadoBaseRow[] {

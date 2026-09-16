@@ -60,6 +60,23 @@ void describe("Forecast prediction engine", () => {
     assert.equal(dataset.rows.every((row: { features: Record<string, number> }) => Number.isFinite(row.features.demandaPrevista)), true);
   });
 
+  void it("construye un dataset D+1 sin variables no garantizadas para manana", async () => {
+    const builder = new ForecastDatasetBuilderService(mockMercadoDatasetService(), mockMappingService());
+
+    const dataset = await builder.buildTrainingDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-02", modelo: "randomForestD1" });
+
+    assert.equal(dataset.featureNames.includes("demandaPrevista"), true);
+    assert.equal(dataset.featureNames.includes("fotovoltaica"), true);
+    assert.equal(dataset.featureNames.includes("nuclear"), false);
+    assert.equal(dataset.featureNames.includes("hidraulicaUGH"), false);
+    assert.equal(dataset.featureNames.includes("intercambios"), false);
+    assert.equal(dataset.featureNames.includes("huecoTermico"), false);
+    assert.equal(
+      dataset.excludedFeatures.some((item: { variable: string; reason: string }) => item.variable === "nuclear" && item.reason.includes("D+1")),
+      true
+    );
+  });
+
   void it("entrena desde ForecastTrainingService con factory desacoplada", async () => {
     const evaluation = new ForecastEvaluationService();
     const builder = new ForecastDatasetBuilderService(mockMercadoDatasetService(), mockMappingService());
@@ -95,13 +112,15 @@ void describe("Forecast prediction engine", () => {
     assert.equal(snapshot.metrics.mae !== null && snapshot.metrics.mae < 15, true);
   });
 
-  void it("expone randomForest como modelo disponible", () => {
+  void it("expone randomForest y randomForestD1 como modelos disponibles", () => {
     const factory = new ForecastModelFactory(new ForecastEvaluationService());
 
     const definitions = factory.listModels();
 
     assert.equal(definitions.find((definition: { id: string }) => definition.id === "randomForest").status, "available");
+    assert.equal(definitions.find((definition: { id: string }) => definition.id === "randomForestD1").status, "available");
     assert.equal(factory.create("randomForest").name, "randomForest");
+    assert.equal(factory.create("randomForestD1").name, "randomForestD1");
   });
 
   void it("activa modelos dejando solo uno activo", async () => {

@@ -11,7 +11,7 @@ export class TrainForecastDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(["linear", "randomForest", "xgboost", "lightgbm", "catboost", "prophet"])
+  @IsIn(["linear", "randomForest", "randomForestD1", "xgboost", "lightgbm", "catboost", "prophet"])
   modelo?: string;
 
   @IsOptional()
