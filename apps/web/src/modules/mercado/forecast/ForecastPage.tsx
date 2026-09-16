@@ -11,10 +11,11 @@ import type {
   ForecastPredictionRun,
   ForecastTrainResponse,
   GasMibgasManualPriceRow,
+  MercadoDatasetRow,
   MercadoCoverageDiagnosticsResponse,
   MercadoCoverageDiagnosticVariable
 } from "../../../api";
-import { downloadEsiosIndicator, getGasMibgasManualPrices, getMercadoCoverageDiagnostics, saveGasMibgasManualPrice } from "../../../api";
+import { downloadEsiosIndicator, getGasMibgasManualPrices, getMercadoCoverageDiagnostics, getMercadoDataset, saveGasMibgasManualPrice } from "../../../api";
 import { getTodayInputValue } from "../../../app-shell/AppState";
 import { downloadBlob } from "../../../components/technical-data-table/TechnicalDataTableHelpers";
 import { EChart, PanelTitle, formatDecimalNumber, formatNumber } from "../../shared/RestoredModuleCommon";
@@ -165,6 +166,8 @@ export function ForecastPage() {
       </div>
 
       <ForecastHourlyTable result={prediction.result} />
+
+      <ForecastActualComparisonPanel forecastDate={forecastDate} runs={historyForTarget} />
 
       <div className="mercado-dashboard-grid two">
         <ForecastFeatureImportance comparison={compare.result} detail={models.detail} prediction={prediction.result} />
@@ -794,6 +797,115 @@ export function ForecastPredictionHistory({
   );
 }
 
+type ForecastActualComparisonRow = {
+  datetimeLocal: string;
+  precioPrevisto: number;
+  precioReal: number;
+  error: number;
+  absError: number;
+};
+
+function ForecastActualComparisonPanel({ forecastDate, runs }: { forecastDate: string; runs: ForecastPredictionRun[] }) {
+  const [selectedRunId, setSelectedRunId] = useState("");
+  const [datasetRows, setDatasetRows] = useState<MercadoDatasetRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
+  const comparisonRows = useMemo(() => buildActualComparisonRows(selectedRun, datasetRows), [datasetRows, selectedRun]);
+  const metrics = useMemo(() => buildActualComparisonMetrics(comparisonRows), [comparisonRows]);
+
+  useEffect(() => {
+    setSelectedRunId(runs[0]?.id ?? "");
+  }, [forecastDate, runs]);
+
+  const loadReal = useCallback(async () => {
+    setLoading(true);
+    setError(undefined);
+    try {
+      const response = await getMercadoDataset({ fechaDesde: forecastDate, fechaHasta: forecastDate, take: 200 });
+      setDatasetRows(response.rows);
+    } catch (caught) {
+      setError(readError(caught));
+    } finally {
+      setLoading(false);
+    }
+  }, [forecastDate]);
+
+  useEffect(() => {
+    void loadReal();
+  }, [loadReal]);
+
+  return (
+    <section className="panel wide mercado-panel forecast-actual-panel">
+      <div className="mercado-panel-head">
+        <PanelTitle icon={<BarChart3 size={18} />} title="Real vs previsto" subtitle="comparacion con OMIE real cuando ya esta cargado" />
+        <div className="forecast-date-control">
+          <label className="filter-field">
+            <span>Run guardado</span>
+            <select value={selectedRun?.id ?? ""} onChange={(event) => setSelectedRunId(event.target.value)}>
+              {runs.length === 0 && <option value="">Sin runs</option>}
+              {runs.map((run) => (
+                <option key={run.id} value={run.id}>
+                  {formatDateTime(run.fechaEjecucion)} - {run.modeloId.slice(0, 8)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="secondary-button" disabled={loading} onClick={loadReal} type="button">
+            <RefreshCw size={16} />
+            OMIE real
+          </button>
+        </div>
+      </div>
+      {error && <div className="status-message error">{error}</div>}
+      {!selectedRun && <div className="empty-state">No hay prevision guardada para esta fecha.</div>}
+      {selectedRun && comparisonRows.length === 0 && !loading && (
+        <div className="empty-state">Sin cruce con OMIE real. Revisa que el precio real este cargado para {forecastDate}.</div>
+      )}
+      {selectedRun && comparisonRows.length > 0 && (
+        <>
+          <div className="forecast-result-grid">
+            <ForecastMiniMetric label="Horas comparadas" value={formatNumber(comparisonRows.length)} />
+            <ForecastMiniMetric label="Previsto medio" value={fmt(metrics.meanForecast)} />
+            <ForecastMiniMetric label="Real medio" value={fmt(metrics.meanActual)} />
+            <ForecastMiniMetric label="MAE" value={fmt(metrics.mae)} />
+            <ForecastMiniMetric label="RMSE" value={fmt(metrics.rmse)} />
+            <ForecastMiniMetric label="Bias" value={fmt(metrics.bias)} />
+          </div>
+          <div className="mercado-dashboard-grid two">
+            <EChart height={300} option={buildActualComparisonChart(comparisonRows)} />
+            <div className="mercado-table-shell forecast-actual-table">
+              <table className="mercado-table forecast-table compact">
+                <thead>
+                  <tr>
+                    <th>Hora</th>
+                    <th>Previsto</th>
+                    <th>Real OMIE</th>
+                    <th>Error</th>
+                    <th>Abs</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {comparisonRows.map((row) => (
+                    <tr key={row.datetimeLocal}>
+                      <td>{row.datetimeLocal.slice(11, 16)}</td>
+                      <td>{fmt(row.precioPrevisto)}</td>
+                      <td>{fmt(row.precioReal)}</td>
+                      <td>{fmt(row.error)}</td>
+                      <td>{fmt(row.absError)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function ForecastMiniMetric({ label, value }: { label: string; value: string }) {
   return <div className="technical-kpi"><span>{label}</span><strong>{value}</strong></div>;
 }
@@ -835,6 +947,21 @@ function buildImportanceChart(items: ForecastFeatureImportanceItem[]): EChartsOp
   };
 }
 
+function buildActualComparisonChart(rows: ForecastActualComparisonRow[]): EChartsOption {
+  return {
+    tooltip: { trigger: "axis" },
+    legend: { top: 0 },
+    grid: { left: 54, right: 20, top: 42, bottom: 42 },
+    dataZoom: [{ type: "inside" }],
+    xAxis: { type: "category", data: rows.map((row) => row.datetimeLocal.slice(11, 16)) },
+    yAxis: { type: "value" },
+    series: [
+      { name: "Previsto", type: "line", showSymbol: false, data: rows.map((row) => row.precioPrevisto) },
+      { name: "Real OMIE", type: "line", showSymbol: false, data: rows.map((row) => row.precioReal) }
+    ]
+  };
+}
+
 function flattenPredictionRows(result: ForecastPredictionRangeResponse | undefined) {
   return (result?.predicciones ?? []).flatMap((day) => day.prediccionesHorarias.map((row) => ({ fecha: day.fecha, ...row })));
 }
@@ -852,6 +979,50 @@ function readRunAverage(run: ForecastPredictionRun) {
   }
   const values = days.map((day) => day.precioMedioPrevisto).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+function buildActualComparisonRows(run: ForecastPredictionRun | undefined, datasetRows: MercadoDatasetRow[]): ForecastActualComparisonRow[] {
+  const output = run?.output as Partial<ForecastPredictionRangeResponse> | null | undefined;
+  const forecastRows = output?.predicciones?.flatMap((day) => day.prediccionesHorarias) ?? [];
+  const realByLocalTime = new Map(datasetRows.filter((row) => isFiniteNumber(row.precioOmie)).map((row) => [row.datetimeLocal, row.precioOmie as number]));
+  return forecastRows.flatMap((row) => {
+    const datetimeLocal = row.datetimeLocal;
+    if (!datetimeLocal || !isFiniteNumber(row.precioPrevisto)) {
+      return [];
+    }
+    const precioReal = realByLocalTime.get(datetimeLocal);
+    if (!isFiniteNumber(precioReal)) {
+      return [];
+    }
+    const error = row.precioPrevisto - precioReal;
+    return [{
+      datetimeLocal,
+      precioPrevisto: row.precioPrevisto,
+      precioReal,
+      error,
+      absError: Math.abs(error)
+    }];
+  });
+}
+
+function buildActualComparisonMetrics(rows: ForecastActualComparisonRow[]) {
+  if (rows.length === 0) {
+    return { meanForecast: null, meanActual: null, mae: null, rmse: null, bias: null };
+  }
+  const meanForecast = average(rows.map((row) => row.precioPrevisto));
+  const meanActual = average(rows.map((row) => row.precioReal));
+  const mae = average(rows.map((row) => row.absError));
+  const rmse = Math.sqrt(average(rows.map((row) => row.error * row.error)));
+  const bias = average(rows.map((row) => row.error));
+  return { meanForecast, meanActual, mae, rmse, bias };
+}
+
+function average(values: number[]) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function toggleValue(values: string[], value: string) {

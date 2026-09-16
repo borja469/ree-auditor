@@ -8546,6 +8546,15 @@ select:disabled {
   max-height: min(52vh, 540px);
 }
 
+.forecast-actual-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.forecast-actual-table {
+  max-height: 300px;
+}
+
 .forecast-table {
   min-width: 1120px;
 }
