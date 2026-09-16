@@ -62,15 +62,17 @@ void describe("Forecast prediction engine", () => {
   });
 
   void it("construye un dataset D+1 sin variables no garantizadas para manana", async () => {
-    const builder = new ForecastDatasetBuilderService(mockMercadoDatasetService(), mockMappingService());
+    const builder = new ForecastDatasetBuilderService(mockMercadoDatasetServiceByDateRange(), mockMappingService());
 
-    const dataset = await builder.buildTrainingDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-02", modelo: "randomForestD1" });
+    const dataset = await builder.buildTrainingDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-05", modelo: "randomForestD1" });
 
     assert.equal(dataset.featureNames.includes("demandaPrevista"), true);
     assert.equal(dataset.featureNames.includes("solarPrevista"), true);
     assert.equal(dataset.featureNames.includes("fotovoltaica"), false);
     assert.equal(dataset.featureNames.includes("solarResidualDemandLow"), true);
     assert.equal(dataset.featureNames.includes("windPressurePct"), true);
+    assert.equal(dataset.featureNames.includes("precioOmieLag24"), true);
+    assert.equal(dataset.featureNames.includes("precioOmieLag48"), true);
     assert.equal(dataset.featureNames.includes("renewablePressurePct"), false);
     assert.equal(dataset.featureNames.includes("residualDemandLow"), false);
     assert.equal(dataset.featureNames.includes("nuclear"), false);
@@ -198,11 +200,27 @@ void describe("Forecast prediction engine", () => {
     assert.equal(dataset.metadata.totalRows, 24);
   });
 
+  void it("carga dos dias de contexto cuando el modelo usa precio OMIE lag48", async () => {
+    const builder = new ForecastDatasetBuilderService(mockMercadoDatasetServiceByDateRange(), mockMappingService());
+
+    const dataset = await builder.buildPredictionRangeDataset({
+      fechaDesde: "2026-01-03",
+      fechaHasta: "2026-01-03",
+      featureNames: ["precioOmieLag24", "precioOmieLag48"]
+    });
+
+    assert.equal(dataset.rows.length, 24);
+    assert.equal(dataset.rows[0].datetimeLocal, "2026-01-03T00:00:00");
+    assert.equal(dataset.rows[0].features.precioOmieLag24, 32.4);
+    assert.equal(dataset.rows[0].features.precioOmieLag48, 30);
+    assert.equal(dataset.metadata.totalRows, 24);
+  });
+
   void it("calcula presion solar D+1 desde la prevision solar agregada aunque falten componentes", async () => {
     const builder = new ForecastDatasetBuilderService(mockMercadoDatasetServiceAggregateSolar(), mockMappingService());
 
-    const dataset = await builder.buildTrainingDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-02", modelo: "randomForestD1" });
-    const firstUsableHour = dataset.rows.find((row: { datetimeLocal?: string }) => row.datetimeLocal === "2026-01-01T01:00:00");
+    const dataset = await builder.buildTrainingDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-03", modelo: "randomForestD1" });
+    const firstUsableHour = dataset.rows.find((row: { datetimeLocal?: string }) => row.datetimeLocal === "2026-01-03T00:00:00");
 
     assert.equal(dataset.featureNames.includes("solarPrevista"), true);
     assert.equal(firstUsableHour?.features.solarPrevista, 500);
@@ -415,9 +433,10 @@ function mockMercadoDatasetServiceMadridDay() {
 function mockMercadoDatasetServiceAggregateSolar() {
   return {
     buildHourlyDataset: async (options?: { fechaDesde?: string; fechaHasta?: string }) => {
-      const total = options?.fechaDesde === options?.fechaHasta ? 24 : 48;
-      const rows = Array.from({ length: total }, (_, index) => ({
-        ...row(index),
+      const fechaDesde = options?.fechaDesde ?? "2026-01-01";
+      const fechaHasta = options?.fechaHasta ?? "2026-01-03";
+      const rows = rowsForDateRange(fechaDesde, fechaHasta).map((base) => ({
+        ...base,
         demandaPrevista: 1000,
         eolica: 200,
         solarPrevista: 500,
@@ -426,7 +445,7 @@ function mockMercadoDatasetServiceAggregateSolar() {
         precioOmie: 100
       }));
       return {
-        filters: { fechaDesde: options?.fechaDesde ?? "2026-01-01", fechaHasta: options?.fechaHasta ?? "2026-01-02", geoId: null },
+        filters: { fechaDesde, fechaHasta, geoId: null },
         totalRows: rows.length,
         returnedRows: rows.length,
         rows

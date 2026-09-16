@@ -57,6 +57,8 @@ type EnrichedForecastRow = MercadoBaseRow & {
   solarResidualDemandLow: number | null;
   windPressurePct: number | null;
   solarPressureHigh: number | null;
+  precioOmieLag24: number | null;
+  precioOmieLag48: number | null;
   rampaDemanda: number | null;
   rampaEolica: number | null;
   rampaSolar: number | null;
@@ -89,6 +91,8 @@ const NUMERIC_FEATURES = [
   "solarResidualDemandLow",
   "windPressurePct",
   "solarPressureHigh",
+  "precioOmieLag24",
+  "precioOmieLag48",
   "eolica",
   "solarPrevista",
   "fotovoltaica",
@@ -156,6 +160,8 @@ const D1_SAFE_FEATURES = new Set([
   "solarResidualDemandLow",
   "windPressurePct",
   "solarPressureHigh",
+  "precioOmieLag24",
+  "precioOmieLag48",
   "nuclearDisponibleMw",
   "nuclearDisponibleSobreDemandaPct",
   "nuclearPressureLow",
@@ -267,7 +273,7 @@ export class ForecastDatasetBuilderService {
   }
 
   async buildPredictionRangeDataset(options: ForecastDatasetOptions & { featureNames: string[] }): Promise<ForecastDataset> {
-    const contextFechaDesde = subtractOneDay(options.fechaDesde);
+    const contextFechaDesde = subtractDays(options.fechaDesde, requiredContextDays(options.featureNames));
     const [dataset, gasPriceByDate] = await Promise.all([
       this.mercadoDatasetService.buildHourlyDataset({
         fechaDesde: contextFechaDesde,
@@ -415,13 +421,17 @@ function parseUtcDate(value: string) {
   return new Date(`${value}T00:00:00.000Z`);
 }
 
-function subtractOneDay(value?: string) {
+function subtractDays(value: string | undefined, days: number) {
   if (!value) {
     return value;
   }
   const date = parseUtcDate(value);
-  date.setUTCDate(date.getUTCDate() - 1);
+  date.setUTCDate(date.getUTCDate() - days);
   return dateKey(date);
+}
+
+function requiredContextDays(featureNames: string[]) {
+  return featureNames.includes("precioOmieLag48") ? 2 : 1;
 }
 
 function isRequestedDate(date: string, fechaDesde?: string, fechaHasta?: string) {
@@ -430,6 +440,16 @@ function isRequestedDate(date: string, fechaDesde?: string, fechaHasta?: string)
 
 function dateKey(date: Date) {
   return date.toISOString().slice(0, 10);
+}
+
+function shiftDate(date: string, days: number) {
+  const parsed = parseUtcDate(date);
+  parsed.setUTCDate(parsed.getUTCDate() + days);
+  return dateKey(parsed);
+}
+
+function localDateHourKey(date: string, hour: number) {
+  return `${date}|${hour}`;
 }
 
 function gasProductScore(row: { product: string; placeOfDelivery: string; area: string }) {
@@ -457,6 +477,7 @@ function decimalToNumber(value: Prisma.Decimal) {
 
 function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
   const ordered = [...rows].sort((left, right) => left.timestampUtc.localeCompare(right.timestampUtc));
+  const priceByLocalDateHour = new Map(ordered.map((row) => [localDateHourKey(row.date, row.hour), row.precioOmie]));
   const enriched = ordered.map((row): EnrichedForecastRow => {
     const solar = solarGeneration(row);
     const hidraulica = sumNullable(row.hidraulicaUGH, row.hidraulicaNoUGH);
@@ -485,6 +506,8 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       solarResidualDemandLow,
       windPressurePct: eolicaSobreDemandaPct,
       solarPressureHigh: positiveExcess(solarSobreDemandaPct, 55),
+      precioOmieLag24: priceByLocalDateHour.get(localDateHourKey(shiftDate(row.date, -1), row.hour)) ?? null,
+      precioOmieLag48: priceByLocalDateHour.get(localDateHourKey(shiftDate(row.date, -2), row.hour)) ?? null,
       rampaDemanda: null,
       rampaEolica: null,
       rampaSolar: null,
