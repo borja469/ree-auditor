@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { ForecastEvaluationService } from "./evaluation.service";
+import { GradientBoostingModel } from "./gradient-boosting.model";
 import { LinearRegressionModel } from "./linear-regression.model";
 import { PredictionModel } from "./prediction-model.interface";
 import { RandomForestModel } from "./random-forest.model";
@@ -18,6 +19,7 @@ export class ForecastModelFactory {
     { id: "linear", name: "Regresion lineal multiple", strategy: "LinearRegressionModel", status: "available", description: "Primer modelo base sin dependencias pesadas." },
     { id: "randomForest", name: "Random Forest", strategy: "RandomForestModel", status: "available", description: "Bosque de arboles de regresion para capturar umbrales no lineales." },
     { id: "randomForestD1", name: "Random Forest D+1", strategy: "RandomForestModel", status: "available", description: "Bosque D+1 con solo variables disponibles antes de la prediccion de manana." },
+    { id: "gradientBoostingD1", name: "Gradient Boosting D+1", strategy: "GradientBoostingModel", status: "available", description: "Boosting de arboles D+1 sin dependencias externas para capturar transiciones tarde-noche." },
     { id: "xgboost", name: "XGBoost", strategy: "PendingStrategy", status: "planned", description: "Modelo previsto para fases posteriores." },
     { id: "lightgbm", name: "LightGBM", strategy: "PendingStrategy", status: "planned", description: "Modelo previsto para fases posteriores." },
     { id: "catboost", name: "CatBoost", strategy: "PendingStrategy", status: "planned", description: "Modelo previsto para fases posteriores." },
@@ -35,6 +37,9 @@ export class ForecastModelFactory {
     }
     if (normalizeModelId(model) === "randomforestd1") {
       return new RandomForestModel(this.evaluationService, "randomForestD1");
+    }
+    if (normalizeModelId(model) === "gradientboostingd1") {
+      return new GradientBoostingModel(this.evaluationService, "gradientBoostingD1");
     }
     const available = this.definitions.filter((definition) => definition.status === "available").map((definition) => definition.id).join(", ");
     throw new Error(`Modelo no disponible en esta fase. Modelos disponibles: ${available}.`);

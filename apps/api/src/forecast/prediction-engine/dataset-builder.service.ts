@@ -429,7 +429,8 @@ function featureAllowList(modelo?: string) {
 }
 
 function isD1Model(modelo?: string) {
-  return modelo?.trim().toLowerCase() === "randomforestd1";
+  const normalized = modelo?.trim().toLowerCase();
+  return normalized === "randomforestd1" || normalized === "gradientboostingd1";
 }
 
 function withGasPrices(rows: MercadoBaseRow[], gasPriceByDate: Map<string, number>): MercadoBaseRow[] {

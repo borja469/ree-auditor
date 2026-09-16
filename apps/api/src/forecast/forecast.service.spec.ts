@@ -11,6 +11,7 @@ const { ForecastPredictionRunStoreService } = require("./forecast-prediction-run
 const { ForecastPredictionService } = require("./prediction.service");
 const { ForecastTrainingService } = require("./prediction-engine/training.service");
 const { ForecastValidationService } = require("./prediction-engine/validation.service");
+const { GradientBoostingModel } = require("./prediction-engine/gradient-boosting.model");
 const { RandomForestModel } = require("./prediction-engine/random-forest.model");
 
 void describe("Forecast prediction engine", () => {
@@ -146,15 +147,34 @@ void describe("Forecast prediction engine", () => {
     assert.equal(snapshot.metrics.mae !== null && snapshot.metrics.mae < 15, true);
   });
 
-  void it("expone randomForest y randomForestD1 como modelos disponibles", () => {
+  void it("entrena y recarga gradientBoostingD1 para patrones no lineales", async () => {
+    const evaluation = new ForecastEvaluationService();
+    const model = new GradientBoostingModel(evaluation);
+    const dataset = makeNonLinearDataset();
+
+    const snapshot = await model.train(dataset);
+    const loaded = new GradientBoostingModel(evaluation);
+    await loaded.load(snapshot);
+    const predictions = await loaded.predict(dataset);
+
+    assert.equal(snapshot.model, "gradientBoostingD1");
+    assert.deepEqual(snapshot.variables, ["solarPressureHigh", "demandaResidual", "precioGasMibgas"]);
+    assert.equal(typeof snapshot.coefficients.__gb_treeCount, "number");
+    assert.equal(predictions.length, dataset.rows.length);
+    assert.equal(snapshot.metrics.mae !== null && snapshot.metrics.mae < 15, true);
+  });
+
+  void it("expone modelos de arboles D+1 como disponibles", () => {
     const factory = new ForecastModelFactory(new ForecastEvaluationService());
 
     const definitions = factory.listModels();
 
     assert.equal(definitions.find((definition: { id: string }) => definition.id === "randomForest").status, "available");
     assert.equal(definitions.find((definition: { id: string }) => definition.id === "randomForestD1").status, "available");
+    assert.equal(definitions.find((definition: { id: string }) => definition.id === "gradientBoostingD1").status, "available");
     assert.equal(factory.create("randomForest").name, "randomForest");
     assert.equal(factory.create("randomForestD1").name, "randomForestD1");
+    assert.equal(factory.create("gradientBoostingD1").name, "gradientBoostingD1");
   });
 
   void it("activa modelos dejando solo uno activo", async () => {
