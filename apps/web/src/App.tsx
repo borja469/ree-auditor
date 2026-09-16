@@ -47,6 +47,7 @@ import {
   isEsiosSection,
   isGasSection,
   isInformesSection,
+  isMercadoSection,
   isOmieSection,
   isPricingSection,
   hasAnyReeLossesDateFilter,
@@ -74,6 +75,7 @@ import { MibgasDeliveryTransactionsModule } from "./modules/gas/MibgasDeliveryTr
 import { MibgasLiquidationCheckModule } from "./modules/gas/MibgasLiquidationCheckModule";
 import { MibgasNetPositionsModule } from "./modules/gas/MibgasNetPositionsModule";
 import { MibgasPrivateModule } from "./modules/gas/MibgasPrivateModule";
+import { ForecastPage } from "./modules/mercado/forecast/ForecastPage";
 import { MedperFilterBand, MedperViewPanel } from "./modules/medper/MedperModule";
 import { HistoryView } from "./modules/import-history/ImportHistoryModule";
 import { isLikelyMedperFileName, loadAllMedperRows, loadMedperRecordPage, sanitizeMedperFiltersForView } from "./modules/medper/MedperHelpers";
@@ -375,6 +377,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     ree: true,
     omie: false,
     esios: false,
+    mercado: false,
     pricing: true,
     gas: false,
     informes: false
@@ -384,6 +387,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     "ree-losses-menu": true,
     "omie-programas-menu": true,
     "omie-hoja-control-menu": true,
+    "mercado-forecast-menu": true,
     "esios-menu": true
   });
   const [hourlyPage, setHourlyPage] = useState(0);
@@ -1743,6 +1747,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                       ? "MIBGAS Posicion neta"
                     : section === "gasMibgasLiquidationCheck"
                       ? "MIBGAS Comprobacion Liquidaciones"
+                    : section === "mercadoForecast"
+                      ? "Prevision OMIE"
                     : section === "annualReport"
                       ? "Informe Anual"
                     : section === "futuresReport"
@@ -2184,6 +2190,20 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       ]
     },
     {
+      key: "mercado",
+      title: "Mercado",
+      active: isMercadoSection(section),
+      items: [
+        {
+          key: "mercado-forecast-menu",
+          label: "Prevision OMIE",
+          description: "modelos, cobertura y D+1",
+          active: section === "mercadoForecast",
+          onSelect: () => changeSection("mercadoForecast")
+        }
+      ]
+    },
+    {
       key: "pricing",
       title: "Pricing",
       active: isPricingSection(section),
@@ -2572,6 +2592,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           )}
 
           {isEsiosSection(section) && <EsiosModule key={`${section}-${esiosRefreshKey}`} view={esiosViewFromSection(section)} />}
+
+          {section === "mercadoForecast" && <ForecastPage />}
 
           {section === "futuresReport" && <FuturesEvolutionReportModule />}
           {section === "annualReport" && <AnnualReportModule />}

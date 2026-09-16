@@ -8419,6 +8419,80 @@ select:disabled {
   max-height: min(44vh, 430px);
 }
 
+.forecast-ops-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.forecast-date-control {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+  justify-content: flex-end;
+}
+
+.forecast-ops-grid,
+.forecast-coverage-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.forecast-ops-grid {
+  grid-template-columns: repeat(4, minmax(130px, 1fr));
+}
+
+.forecast-coverage-grid {
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+}
+
+.forecast-coverage-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(112px, 144px) auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fbfc;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+}
+
+.forecast-coverage-card.complete {
+  background: #f6fbf7;
+  border-color: #cfe8d7;
+}
+
+.forecast-coverage-card.partial {
+  background: #fffaf0;
+  border-color: #eadab9;
+}
+
+.forecast-coverage-card.missing {
+  background: #fff7f6;
+  border-color: #f0c9c5;
+}
+
+.forecast-coverage-card.optional {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.forecast-coverage-card strong {
+  color: var(--color-primary);
+  font-size: 0.8rem;
+}
+
+.forecast-coverage-card span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .forecast-hourly-shell {
   max-height: min(52vh, 540px);
 }
@@ -8578,6 +8652,17 @@ select:disabled {
   }
 
   .forecast-result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .forecast-date-control {
+    justify-content: stretch;
+  }
+
+  .forecast-ops-grid,
+  .forecast-coverage-grid,
+  .forecast-coverage-card,
+  .forecast-coverage-card.optional {
     grid-template-columns: 1fr;
   }
 

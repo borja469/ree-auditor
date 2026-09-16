@@ -54,6 +54,9 @@ export function activeSidebarGroupKeys(section: Section): SidebarGroupKey[] {
   if (isEsiosSection(section)) {
     return ["esios"];
   }
+  if (isMercadoSection(section)) {
+    return ["mercado"];
+  }
   if (isPricingSection(section)) {
     return ["pricing"];
   }
@@ -96,6 +99,9 @@ export function activeSidebarItemKeys(section: Section): string[] {
   }
   if (isEsiosSection(section)) {
     return ["esios-menu"];
+  }
+  if (isMercadoSection(section)) {
+    return ["mercado-forecast-menu"];
   }
   if (isPricingSection(section)) {
     return [];
@@ -145,6 +151,10 @@ export function isEsiosSection(section: Section) {
 
 export function isPricingSection(section: Section) {
   return section === "pricingBase" || section === "pricingMeff" || section === "pricingHedges" || section === "pricingMir";
+}
+
+export function isMercadoSection(section: Section) {
+  return section === "mercadoForecast";
 }
 
 export function isGasSection(section: Section) {

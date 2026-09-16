@@ -2207,6 +2207,7 @@ export type ForecastCompareResponse = {
 
 export type ForecastHourlyPrediction = {
   timestampUtc: string;
+  datetimeLocal?: string;
   precioPrevisto: number;
 };
 

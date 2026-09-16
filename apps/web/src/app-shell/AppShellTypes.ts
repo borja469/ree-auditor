@@ -26,6 +26,7 @@ export type Section =
   | "gasMibgasDeliveryTransactions"
   | "gasMibgasNetPositions"
   | "gasMibgasLiquidationCheck"
+  | "mercadoForecast"
   | "futuresReport"
   | "annualReport";
 
@@ -35,7 +36,7 @@ export type MedidasView = "history" | "summary" | "qh" | "graphs";
 export type ReeLossesViewKey = "history" | "system" | "detail";
 export type OmieProgramasViewKey = "mercadoDiario" | "intradiarios" | "evolucion";
 export type ImportMode = "reganecu" | "medper" | "reeLosses" | "reeSeie";
-export type SidebarGroupKey = "ree" | "omie" | "esios" | "pricing" | "gas" | "informes";
+export type SidebarGroupKey = "ree" | "omie" | "esios" | "mercado" | "pricing" | "gas" | "informes";
 
 export type SidebarMenuItem = {
   key: string;
