@@ -43,9 +43,12 @@ type EnrichedForecastRow = MercadoBaseRow & {
   festivoNacional: boolean;
   demandaResidual: number | null;
   huecoTermico: number | null;
+  huecoTermicoD1: number | null;
   coberturaRenovablePct: number | null;
   eolicaSobreDemandaPct: number | null;
   solarSobreDemandaPct: number | null;
+  solarPctOfDailyMax: number | null;
+  solarDropFromDailyMax: number | null;
   hidraulicaSobreDemandaPct: number | null;
   nuclearSobreDemandaPct: number | null;
   nuclearDisponibleSobreDemandaPct: number | null;
@@ -65,6 +68,8 @@ type EnrichedForecastRow = MercadoBaseRow & {
   rampaEolica: number | null;
   rampaSolar: number | null;
   rampaHuecoTermico: number | null;
+  rampaHuecoTermicoD1: number | null;
+  eveningThermalGapPressure: number | null;
   rampaPrecioOmie: number | null;
 };
 
@@ -77,9 +82,12 @@ const NUMERIC_FEATURES = [
   "demandaPrevista",
   "demandaResidual",
   "huecoTermico",
+  "huecoTermicoD1",
   "coberturaRenovablePct",
   "eolicaSobreDemandaPct",
   "solarSobreDemandaPct",
+  "solarPctOfDailyMax",
+  "solarDropFromDailyMax",
   "hidraulicaSobreDemandaPct",
   "nuclearSobreDemandaPct",
   "nuclearDisponibleMw",
@@ -111,6 +119,8 @@ const NUMERIC_FEATURES = [
   "rampaEolica",
   "rampaSolar",
   "rampaHuecoTermico",
+  "rampaHuecoTermicoD1",
+  "eveningThermalGapPressure",
   "rampaPrecioOmie"
 ] as const;
 
@@ -157,10 +167,13 @@ const D1_SAFE_FEATURES = new Set([
   "festivoNacional",
   "demandaPrevista",
   "demandaResidual",
+  "huecoTermicoD1",
   "eolica",
   "eolicaSobreDemandaPct",
   "solarPrevista",
   "solarSobreDemandaPct",
+  "solarPctOfDailyMax",
+  "solarDropFromDailyMax",
   "solarResidualDemandLow",
   "windPressurePct",
   "solarPressureHigh",
@@ -176,6 +189,8 @@ const D1_SAFE_FEATURES = new Set([
   "rampaDemanda",
   "rampaEolica",
   "rampaSolar",
+  "rampaHuecoTermicoD1",
+  "eveningThermalGapPressure",
   "season_winter",
   "season_spring",
   "season_summer",
@@ -482,12 +497,22 @@ function decimalToNumber(value: Prisma.Decimal) {
 function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
   const ordered = [...rows].sort((left, right) => left.timestampUtc.localeCompare(right.timestampUtc));
   const priceByLocalDateHour = new Map(ordered.map((row) => [localDateHourKey(row.date, row.hour), row.precioOmie]));
+  const solarMaxByDate = new Map<string, number>();
+  for (const row of ordered) {
+    const solar = solarGeneration(row);
+    if (!isFiniteNumber(solar)) {
+      continue;
+    }
+    solarMaxByDate.set(row.date, Math.max(solarMaxByDate.get(row.date) ?? 0, solar));
+  }
   const enriched = ordered.map((row): EnrichedForecastRow => {
     const solar = solarGeneration(row);
+    const solarMax = solarMaxByDate.get(row.date) ?? null;
     const hidraulica = sumNullable(row.hidraulicaUGH, row.hidraulicaNoUGH);
     const renovable = sumNullable(row.eolica, solar, row.hidraulicaUGH, row.hidraulicaNoUGH);
     const forecastRenewable = sumNullable(row.eolica, solar);
     const demandaResidual = subtractIfPresent(row.demandaPrevista, row.eolica, solar);
+    const huecoTermicoD1 = subtractIfPresent(row.demandaPrevista, row.eolica, solar, row.nuclearDisponibleMw);
     const solarSobreDemandaPct = ratioPct(solar, row.demandaPrevista);
     const eolicaSobreDemandaPct = ratioPct(row.eolica, row.demandaPrevista);
     const solarResidualDemandLow = solarSobreDemandaPct !== null && solarSobreDemandaPct >= 25 ? positiveGap(demandaResidual, 12_000, 1_000) : 0;
@@ -497,10 +522,13 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       ...row,
       festivoNacional: false,
       huecoTermico: subtractIfPresent(row.demandaPrevista, row.eolica, solar, row.nuclear, row.hidraulicaUGH, row.hidraulicaNoUGH),
+      huecoTermicoD1,
       demandaResidual,
       coberturaRenovablePct: ratioPct(renovable, row.demandaPrevista),
       eolicaSobreDemandaPct,
       solarSobreDemandaPct,
+      solarPctOfDailyMax: ratioPct(solar, solarMax),
+      solarDropFromDailyMax: subtractIfPresent(solarMax, solar),
       hidraulicaSobreDemandaPct: ratioPct(hidraulica, row.demandaPrevista),
       nuclearSobreDemandaPct: ratioPct(row.nuclear, row.demandaPrevista),
       nuclearDisponibleSobreDemandaPct: ratioPct(row.nuclearDisponibleMw, row.demandaPrevista),
@@ -520,6 +548,8 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       rampaEolica: null,
       rampaSolar: null,
       rampaHuecoTermico: null,
+      rampaHuecoTermicoD1: null,
+      eveningThermalGapPressure: eveningThermalGapPressure(huecoTermicoD1, row.hour),
       rampaPrecioOmie: null
     };
   });
@@ -531,6 +561,7 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
     current.rampaEolica = difference(current.eolica, previous.eolica);
     current.rampaSolar = difference(solarGeneration(current), solarGeneration(previous));
     current.rampaHuecoTermico = difference(current.huecoTermico, previous.huecoTermico);
+    current.rampaHuecoTermicoD1 = difference(current.huecoTermicoD1, previous.huecoTermicoD1);
     current.rampaPrecioOmie = difference(current.precioOmie, previous.precioOmie);
   }
 
@@ -619,6 +650,13 @@ function nightPriceLag(value: number | null, hour: number) {
     return null;
   }
   return hour <= 8 || hour >= 20 ? value : 0;
+}
+
+function eveningThermalGapPressure(value: number | null, hour: number) {
+  if (!isFiniteNumber(value)) {
+    return null;
+  }
+  return hour >= 17 && hour <= 21 ? value : 0;
 }
 
 function difference(current: number | null, previous: number | null) {

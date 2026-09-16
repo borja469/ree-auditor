@@ -68,7 +68,12 @@ void describe("Forecast prediction engine", () => {
 
     assert.equal(dataset.featureNames.includes("demandaPrevista"), true);
     assert.equal(dataset.featureNames.includes("solarPrevista"), true);
+    assert.equal(dataset.featureNames.includes("huecoTermicoD1"), true);
+    assert.equal(dataset.featureNames.includes("rampaHuecoTermicoD1"), true);
+    assert.equal(dataset.featureNames.includes("eveningThermalGapPressure"), true);
     assert.equal(dataset.featureNames.includes("fotovoltaica"), false);
+    assert.equal(dataset.featureNames.includes("solarPctOfDailyMax"), true);
+    assert.equal(dataset.featureNames.includes("solarDropFromDailyMax"), true);
     assert.equal(dataset.featureNames.includes("solarResidualDemandLow"), true);
     assert.equal(dataset.featureNames.includes("windPressurePct"), true);
     assert.equal(dataset.featureNames.includes("precioOmieLag24"), false);
@@ -103,6 +108,22 @@ void describe("Forecast prediction engine", () => {
     assert.equal(typeof result.walkForwardMetricas.folds, "number");
     assert.equal(typeof result.tiempoEntrenamientoMs, "number");
     assert.equal(typeof result.coeficientes, "object");
+  });
+
+  void it("calcula hueco termico D+1 y salida solar sin usar generacion real futura", async () => {
+    const builder = new ForecastDatasetBuilderService(mockMercadoDatasetServiceByDateRange(), mockMappingService());
+
+    const dataset = await builder.buildTrainingDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-05", modelo: "randomForestD1" });
+    const evening = dataset.rows.find((row: { datetimeLocal?: string }) => row.datetimeLocal === "2026-01-03T18:00:00");
+    const noon = dataset.rows.find((row: { datetimeLocal?: string }) => row.datetimeLocal === "2026-01-03T12:00:00");
+
+    assert.equal(evening?.features.huecoTermicoD1, 782);
+    assert.equal(evening?.features.rampaHuecoTermicoD1, 29);
+    assert.equal(evening?.features.eveningThermalGapPressure, 782);
+    assert.equal(evening?.features.solarPctOfDailyMax, 75);
+    assert.equal(evening?.features.solarDropFromDailyMax, 20);
+    assert.equal(noon?.features.eveningThermalGapPressure, 0);
+    assert.equal(dataset.featureNames.includes("huecoTermico"), false);
   });
 
   void it("entrena y recarga randomForest para patrones no lineales", async () => {
@@ -691,6 +712,8 @@ function row(index: number) {
     fotovoltaica: hour >= 8 && hour <= 18 ? 60 : 0,
     termosolar: hour >= 9 && hour <= 17 ? 20 : 0,
     nuclear: null,
+    nuclearDisponibleMw: 700,
+    hidraulicaStorageIndex: 10_500_000,
     hidraulicaUGH: 40,
     hidraulicaNoUGH: 10,
     bombeo: 5,
@@ -733,6 +756,8 @@ function rowForDateHour(date: string, dayIndex: number, hour: number) {
     fotovoltaica: hour >= 8 && hour <= 18 ? 60 : 0,
     termosolar: hour >= 9 && hour <= 17 ? 20 : 0,
     nuclear: null,
+    nuclearDisponibleMw: 700,
+    hidraulicaStorageIndex: 10_500_000,
     hidraulicaUGH: 40,
     hidraulicaNoUGH: 10,
     bombeo: 5,
