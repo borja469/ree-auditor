@@ -26,8 +26,15 @@ import pandas as pd
 
 try:
     from xgboost import XGBRegressor
-except ImportError as exc:  # pragma: no cover - runtime guard for PRO
-    raise SystemExit("Falta xgboost. Instala o ejecuta en el entorno donde ya este disponible.") from exc
+
+    BOOSTER_BACKEND = "xgboost"
+except ImportError:  # pragma: no cover - depends on PRO Python environment
+    XGBRegressor = None
+    BOOSTER_BACKEND = "sklearn-hist-gradient-boosting"
+    try:
+        from sklearn.ensemble import HistGradientBoostingRegressor
+    except ImportError as exc:  # pragma: no cover - runtime guard for PRO
+        raise SystemExit("Falta xgboost y tambien scikit-learn. Instala uno de los dos para ejecutar el experimento.") from exc
 
 
 D1_FEATURES = [
@@ -265,7 +272,16 @@ def metrics(frame: pd.DataFrame, pred_col: str) -> dict[str, float]:
     }
 
 
-def train_model(train: pd.DataFrame, args: argparse.Namespace) -> XGBRegressor:
+def train_model(train: pd.DataFrame, args: argparse.Namespace) -> Any:
+    if XGBRegressor is None:
+        return HistGradientBoostingRegressor(
+            max_iter=args.n_estimators,
+            max_leaf_nodes=31,
+            learning_rate=args.learning_rate,
+            l2_regularization=0.15,
+            random_state=42,
+        ).fit(train[D1_FEATURES], train["precioOmie"])
+
     return XGBRegressor(
         objective="reg:squarederror",
         n_estimators=args.n_estimators,
@@ -332,7 +348,7 @@ def main() -> int:
 
     output_dir = Path(args.output_dir)
     summary_rows: list[dict[str, Any]] = []
-    print(f"Entrenamiento XGBoost: {len(train)} filas, {len(D1_FEATURES)} features")
+    print(f"Entrenamiento {BOOSTER_BACKEND}: {len(train)} filas, {len(D1_FEATURES)} features")
     print(f"Gas MIBGAS cargado para {len(gas_prices)} dias")
     print()
 
@@ -353,7 +369,7 @@ def main() -> int:
             detail_cols.extend(["activo", "errorActivo"])
 
         xgb_metrics = metrics(day_rows, "xgboost")
-        summary_rows.append({"fecha": day, "modelo": "xgboost", **{key: round6(value) for key, value in xgb_metrics.items()}})
+        summary_rows.append({"fecha": day, "modelo": BOOSTER_BACKEND, **{key: round6(value) for key, value in xgb_metrics.items()}})
         if "activo" in day_rows.columns and day_rows["activo"].notna().any():
             active_rows = day_rows.dropna(subset=["activo"])
             active_metrics = metrics(active_rows, "activo")
