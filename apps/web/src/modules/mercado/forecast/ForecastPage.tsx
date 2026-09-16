@@ -823,7 +823,7 @@ function ForecastActualComparisonPanel({ forecastDate, runs }: { forecastDate: s
     setLoading(true);
     setError(undefined);
     try {
-      const response = await getMercadoDataset({ fechaDesde: forecastDate, fechaHasta: forecastDate, take: 200 });
+      const response = await getMercadoDataset({ fechaDesde: addDays(forecastDate, -1), fechaHasta: forecastDate, take: 200 });
       setDatasetRows(response.rows);
     } catch (caught) {
       setError(readError(caught));
@@ -984,7 +984,13 @@ function readRunAverage(run: ForecastPredictionRun) {
 function buildActualComparisonRows(run: ForecastPredictionRun | undefined, datasetRows: MercadoDatasetRow[]): ForecastActualComparisonRow[] {
   const output = run?.output as Partial<ForecastPredictionRangeResponse> | null | undefined;
   const forecastRows = output?.predicciones?.flatMap((day) => day.prediccionesHorarias) ?? [];
-  const realByLocalTime = new Map(datasetRows.filter((row) => isFiniteNumber(row.precioOmie)).map((row) => [row.datetimeLocal, row.precioOmie as number]));
+  const forecastDates = new Set(forecastRows.map((row) => row.datetimeLocal?.slice(0, 10)).filter(Boolean));
+  const realByLocalTime = new Map(
+    datasetRows
+      .filter((row) => forecastDates.has(row.datetimeLocal.slice(0, 10)))
+      .filter((row) => isFiniteNumber(row.precioOmie))
+      .map((row) => [row.datetimeLocal, row.precioOmie as number])
+  );
   return forecastRows.flatMap((row) => {
     const datetimeLocal = row.datetimeLocal;
     if (!datetimeLocal || !isFiniteNumber(row.precioPrevisto)) {
