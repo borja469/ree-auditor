@@ -30,6 +30,14 @@ type DatasetAccumulator = {
   count: number;
 };
 
+type ResolvedDateRange = {
+  fechaDesde: string;
+  fechaHasta: string;
+  startDate: Date;
+  endDate: Date;
+  endExclusive: Date;
+};
+
 type MercadoDatasetRow = {
   timestampUtc: string;
   datetimeLocal: string;
@@ -65,14 +73,14 @@ export class MercadoDatasetService {
   ) {}
 
   async buildHourlyDataset(options: BuildHourlyDatasetOptions) {
-    const { startDate, endDate } = resolveDateRange(options);
+    const range = resolveDateRange(options);
     const mapping = await this.mercadoIndicatorMappingService.resolveDatasetMapping();
-    const timestamps = buildHourlyTimestamps(startDate, endDate);
+    const timestamps = buildHourlyTimestamps(range.startDate, range.endExclusive);
     const [priceMap, esiosMap, nuclearAvailabilityMap, hydraulicStorageMap] = await Promise.all([
-      this.loadOmieDailyMarketPrices(startDate, endDate),
-      this.loadEsiosVariables(startDate, endDate, mapping, options.geoId),
-      this.loadNuclearAvailablePower(startDate, endDate),
-      this.loadHydraulicStorageIndex(timestamps, endDate)
+      this.loadOmieDailyMarketPrices(range.startDate, range.endDate),
+      this.loadEsiosVariables(range.startDate, range.endExclusive, mapping, options.geoId),
+      this.loadNuclearAvailablePower(range.startDate, range.endExclusive),
+      this.loadHydraulicStorageIndex(timestamps, range.endExclusive)
     ]);
 
     const rows = timestamps.map((timestamp) => buildDatasetRow(timestamp, priceMap, esiosMap, nuclearAvailabilityMap, hydraulicStorageMap));
@@ -80,8 +88,8 @@ export class MercadoDatasetService {
 
     return {
       filters: {
-        fechaDesde: formatDateOnly(startDate),
-        fechaHasta: formatDateOnly(endDate),
+        fechaDesde: range.fechaDesde,
+        fechaHasta: range.fechaHasta,
         geoId: options.geoId ?? null
       },
       mapping: serializeMapping(mapping),
@@ -98,9 +106,9 @@ export class MercadoDatasetService {
   }
 
   async diagnoseCoverage(options: CoverageDiagnosticsOptions) {
-    const { startDate, endDate } = resolveDateRange(options);
+    const range = resolveDateRange(options);
     const mapping = await this.mercadoIndicatorMappingService.resolveDatasetMapping();
-    const expectedHours = buildHourlyTimestamps(startDate, endDate).map((timestamp) => timestamp.toISOString());
+    const expectedHours = buildHourlyTimestamps(range.startDate, range.endExclusive).map((timestamp) => timestamp.toISOString());
     const expectedSet = new Set(expectedHours);
 
     const variables = await Promise.all(
@@ -135,8 +143,8 @@ export class MercadoDatasetService {
           where: {
             indicatorId: config.indicatorId,
             datetimeUtc: {
-              gte: startDate,
-              lt: addDays(endDate, 1)
+              gte: range.startDate,
+              lt: range.endExclusive
             }
           },
           select: {
@@ -184,15 +192,15 @@ export class MercadoDatasetService {
           missingHours: missingHours.slice(0, 100),
           missingHoursCount: missingHours.length,
           probableReason: coverageReason(expectedHours.length, matchedHours.size, rows.length, matchedRows.length, expectedGeoId, expectedGeoKey),
-          recommendedAction: coverageRecommendedAction(config.indicatorId, startDate, endDate, matchedHours.size, rows.length, matchedRows.length)
+          recommendedAction: coverageRecommendedAction(config.indicatorId, range.fechaDesde, range.fechaHasta, matchedHours.size, rows.length, matchedRows.length)
         };
       })
     );
 
     return {
       filters: {
-        fechaDesde: formatDateOnly(startDate),
-        fechaHasta: formatDateOnly(endDate),
+        fechaDesde: range.fechaDesde,
+        fechaHasta: range.fechaHasta,
         geoId: options.geoId ?? null
       },
       expectedHours: expectedHours.length,
@@ -242,7 +250,7 @@ export class MercadoDatasetService {
     return hourly;
   }
 
-  private async loadEsiosVariables(startDate: Date, endDate: Date, mapping: MercadoIndicatorMapping, requestedGeoId?: number) {
+  private async loadEsiosVariables(startDate: Date, endExclusive: Date, mapping: MercadoIndicatorMapping, requestedGeoId?: number) {
     const configured = Object.entries(mapping).filter((entry): entry is [MercadoDatasetVariable, MercadoResolvedIndicatorMapping] => {
       return entry[0] !== "precioOmie" && Number.isSafeInteger(entry[1]?.indicatorId ?? undefined);
     });
@@ -256,7 +264,7 @@ export class MercadoDatasetService {
         indicatorId: { in: indicatorIds },
         datetimeUtc: {
           gte: startDate,
-          lt: addDays(endDate, 1)
+          lt: endExclusive
         },
         ...(requestedGeoId !== undefined ? { geoId: requestedGeoId } : {})
       },
@@ -314,13 +322,13 @@ export class MercadoDatasetService {
     return values;
   }
 
-  private async loadNuclearAvailablePower(startDate: Date, endDate: Date) {
+  private async loadNuclearAvailablePower(startDate: Date, endExclusive: Date) {
     const rows = await this.prisma.esiosIndicatorValue.findMany({
       where: {
         indicatorId: NUCLEAR_AVAILABLE_POWER_INDICATOR_ID,
         datetimeUtc: {
           gte: startDate,
-          lt: addDays(endDate, 1)
+          lt: endExclusive
         }
       },
       select: {
@@ -341,7 +349,7 @@ export class MercadoDatasetService {
     return values;
   }
 
-  private async loadHydraulicStorageIndex(timestamps: Date[], endDate: Date) {
+  private async loadHydraulicStorageIndex(timestamps: Date[], endExclusive: Date) {
     if (timestamps.length === 0) {
       return new Map<string, number>();
     }
@@ -351,7 +359,7 @@ export class MercadoDatasetService {
         indicatorId: HYDRAULIC_STORAGE_INDEX_INDICATOR_ID,
         geoId: HYDRAULIC_STORAGE_INDEX_GEO_ID,
         datetimeUtc: {
-          lt: addDays(endDate, 1)
+          lt: endExclusive
         }
       },
       select: {
@@ -429,16 +437,25 @@ function serializeMapping(mapping: MercadoIndicatorMapping) {
   return Object.fromEntries(["precioOmie", ...DATASET_VARIABLES].map((variable) => [variable, mapping[variable as keyof MercadoIndicatorMapping] ?? null]));
 }
 
-function resolveDateRange(options: BuildHourlyDatasetOptions) {
+function resolveDateRange(options: BuildHourlyDatasetOptions): ResolvedDateRange {
   if (!options.fechaDesde || !options.fechaHasta) {
     throw new BadRequestException("fechaDesde y fechaHasta son obligatorias.");
   }
-  const startDate = parseDateOnly(options.fechaDesde);
-  const endDate = parseDateOnly(options.fechaHasta);
-  if (startDate.getTime() > endDate.getTime()) {
+  const from = parseDateOnly(options.fechaDesde);
+  const to = parseDateOnly(options.fechaHasta);
+  const startDate = madridLocalDateTimeToUtc(from.year, from.month, from.day);
+  const endExclusiveParts = addLocalDays(to, 1);
+  const endExclusive = madridLocalDateTimeToUtc(endExclusiveParts.year, endExclusiveParts.month, endExclusiveParts.day);
+  if (startDate.getTime() >= endExclusive.getTime()) {
     throw new BadRequestException("fechaDesde no puede ser posterior a fechaHasta.");
   }
-  return { startDate, endDate };
+  return {
+    fechaDesde: from.date,
+    fechaHasta: to.date,
+    startDate,
+    endDate: new Date(endExclusive.getTime() - 1),
+    endExclusive
+  };
 }
 
 function parseDateOnly(value: string) {
@@ -446,23 +463,31 @@ function parseDateOnly(value: string) {
   if (!match) {
     throw new BadRequestException("La fecha debe tener formato YYYY-MM-DD.");
   }
-  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
-  if (date.getUTCFullYear() !== Number(match[1]) || date.getUTCMonth() !== Number(match[2]) - 1 || date.getUTCDate() !== Number(match[3])) {
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) {
     throw new BadRequestException("Fecha no valida.");
   }
-  return date;
+  return { year, month, day, date: `${match[1]}-${match[2]}-${match[3]}` };
 }
 
-function buildHourlyTimestamps(startDate: Date, endDate: Date) {
+function buildHourlyTimestamps(startDate: Date, endExclusive: Date) {
   const timestamps: Date[] = [];
-  for (let current = new Date(startDate); current.getTime() < addDays(endDate, 1).getTime(); current = new Date(current.getTime() + 60 * 60 * 1000)) {
+  for (let current = new Date(startDate); current.getTime() < endExclusive.getTime(); current = new Date(current.getTime() + 60 * 60 * 1000)) {
     timestamps.push(current);
   }
   return timestamps;
 }
 
-function addDays(date: Date, days: number) {
-  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+function addLocalDays(value: { year: number; month: number; day: number }, days: number) {
+  const date = new Date(Date.UTC(value.year, value.month - 1, value.day + days));
+  return {
+    year: date.getUTCFullYear(),
+    month: date.getUTCMonth() + 1,
+    day: date.getUTCDate()
+  };
 }
 
 function truncateToUtcHour(date: Date) {
@@ -505,6 +530,43 @@ function madridMarketHourToUtc(dateKey: string, hour: number) {
     }
   }
   return null;
+}
+
+function madridLocalDateTimeToUtc(year: number, month: number, day: number, hour = 0, minute = 0, second = 0, millisecond = 0) {
+  let candidate = new Date(Date.UTC(year, month - 1, day, hour, minute, second, millisecond));
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parts = madridDateTimeParts(candidate);
+    const candidateKey = Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day), Number(parts.hour), Number(parts.minute), 0, 0);
+    const targetKey = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+    const diffMinutes = (targetKey - candidateKey) / 60000;
+    if (diffMinutes === 0) {
+      return candidate;
+    }
+    candidate = new Date(candidate.getTime() + diffMinutes * 60000);
+  }
+
+  return candidate;
+}
+
+function madridDateTimeParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Madrid",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "00";
+  return {
+    year: value("year"),
+    month: value("month"),
+    day: value("day"),
+    hour: value("hour"),
+    minute: value("minute")
+  };
 }
 
 function weekdayIndex(date: Date) {
@@ -558,9 +620,7 @@ function coverageReason(expectedHours: number, distinctHours: number, sourceReco
   return "Cobertura completa para la ventana solicitada.";
 }
 
-function coverageRecommendedAction(indicatorId: number, startDate: Date, endDate: Date, distinctHours: number, sourceRecords: number, matchedRecords: number) {
-  const start = formatDateOnly(startDate);
-  const end = formatDateOnly(endDate);
+function coverageRecommendedAction(indicatorId: number, start: string, end: string, distinctHours: number, sourceRecords: number, matchedRecords: number) {
   if (sourceRecords === 0) {
     return `Descargar indicador ESIOS ${indicatorId} para ${start}..${end}: POST /api/esios/indicators/${indicatorId}/download con {"startDate":"${start}","endDate":"${end}"}.`;
   }

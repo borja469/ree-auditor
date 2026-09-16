@@ -39,6 +39,32 @@ void describe("MercadoDatasetService", () => {
     assert.equal(lastMarketHour?.precioOmie, 24);
   });
 
+  void it("alinea ESIOS por dia local de mercado en horario de verano", async () => {
+    const service = new MercadoDatasetService(mockPrisma({ esiosStart: "2026-09-16T22:00:00.000Z" }), mockMappingService() as never);
+
+    const result = await service.buildHourlyDataset({ fechaDesde: "2026-09-17", fechaHasta: "2026-09-17" });
+
+    assert.equal(result.rows.length, 24);
+    assert.equal(result.rows[0].timestampUtc, "2026-09-16T22:00:00.000Z");
+    assert.equal(result.rows[0].datetimeLocal, "2026-09-17T00:00:00");
+    assert.equal(result.rows[0].demandaPrevista, 1000);
+    assert.equal(result.rows[23].timestampUtc, "2026-09-17T21:00:00.000Z");
+    assert.equal(result.rows[23].datetimeLocal, "2026-09-17T23:00:00");
+    assert.equal(result.rows[23].demandaPrevista, 1000);
+  });
+
+  void it("diagnostica cobertura ESIOS contra horas locales de mercado en verano", async () => {
+    const service = new MercadoDatasetService(mockPrisma({ esiosStart: "2026-09-16T22:00:00.000Z" }), mockMappingService() as never);
+
+    const result = await service.diagnoseCoverage({ fechaDesde: "2026-09-17", fechaHasta: "2026-09-17" });
+    const demanda = result.variables.find((item) => item.variable === "demandaPrevista");
+
+    assert.equal(result.expectedHours, 24);
+    assert.equal(demanda?.status, "complete");
+    assert.equal(demanda?.coveragePct, 100);
+    assert.equal(demanda?.missingHoursCount, 0);
+  });
+
   void it("diagnostica cobertura completa y parcial por variable critica", async () => {
     const service = new MercadoDatasetService(mockPrisma({ partialNuclear: true }), mockMappingService() as never);
 
@@ -84,19 +110,20 @@ function mapping(indicatorId: number) {
   };
 }
 
-function mockPrisma(options: { partialNuclear?: boolean; omieProgramDate?: string } = {}) {
+function mockPrisma(options: { partialNuclear?: boolean; omieProgramDate?: string; esiosStart?: string } = {}) {
+  const esiosStart = options.esiosStart ?? "2025-12-31T23:00:00.000Z";
   const esiosRows = [
-    ...indicatorRows(460, 1000, 24),
-    ...indicatorRows(541, 200, 24),
-    ...indicatorRows(542, 40, 24),
-    ...indicatorRows(543, 5, 24),
-    ...indicatorRows(549, 100, options.partialNuclear ? 12 : 24),
-    ...nuclearAvailabilityRows(24),
+    ...indicatorRows(460, 1000, 24, esiosStart),
+    ...indicatorRows(541, 200, 24, esiosStart),
+    ...indicatorRows(542, 40, 24, esiosStart),
+    ...indicatorRows(543, 5, 24, esiosStart),
+    ...indicatorRows(549, 100, options.partialNuclear ? 12 : 24, esiosStart),
+    ...nuclearAvailabilityRows(24, esiosStart),
     ...hydraulicStorageRows(),
-    ...indicatorRows(1, 20, 24),
-    ...indicatorRows(2, 10, 24),
-    ...indicatorRows(25, 3, 24),
-    ...indicatorRows(553, -5, 24)
+    ...indicatorRows(1, 20, 24, esiosStart),
+    ...indicatorRows(2, 10, 24, esiosStart),
+    ...indicatorRows(25, 3, 24, esiosStart),
+    ...indicatorRows(553, -5, 24, esiosStart)
   ];
   return {
     omiePrice: {
@@ -119,10 +146,11 @@ function mockPrisma(options: { partialNuclear?: boolean; omieProgramDate?: strin
   };
 }
 
-function indicatorRows(indicatorId: number, value: number, hours: number) {
+function indicatorRows(indicatorId: number, value: number, hours: number, startIso: string) {
+  const start = new Date(startIso).getTime();
   return Array.from({ length: hours }, (_, index) => ({
     indicatorId,
-    datetimeUtc: new Date(Date.UTC(2026, 0, 1, index)),
+    datetimeUtc: new Date(start + index * 60 * 60 * 1000),
     geoId: 8741,
     geoKey: 8741,
     geoName: "Peninsula",
@@ -130,7 +158,8 @@ function indicatorRows(indicatorId: number, value: number, hours: number) {
   }));
 }
 
-function nuclearAvailabilityRows(hours: number) {
+function nuclearAvailabilityRows(hours: number, startIso: string) {
+  const start = new Date(startIso).getTime();
   const centrales = [
     { geoId: 35, geoName: "Valencia", value: 2000 },
     { geoId: 37, geoName: "Caceres", value: 1800 },
@@ -140,7 +169,7 @@ function nuclearAvailabilityRows(hours: number) {
   return Array.from({ length: hours }, (_, index) =>
     centrales.map((central) => ({
       indicatorId: 474,
-      datetimeUtc: new Date(Date.UTC(2026, 0, 1, index)),
+      datetimeUtc: new Date(start + index * 60 * 60 * 1000),
       geoId: central.geoId,
       geoKey: central.geoId,
       geoName: central.geoName,
