@@ -59,6 +59,8 @@ type EnrichedForecastRow = MercadoBaseRow & {
   solarPressureHigh: number | null;
   precioOmieLag24: number | null;
   precioOmieLag48: number | null;
+  precioOmieLag24Night: number | null;
+  precioOmieLag48Night: number | null;
   rampaDemanda: number | null;
   rampaEolica: number | null;
   rampaSolar: number | null;
@@ -93,6 +95,8 @@ const NUMERIC_FEATURES = [
   "solarPressureHigh",
   "precioOmieLag24",
   "precioOmieLag48",
+  "precioOmieLag24Night",
+  "precioOmieLag48Night",
   "eolica",
   "solarPrevista",
   "fotovoltaica",
@@ -160,8 +164,8 @@ const D1_SAFE_FEATURES = new Set([
   "solarResidualDemandLow",
   "windPressurePct",
   "solarPressureHigh",
-  "precioOmieLag24",
-  "precioOmieLag48",
+  "precioOmieLag24Night",
+  "precioOmieLag48Night",
   "nuclearDisponibleMw",
   "nuclearDisponibleSobreDemandaPct",
   "nuclearPressureLow",
@@ -431,7 +435,7 @@ function subtractDays(value: string | undefined, days: number) {
 }
 
 function requiredContextDays(featureNames: string[]) {
-  return featureNames.includes("precioOmieLag48") ? 2 : 1;
+  return featureNames.some((feature) => feature.includes("Lag48")) ? 2 : 1;
 }
 
 function isRequestedDate(date: string, fechaDesde?: string, fechaHasta?: string) {
@@ -487,6 +491,8 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
     const solarSobreDemandaPct = ratioPct(solar, row.demandaPrevista);
     const eolicaSobreDemandaPct = ratioPct(row.eolica, row.demandaPrevista);
     const solarResidualDemandLow = solarSobreDemandaPct !== null && solarSobreDemandaPct >= 25 ? positiveGap(demandaResidual, 12_000, 1_000) : 0;
+    const precioOmieLag24 = priceByLocalDateHour.get(localDateHourKey(shiftDate(row.date, -1), row.hour)) ?? null;
+    const precioOmieLag48 = priceByLocalDateHour.get(localDateHourKey(shiftDate(row.date, -2), row.hour)) ?? null;
     return {
       ...row,
       festivoNacional: false,
@@ -506,8 +512,10 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       solarResidualDemandLow,
       windPressurePct: eolicaSobreDemandaPct,
       solarPressureHigh: positiveExcess(solarSobreDemandaPct, 55),
-      precioOmieLag24: priceByLocalDateHour.get(localDateHourKey(shiftDate(row.date, -1), row.hour)) ?? null,
-      precioOmieLag48: priceByLocalDateHour.get(localDateHourKey(shiftDate(row.date, -2), row.hour)) ?? null,
+      precioOmieLag24,
+      precioOmieLag48,
+      precioOmieLag24Night: nightPriceLag(precioOmieLag24, row.hour),
+      precioOmieLag48Night: nightPriceLag(precioOmieLag48, row.hour),
       rampaDemanda: null,
       rampaEolica: null,
       rampaSolar: null,
@@ -604,6 +612,13 @@ function positiveExcess(value: number | null, threshold: number) {
     return null;
   }
   return round(Math.max(0, value - threshold));
+}
+
+function nightPriceLag(value: number | null, hour: number) {
+  if (!isFiniteNumber(value)) {
+    return null;
+  }
+  return hour <= 8 || hour >= 20 ? value : 0;
 }
 
 function difference(current: number | null, previous: number | null) {

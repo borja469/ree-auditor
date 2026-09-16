@@ -71,8 +71,10 @@ void describe("Forecast prediction engine", () => {
     assert.equal(dataset.featureNames.includes("fotovoltaica"), false);
     assert.equal(dataset.featureNames.includes("solarResidualDemandLow"), true);
     assert.equal(dataset.featureNames.includes("windPressurePct"), true);
-    assert.equal(dataset.featureNames.includes("precioOmieLag24"), true);
-    assert.equal(dataset.featureNames.includes("precioOmieLag48"), true);
+    assert.equal(dataset.featureNames.includes("precioOmieLag24"), false);
+    assert.equal(dataset.featureNames.includes("precioOmieLag48"), false);
+    assert.equal(dataset.featureNames.includes("precioOmieLag24Night"), true);
+    assert.equal(dataset.featureNames.includes("precioOmieLag48Night"), true);
     assert.equal(dataset.featureNames.includes("renewablePressurePct"), false);
     assert.equal(dataset.featureNames.includes("residualDemandLow"), false);
     assert.equal(dataset.featureNames.includes("nuclear"), false);
@@ -206,13 +208,15 @@ void describe("Forecast prediction engine", () => {
     const dataset = await builder.buildPredictionRangeDataset({
       fechaDesde: "2026-01-03",
       fechaHasta: "2026-01-03",
-      featureNames: ["precioOmieLag24", "precioOmieLag48"]
+      featureNames: ["precioOmieLag24Night", "precioOmieLag48Night"]
     });
 
     assert.equal(dataset.rows.length, 24);
     assert.equal(dataset.rows[0].datetimeLocal, "2026-01-03T00:00:00");
-    assert.equal(dataset.rows[0].features.precioOmieLag24, 32.4);
-    assert.equal(dataset.rows[0].features.precioOmieLag48, 30);
+    assert.equal(dataset.rows[0].features.precioOmieLag24Night, 32.4);
+    assert.equal(dataset.rows[0].features.precioOmieLag48Night, 30);
+    assert.equal(dataset.rows[10].features.precioOmieLag24Night, 0);
+    assert.equal(dataset.rows[10].features.precioOmieLag48Night, 0);
     assert.equal(dataset.metadata.totalRows, 24);
   });
 
