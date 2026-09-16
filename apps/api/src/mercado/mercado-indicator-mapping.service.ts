@@ -4,6 +4,7 @@ import { PrismaService } from "../prisma/prisma.service";
 export const MERCADO_ESIOS_VARIABLES = [
   "demandaPrevista",
   "eolica",
+  "solarPrevista",
   "fotovoltaica",
   "termosolar",
   "nuclear",
@@ -150,6 +151,19 @@ const VARIABLE_RULES: Record<
     strongPreferred: ["prevision eolica"],
     weakExcluded: ["potencia instalada", "tiempo real", "t.real", "correccion", "energia vendida", "programa bilateral", "phf"],
     excluded: ["demanda", "precio"],
+    units: ["mw", "mwh"],
+    frequencies: ["hour", "hora", "h"],
+    expectedGeoTerms: ["peninsula", "espana"],
+    minimumConfidence: 58,
+    automaticGap: 4
+  },
+  solarPrevista: {
+    allowedCategories: ["prevision"],
+    requiredAny: [["solar"], ["prevista", "previsto", "programada", "prevision", "generacion"]],
+    preferred: ["prevision solar", "solar prevista", "generacion solar", "produccion solar"],
+    strongPreferred: ["prevision solar"],
+    weakExcluded: ["potencia instalada", "tiempo real", "t.real", "correccion", "energia vendida", "programa bilateral", "phf", "pvp", "p48"],
+    excluded: ["fotovoltaica", "termosolar", "solar termica", "demanda", "precio"],
     units: ["mw", "mwh"],
     frequencies: ["hour", "hora", "h"],
     expectedGeoTerms: ["peninsula", "espana"],

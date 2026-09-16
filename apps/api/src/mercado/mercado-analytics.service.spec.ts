@@ -73,8 +73,8 @@ void describe("MercadoAnalyticsService", () => {
           totalRows: 2,
           returnedRows: 2,
           rows: [
-            { ...row("2026-01-01T00:00:00.000Z", 10, 100, []), fotovoltaica: null, termosolar: null, nuclear: null },
-            { ...row("2026-01-01T01:00:00.000Z", 20, 120, []), fotovoltaica: null, termosolar: null, nuclear: null }
+            { ...row("2026-01-01T00:00:00.000Z", 10, 100, []), solarPrevista: null, fotovoltaica: null, termosolar: null, nuclear: null },
+            { ...row("2026-01-01T01:00:00.000Z", 20, 120, []), solarPrevista: null, fotovoltaica: null, termosolar: null, nuclear: null }
           ]
         })
       },
@@ -86,7 +86,7 @@ void describe("MercadoAnalyticsService", () => {
     const solarRatio = result.derivedVariables.find((item) => item.variable === "solarSobreDemandaPct");
 
     assert.equal(hueco.status, "not_calculable");
-    assert.deepEqual(hueco.missingInputs, ["fotovoltaica", "termosolar", "nuclear"]);
+    assert.deepEqual(hueco.missingInputs, ["solarPrevista", "nuclear"]);
     assert.equal(solarRatio.status, "not_calculable");
     assert.ok(result.qualityReport.warnings.some((warning: string) => warning.includes("Variables derivadas no calculables")));
   });
@@ -155,6 +155,7 @@ function row(timestampUtc: string, precioOmie: number, demandaPrevista: number, 
     precioOmie,
     demandaPrevista,
     eolica: missingVariables.includes("eolica") ? null : 20 - hour,
+    solarPrevista: 0,
     fotovoltaica: 0,
     termosolar: 0,
     nuclear: 100,

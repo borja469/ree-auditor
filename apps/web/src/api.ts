@@ -1923,6 +1923,7 @@ export type MercadoDatasetRow = {
   precioOmie: number | null;
   demandaPrevista: number | null;
   eolica: number | null;
+  solarPrevista: number | null;
   fotovoltaica: number | null;
   termosolar: number | null;
   nuclear: number | null;

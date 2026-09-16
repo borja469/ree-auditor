@@ -4,6 +4,7 @@ export const ESIOS_DEFAULT_API_URL = "https://api.esios.ree.es";
 export const ESIOS_DEFAULT_INDICATORS = [
   { indicatorId: 460, name: "Demanda prevista peninsular" },
   { indicatorId: 541, name: "Previsión eólica" },
+  { indicatorId: 10034, name: "Generacion prevista Solar" },
   { indicatorId: 542, name: "Solar fotovoltaica" },
   { indicatorId: 543, name: "Solar térmica" }
 ] as const;

@@ -26,6 +26,7 @@ type MercadoBaseRow = {
   precioOmie: number | null;
   demandaPrevista: number | null;
   eolica: number | null;
+  solarPrevista: number | null;
   fotovoltaica: number | null;
   termosolar: number | null;
   nuclear: number | null;
@@ -89,6 +90,7 @@ const NUMERIC_FEATURES = [
   "windPressurePct",
   "solarPressureHigh",
   "eolica",
+  "solarPrevista",
   "fotovoltaica",
   "termosolar",
   "nuclear",
@@ -116,6 +118,7 @@ const LINEAR_BASELINE_FEATURES = new Set([
   "demandaResidual",
   "eolica",
   "eolicaSobreDemandaPct",
+  "solarPrevista",
   "fotovoltaica",
   "solarSobreDemandaPct",
   "renewablePressurePct",
@@ -148,7 +151,7 @@ const D1_SAFE_FEATURES = new Set([
   "demandaResidual",
   "eolica",
   "eolicaSobreDemandaPct",
-  "fotovoltaica",
+  "solarPrevista",
   "solarSobreDemandaPct",
   "solarResidualDemandLow",
   "windPressurePct",
@@ -457,7 +460,7 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
   const enriched = ordered.map((row): EnrichedForecastRow => {
     const solar = solarGeneration(row);
     const hidraulica = sumNullable(row.hidraulicaUGH, row.hidraulicaNoUGH);
-    const renovable = sumNullable(row.eolica, row.fotovoltaica, row.termosolar, row.hidraulicaUGH, row.hidraulicaNoUGH);
+    const renovable = sumNullable(row.eolica, solar, row.hidraulicaUGH, row.hidraulicaNoUGH);
     const forecastRenewable = sumNullable(row.eolica, solar);
     const demandaResidual = subtractIfPresent(row.demandaPrevista, row.eolica, solar);
     const solarSobreDemandaPct = ratioPct(solar, row.demandaPrevista);
@@ -466,7 +469,7 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
     return {
       ...row,
       festivoNacional: false,
-      huecoTermico: subtractIfPresent(row.demandaPrevista, row.eolica, row.fotovoltaica, row.termosolar, row.nuclear, row.hidraulicaUGH, row.hidraulicaNoUGH),
+      huecoTermico: subtractIfPresent(row.demandaPrevista, row.eolica, solar, row.nuclear, row.hidraulicaUGH, row.hidraulicaNoUGH),
       demandaResidual,
       coberturaRenovablePct: ratioPct(renovable, row.demandaPrevista),
       eolicaSobreDemandaPct,
@@ -549,7 +552,10 @@ function sumNullable(...values: Array<number | null>) {
   return round(values.reduce((sum: number, value) => sum + (value as number), 0));
 }
 
-function solarGeneration(row: Pick<EnrichedForecastRow, "fotovoltaica" | "termosolar">) {
+function solarGeneration(row: Pick<EnrichedForecastRow, "solarPrevista" | "fotovoltaica" | "termosolar">) {
+  if (isFiniteNumber(row.solarPrevista)) {
+    return row.solarPrevista;
+  }
   if (!isFiniteNumber(row.fotovoltaica)) {
     return null;
   }

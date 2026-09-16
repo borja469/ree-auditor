@@ -52,6 +52,7 @@ type MercadoDatasetRow = {
   precioOmie: number | null;
   demandaPrevista: number | null;
   eolica: number | null;
+  solarPrevista: number | null;
   fotovoltaica: number | null;
   termosolar: number | null;
   nuclear: number | null;
@@ -415,6 +416,7 @@ function buildDatasetRow(
     precioOmie: priceMap.get(timestampUtc) ?? null,
     demandaPrevista: esiosValues.demandaPrevista ?? null,
     eolica: esiosValues.eolica ?? null,
+    solarPrevista: esiosValues.solarPrevista ?? null,
     fotovoltaica: esiosValues.fotovoltaica ?? null,
     termosolar: esiosValues.termosolar ?? null,
     nuclear: esiosValues.nuclear ?? null,

@@ -51,6 +51,7 @@ void describe("Forecast prediction engine", () => {
     assert.equal(dataset.metadata.trainingRows >= 24, true);
     assert.equal(dataset.featureNames.includes("demandaPrevista"), true);
     assert.equal(dataset.featureNames.includes("demandaResidual"), true);
+    assert.equal(dataset.featureNames.includes("solarPrevista"), true);
     assert.equal(dataset.featureNames.includes("solarSobreDemandaPct"), true);
     assert.equal(dataset.featureNames.includes("renewablePressurePct"), true);
     assert.equal(dataset.featureNames.includes("residualDemandLow"), true);
@@ -66,7 +67,8 @@ void describe("Forecast prediction engine", () => {
     const dataset = await builder.buildTrainingDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-02", modelo: "randomForestD1" });
 
     assert.equal(dataset.featureNames.includes("demandaPrevista"), true);
-    assert.equal(dataset.featureNames.includes("fotovoltaica"), true);
+    assert.equal(dataset.featureNames.includes("solarPrevista"), true);
+    assert.equal(dataset.featureNames.includes("fotovoltaica"), false);
     assert.equal(dataset.featureNames.includes("solarResidualDemandLow"), true);
     assert.equal(dataset.featureNames.includes("windPressurePct"), true);
     assert.equal(dataset.featureNames.includes("renewablePressurePct"), false);
@@ -194,6 +196,18 @@ void describe("Forecast prediction engine", () => {
     assert.equal(Number.isFinite(dataset.rows[0].features.rampaDemanda), true);
     assert.equal(dataset.metadata.fechaDesde, "2026-01-02");
     assert.equal(dataset.metadata.totalRows, 24);
+  });
+
+  void it("calcula presion solar D+1 desde la prevision solar agregada aunque falten componentes", async () => {
+    const builder = new ForecastDatasetBuilderService(mockMercadoDatasetServiceAggregateSolar(), mockMappingService());
+
+    const dataset = await builder.buildTrainingDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-02", modelo: "randomForestD1" });
+    const firstUsableHour = dataset.rows.find((row: { datetimeLocal?: string }) => row.datetimeLocal === "2026-01-01T01:00:00");
+
+    assert.equal(dataset.featureNames.includes("solarPrevista"), true);
+    assert.equal(firstUsableHour?.features.solarPrevista, 500);
+    assert.equal(firstUsableHour?.features.solarSobreDemandaPct, 50);
+    assert.equal(firstUsableHour?.features.demandaResidual, 300);
   });
 
   void it("bloquea prediccion si falta una variable requerida no derivada del precio real", async () => {
@@ -390,6 +404,29 @@ function mockMercadoDatasetServiceMadridDay() {
       const rows = madridRowsForDateRange(fechaDesde, fechaHasta);
       return {
         filters: { fechaDesde, fechaHasta, geoId: null },
+        totalRows: rows.length,
+        returnedRows: rows.length,
+        rows
+      };
+    }
+  };
+}
+
+function mockMercadoDatasetServiceAggregateSolar() {
+  return {
+    buildHourlyDataset: async (options?: { fechaDesde?: string; fechaHasta?: string }) => {
+      const total = options?.fechaDesde === options?.fechaHasta ? 24 : 48;
+      const rows = Array.from({ length: total }, (_, index) => ({
+        ...row(index),
+        demandaPrevista: 1000,
+        eolica: 200,
+        solarPrevista: 500,
+        fotovoltaica: 0,
+        termosolar: null,
+        precioOmie: 100
+      }));
+      return {
+        filters: { fechaDesde: options?.fechaDesde ?? "2026-01-01", fechaHasta: options?.fechaHasta ?? "2026-01-02", geoId: null },
         totalRows: rows.length,
         returnedRows: rows.length,
         rows
@@ -627,6 +664,7 @@ function row(index: number) {
     precioOmie: 20 + demandaPrevista * 0.01,
     demandaPrevista,
     eolica: 100 + hour,
+    solarPrevista: (hour >= 8 && hour <= 18 ? 60 : 0) + (hour >= 9 && hour <= 17 ? 20 : 0),
     fotovoltaica: hour >= 8 && hour <= 18 ? 60 : 0,
     termosolar: hour >= 9 && hour <= 17 ? 20 : 0,
     nuclear: null,
@@ -668,6 +706,7 @@ function rowForDateHour(date: string, dayIndex: number, hour: number) {
     precioOmie: 20 + demandaPrevista * 0.01,
     demandaPrevista,
     eolica: 100 + hour,
+    solarPrevista: (hour >= 8 && hour <= 18 ? 60 : 0) + (hour >= 9 && hour <= 17 ? 20 : 0),
     fotovoltaica: hour >= 8 && hour <= 18 ? 60 : 0,
     termosolar: hour >= 9 && hour <= 17 ? 20 : 0,
     nuclear: null,

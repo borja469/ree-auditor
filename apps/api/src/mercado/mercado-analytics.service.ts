@@ -6,6 +6,7 @@ const BASE_ANALYTICS_VARIABLES = [
   "precioOmie",
   "demandaPrevista",
   "eolica",
+  "solarPrevista",
   "fotovoltaica",
   "termosolar",
   "nuclear",
@@ -164,11 +165,11 @@ export class MercadoAnalyticsService {
 function enrichAnalyticsRows(rows: DatasetRow[]): AnalyticsRow[] {
   const ordered = [...rows].sort((left, right) => left.timestampUtc.localeCompare(right.timestampUtc));
   const enriched: AnalyticsRow[] = ordered.map((row): AnalyticsRow => {
-    const solar = sumNullable(row.fotovoltaica, row.termosolar);
+    const solar = solarGeneration(row);
     const hidraulica = sumNullable(row.hidraulicaUGH, row.hidraulicaNoUGH);
-    const huecoTermico = subtractIfPresent(row.demandaPrevista, row.eolica, row.fotovoltaica, row.termosolar, row.nuclear, row.hidraulicaUGH, row.hidraulicaNoUGH);
-    const demandaResidual = subtractIfPresent(row.demandaPrevista, row.eolica, row.fotovoltaica, row.termosolar);
-    const renovable = sumNullable(row.eolica, row.fotovoltaica, row.termosolar, row.hidraulicaUGH, row.hidraulicaNoUGH);
+    const huecoTermico = subtractIfPresent(row.demandaPrevista, row.eolica, solar, row.nuclear, row.hidraulicaUGH, row.hidraulicaNoUGH);
+    const demandaResidual = subtractIfPresent(row.demandaPrevista, row.eolica, solar);
+    const renovable = sumNullable(row.eolica, solar, row.hidraulicaUGH, row.hidraulicaNoUGH);
 
     return {
       ...row,
@@ -195,7 +196,7 @@ function enrichAnalyticsRows(rows: DatasetRow[]): AnalyticsRow[] {
     const current = enriched[index];
     current.rampaDemanda = difference(current.demandaPrevista, previous.demandaPrevista);
     current.rampaEolica = difference(current.eolica, previous.eolica);
-    current.rampaSolar = difference(sumNullable(current.fotovoltaica, current.termosolar), sumNullable(previous.fotovoltaica, previous.termosolar));
+    current.rampaSolar = difference(solarGeneration(current), solarGeneration(previous));
     current.rampaHuecoTermico = difference(current.huecoTermico, previous.huecoTermico);
     current.rampaPrecioOmie = difference(current.precioOmie, previous.precioOmie);
   }
@@ -205,16 +206,16 @@ function enrichAnalyticsRows(rows: DatasetRow[]): AnalyticsRow[] {
 
 function buildDerivedVariablesReport(rows: AnalyticsRow[]): DerivedVariableReport[] {
   const definitions: Record<DerivedAnalyticsVariable, DerivedInputVariable[]> = {
-    huecoTermico: ["demandaPrevista", "eolica", "fotovoltaica", "termosolar", "nuclear", "hidraulicaUGH", "hidraulicaNoUGH"],
-    demandaResidual: ["demandaPrevista", "eolica", "fotovoltaica", "termosolar"],
-    coberturaRenovablePct: ["demandaPrevista", "eolica", "fotovoltaica", "termosolar", "hidraulicaUGH", "hidraulicaNoUGH"],
+    huecoTermico: ["demandaPrevista", "eolica", "solarPrevista", "nuclear", "hidraulicaUGH", "hidraulicaNoUGH"],
+    demandaResidual: ["demandaPrevista", "eolica", "solarPrevista"],
+    coberturaRenovablePct: ["demandaPrevista", "eolica", "solarPrevista", "hidraulicaUGH", "hidraulicaNoUGH"],
     eolicaSobreDemandaPct: ["demandaPrevista", "eolica"],
-    solarSobreDemandaPct: ["demandaPrevista", "fotovoltaica", "termosolar"],
+    solarSobreDemandaPct: ["demandaPrevista", "solarPrevista"],
     hidraulicaSobreDemandaPct: ["demandaPrevista", "hidraulicaUGH", "hidraulicaNoUGH"],
     nuclearSobreDemandaPct: ["demandaPrevista", "nuclear"],
     rampaDemanda: ["demandaPrevista"],
     rampaEolica: ["eolica"],
-    rampaSolar: ["fotovoltaica", "termosolar"],
+    rampaSolar: ["solarPrevista"],
     rampaHuecoTermico: ["huecoTermico"],
     rampaPrecioOmie: ["precioOmie"]
   };
@@ -602,6 +603,16 @@ function sumNullable(...values: Array<number | null | undefined>) {
     sum += Number(value);
   }
   return sum;
+}
+
+function solarGeneration(row: Pick<DatasetRow, "solarPrevista" | "fotovoltaica" | "termosolar">) {
+  if (allPresent(row.solarPrevista)) {
+    return Number(row.solarPrevista);
+  }
+  if (!allPresent(row.fotovoltaica)) {
+    return null;
+  }
+  return round(Number(row.fotovoltaica) + (allPresent(row.termosolar) ? Number(row.termosolar) : 0));
 }
 
 function subtractIfPresent(base: number | null, ...subtractors: Array<number | null>) {

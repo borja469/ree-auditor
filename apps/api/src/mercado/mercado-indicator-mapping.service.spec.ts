@@ -67,6 +67,22 @@ void describe("MercadoIndicatorMappingService", () => {
     assert.equal(termosolar[0].indicatorId, 543);
   });
 
+  void it("prioriza prevision solar agregada sin confundirla con fotovoltaica", () => {
+    const candidates = rankMercadoIndicatorCandidates(
+      "solarPrevista",
+      [
+        candidate(10034, "Generacion prevista Solar"),
+        candidate(542, "Solar fotovoltaica"),
+        candidate(543, "Solar termica")
+      ],
+      new Map([[10034, [{ geoId: 8741, geoKey: 8741, geoName: "Peninsula", records: 4344 }]]])
+    );
+
+    assert.equal(candidates[0].indicatorId, 10034);
+    assert.equal(candidates.some((item) => item.indicatorId === 542), false);
+    assert.equal(candidates.some((item) => item.indicatorId === 543), false);
+  });
+
   void it("prioriza nuclear de tiempo real frente a PBF si no hay confirmacion manual", () => {
     const candidates = rankMercadoIndicatorCandidates(
       "nuclear",

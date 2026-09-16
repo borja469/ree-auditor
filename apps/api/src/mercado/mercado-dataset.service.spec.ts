@@ -9,6 +9,7 @@ void describe("MercadoDatasetService", () => {
     const result = await service.buildHourlyDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-01", take: 1 });
     const first = result.rows[0];
 
+    assert.equal(first.solarPrevista, 45);
     assert.equal(first.fotovoltaica, 40);
     assert.equal(first.termosolar, 5);
     assert.equal(first.nuclear, 100);
@@ -85,6 +86,7 @@ function mockMappingService() {
       precioOmie: { status: "external" },
       demandaPrevista: mapping(460),
       eolica: mapping(541),
+      solarPrevista: mapping(10034),
       fotovoltaica: mapping(542),
       termosolar: mapping(543),
       nuclear: mapping(549),
@@ -115,6 +117,7 @@ function mockPrisma(options: { partialNuclear?: boolean; omieProgramDate?: strin
   const esiosRows = [
     ...indicatorRows(460, 1000, 24, esiosStart),
     ...indicatorRows(541, 200, 24, esiosStart),
+    ...indicatorRows(10034, 45, 24, esiosStart),
     ...indicatorRows(542, 40, 24, esiosStart),
     ...indicatorRows(543, 5, 24, esiosStart),
     ...indicatorRows(549, 100, options.partialNuclear ? 12 : 24, esiosStart),
