@@ -5,6 +5,8 @@ import { MERCADO_ESIOS_VARIABLES, MercadoEsiosVariable, MercadoIndicatorMappingS
 
 const DATASET_VARIABLES = MERCADO_ESIOS_VARIABLES;
 const NUCLEAR_AVAILABLE_POWER_INDICATOR_ID = 474;
+const HYDRAULIC_STORAGE_INDEX_INDICATOR_ID = 623;
+const HYDRAULIC_STORAGE_INDEX_GEO_ID = 8741;
 
 type MercadoDatasetVariable = MercadoEsiosVariable;
 
@@ -46,6 +48,7 @@ type MercadoDatasetRow = {
   termosolar: number | null;
   nuclear: number | null;
   nuclearDisponibleMw: number | null;
+  hidraulicaStorageIndex: number | null;
   hidraulicaUGH: number | null;
   hidraulicaNoUGH: number | null;
   bombeo: number | null;
@@ -65,13 +68,14 @@ export class MercadoDatasetService {
     const { startDate, endDate } = resolveDateRange(options);
     const mapping = await this.mercadoIndicatorMappingService.resolveDatasetMapping();
     const timestamps = buildHourlyTimestamps(startDate, endDate);
-    const [priceMap, esiosMap, nuclearAvailabilityMap] = await Promise.all([
+    const [priceMap, esiosMap, nuclearAvailabilityMap, hydraulicStorageMap] = await Promise.all([
       this.loadOmieDailyMarketPrices(startDate, endDate),
       this.loadEsiosVariables(startDate, endDate, mapping, options.geoId),
-      this.loadNuclearAvailablePower(startDate, endDate)
+      this.loadNuclearAvailablePower(startDate, endDate),
+      this.loadHydraulicStorageIndex(timestamps, endDate)
     ]);
 
-    const rows = timestamps.map((timestamp) => buildDatasetRow(timestamp, priceMap, esiosMap, nuclearAvailabilityMap));
+    const rows = timestamps.map((timestamp) => buildDatasetRow(timestamp, priceMap, esiosMap, nuclearAvailabilityMap, hydraulicStorageMap));
     const limitedRows = options.take && options.take > 0 ? rows.slice(0, options.take) : rows;
 
     return {
@@ -83,7 +87,7 @@ export class MercadoDatasetService {
       mapping: serializeMapping(mapping),
       columns: {
         originales: ["precioOmie", ...DATASET_VARIABLES],
-        derivadas: ["nuclearDisponibleMw"],
+        derivadas: ["nuclearDisponibleMw", "hidraulicaStorageIndex"],
         calendario: ["timestampUtc", "datetimeLocal", "date", "year", "month", "day", "hour", "weekday", "season", "isWeekend"],
         calidad: ["missingVariables", "dataQualityStatus"]
       },
@@ -333,13 +337,55 @@ export class MercadoDatasetService {
     }
     return values;
   }
+
+  private async loadHydraulicStorageIndex(timestamps: Date[], endDate: Date) {
+    if (timestamps.length === 0) {
+      return new Map<string, number>();
+    }
+
+    const rows = await this.prisma.esiosIndicatorValue.findMany({
+      where: {
+        indicatorId: HYDRAULIC_STORAGE_INDEX_INDICATOR_ID,
+        geoId: HYDRAULIC_STORAGE_INDEX_GEO_ID,
+        datetimeUtc: {
+          lt: addDays(endDate, 1)
+        }
+      },
+      select: {
+        datetimeUtc: true,
+        value: true
+      },
+      orderBy: [{ datetimeUtc: "asc" }]
+    });
+
+    const values = new Map<string, number>();
+    let cursor = 0;
+    let latestValue: number | null = null;
+    const validRows = rows
+      .filter((row) => row.datetimeUtc !== null && row.value !== null)
+      .map((row) => ({
+        datetimeUtc: row.datetimeUtc as Date,
+        value: Number(row.value?.toString())
+      }));
+    for (const timestamp of timestamps) {
+      while (cursor < validRows.length && validRows[cursor].datetimeUtc.getTime() <= timestamp.getTime()) {
+        latestValue = validRows[cursor].value;
+        cursor += 1;
+      }
+      if (latestValue !== null) {
+        values.set(timestamp.toISOString(), round(latestValue));
+      }
+    }
+    return values;
+  }
 }
 
 function buildDatasetRow(
   timestamp: Date,
   priceMap: Map<string, number>,
   esiosMap: Map<string, Partial<Record<MercadoDatasetVariable, number>>>,
-  nuclearAvailabilityMap: Map<string, number>
+  nuclearAvailabilityMap: Map<string, number>,
+  hydraulicStorageMap: Map<string, number>
 ): MercadoDatasetRow {
   const timestampUtc = timestamp.toISOString();
   const local = utcToMadridDateParts(timestamp);
@@ -362,6 +408,7 @@ function buildDatasetRow(
     termosolar: esiosValues.termosolar ?? null,
     nuclear: esiosValues.nuclear ?? null,
     nuclearDisponibleMw: nuclearAvailabilityMap.get(timestampUtc) ?? null,
+    hidraulicaStorageIndex: hydraulicStorageMap.get(timestampUtc) ?? null,
     hidraulicaUGH: esiosValues.hidraulicaUGH ?? null,
     hidraulicaNoUGH: esiosValues.hidraulicaNoUGH ?? null,
     bombeo: esiosValues.bombeo ?? null,

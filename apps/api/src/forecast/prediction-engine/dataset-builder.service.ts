@@ -29,6 +29,7 @@ type MercadoBaseRow = {
   termosolar: number | null;
   nuclear: number | null;
   nuclearDisponibleMw: number | null;
+  hidraulicaStorageIndex: number | null;
   hidraulicaUGH: number | null;
   hidraulicaNoUGH: number | null;
   bombeo: number | null;
@@ -47,6 +48,8 @@ type EnrichedForecastRow = MercadoBaseRow & {
   nuclearSobreDemandaPct: number | null;
   nuclearDisponibleSobreDemandaPct: number | null;
   nuclearPressureLow: number | null;
+  hidraulicaStoragePctOfMax: number | null;
+  hidraulicaStorageLow: number | null;
   renewablePressurePct: number | null;
   residualDemandLow: number | null;
   solarPressureHigh: number | null;
@@ -74,6 +77,9 @@ const NUMERIC_FEATURES = [
   "nuclearDisponibleMw",
   "nuclearDisponibleSobreDemandaPct",
   "nuclearPressureLow",
+  "hidraulicaStorageIndex",
+  "hidraulicaStoragePctOfMax",
+  "hidraulicaStorageLow",
   "renewablePressurePct",
   "residualDemandLow",
   "solarPressureHigh",
@@ -113,6 +119,9 @@ const LINEAR_BASELINE_FEATURES = new Set([
   "nuclearDisponibleMw",
   "nuclearDisponibleSobreDemandaPct",
   "nuclearPressureLow",
+  "hidraulicaStorageIndex",
+  "hidraulicaStoragePctOfMax",
+  "hidraulicaStorageLow",
   "precioGasMibgas",
   "rampaDemanda",
   "rampaEolica",
@@ -125,6 +134,8 @@ const LINEAR_BASELINE_FEATURES = new Set([
 const MIN_FEATURE_COVERAGE_PCT = 50;
 const MIN_TRAINING_ROWS = 24;
 const NUCLEAR_AVAILABLE_LOW_THRESHOLD_MW = 7_000;
+const HYDRAULIC_STORAGE_HIGH_REFERENCE = 15_500_000;
+const HYDRAULIC_STORAGE_LOW_THRESHOLD = 12_500_000;
 
 @Injectable()
 export class ForecastDatasetBuilderService {
@@ -414,6 +425,8 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       nuclearSobreDemandaPct: ratioPct(row.nuclear, row.demandaPrevista),
       nuclearDisponibleSobreDemandaPct: ratioPct(row.nuclearDisponibleMw, row.demandaPrevista),
       nuclearPressureLow: positiveGap(row.nuclearDisponibleMw, NUCLEAR_AVAILABLE_LOW_THRESHOLD_MW, 100),
+      hidraulicaStoragePctOfMax: ratioPct(row.hidraulicaStorageIndex, HYDRAULIC_STORAGE_HIGH_REFERENCE),
+      hidraulicaStorageLow: positiveGap(row.hidraulicaStorageIndex, HYDRAULIC_STORAGE_LOW_THRESHOLD, 1_000_000),
       renewablePressurePct: ratioPct(forecastRenewable, row.demandaPrevista),
       residualDemandLow: positiveGap(demandaResidual, 12_000, 1_000),
       solarPressureHigh: positiveExcess(solarSobreDemandaPct, 55),

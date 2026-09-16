@@ -3,7 +3,7 @@ const { describe, it } = require("node:test");
 const { MercadoDatasetService } = require("./mercado-dataset.service");
 
 void describe("MercadoDatasetService", () => {
-  void it("incluye fotovoltaica, termosolar, nuclear y disponibilidad nuclear en el dataset horario cuando hay datos", async () => {
+  void it("incluye fotovoltaica, termosolar, nuclear y señales externas en el dataset horario cuando hay datos", async () => {
     const service = new MercadoDatasetService(mockPrisma(), mockMappingService() as never);
 
     const result = await service.buildHourlyDataset({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-01", take: 1 });
@@ -13,7 +13,17 @@ void describe("MercadoDatasetService", () => {
     assert.equal(first.termosolar, 5);
     assert.equal(first.nuclear, 100);
     assert.equal(first.nuclearDisponibleMw, 7000);
+    assert.equal(first.hidraulicaStorageIndex, 12345678);
     assert.equal(first.dataQualityStatus, "complete");
+  });
+
+  void it("usa el ultimo indice hidraulico semanal conocido sin mirar registros futuros", async () => {
+    const service = new MercadoDatasetService(mockPrisma(), mockMappingService() as never);
+
+    const result = await service.buildHourlyDataset({ fechaDesde: "2026-01-06", fechaHasta: "2026-01-06", take: 1 });
+    const first = result.rows[0];
+
+    assert.equal(first.hidraulicaStorageIndex, 13000000);
   });
 
   void it("diagnostica cobertura completa y parcial por variable critica", async () => {
@@ -69,6 +79,7 @@ function mockPrisma(options: { partialNuclear?: boolean } = {}) {
     ...indicatorRows(543, 5, 24),
     ...indicatorRows(549, 100, options.partialNuclear ? 12 : 24),
     ...nuclearAvailabilityRows(24),
+    ...hydraulicStorageRows(),
     ...indicatorRows(1, 20, 24),
     ...indicatorRows(2, 10, 24),
     ...indicatorRows(25, 3, 24),
@@ -118,4 +129,25 @@ function nuclearAvailabilityRows(hours: number) {
       value: central.value
     }))
   ).flat();
+}
+
+function hydraulicStorageRows() {
+  return [
+    {
+      indicatorId: 623,
+      datetimeUtc: new Date("2025-12-29T00:00:00.000Z"),
+      geoId: 8741,
+      geoKey: 8741,
+      geoName: "Peninsula",
+      value: 12345678
+    },
+    {
+      indicatorId: 623,
+      datetimeUtc: new Date("2026-01-05T00:00:00.000Z"),
+      geoId: 8741,
+      geoKey: 8741,
+      geoName: "Peninsula",
+      value: 13000000
+    }
+  ];
 }
