@@ -232,7 +232,10 @@ export class MercadoDatasetService {
         hourlyBuckets.set(hour, bucket);
       }
       for (const [hour, bucket] of hourlyBuckets) {
-        hourly.set(`${dateKey}T${String(hour - 1).padStart(2, "0")}:00:00.000Z`, round(bucket.sum / bucket.count));
+        const timestamp = madridMarketHourToUtc(dateKey, hour - 1);
+        if (timestamp) {
+          hourly.set(timestamp.toISOString(), round(bucket.sum / bucket.count));
+        }
       }
     }
 
@@ -490,6 +493,18 @@ function utcToMadridDateParts(date: Date) {
     hour,
     weekday: weekdayIndex(date)
   };
+}
+
+function madridMarketHourToUtc(dateKey: string, hour: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  for (let offset = -3; offset <= 3; offset += 1) {
+    const candidate = new Date(Date.UTC(year, month - 1, day, hour + offset));
+    const local = utcToMadridDateParts(candidate);
+    if (local.date === dateKey && local.hour === hour) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function weekdayIndex(date: Date) {

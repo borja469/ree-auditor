@@ -26,6 +26,19 @@ void describe("MercadoDatasetService", () => {
     assert.equal(first.hidraulicaStorageIndex, 13000000);
   });
 
+  void it("alinea OMIE MD por hora local de mercado en horario de verano", async () => {
+    const service = new MercadoDatasetService(mockPrisma({ omieProgramDate: "2026-09-16" }), mockMappingService() as never);
+
+    const result = await service.buildHourlyDataset({ fechaDesde: "2026-09-15", fechaHasta: "2026-09-16", take: 60 });
+    const firstMarketHour = result.rows.find((row) => row.datetimeLocal === "2026-09-16T00:00:00");
+    const lastMarketHour = result.rows.find((row) => row.datetimeLocal === "2026-09-16T23:00:00");
+
+    assert.equal(firstMarketHour?.timestampUtc, "2026-09-15T22:00:00.000Z");
+    assert.equal(firstMarketHour?.precioOmie, 1);
+    assert.equal(lastMarketHour?.timestampUtc, "2026-09-16T21:00:00.000Z");
+    assert.equal(lastMarketHour?.precioOmie, 24);
+  });
+
   void it("diagnostica cobertura completa y parcial por variable critica", async () => {
     const service = new MercadoDatasetService(mockPrisma({ partialNuclear: true }), mockMappingService() as never);
 
@@ -71,7 +84,7 @@ function mapping(indicatorId: number) {
   };
 }
 
-function mockPrisma(options: { partialNuclear?: boolean } = {}) {
+function mockPrisma(options: { partialNuclear?: boolean; omieProgramDate?: string } = {}) {
   const esiosRows = [
     ...indicatorRows(460, 1000, 24),
     ...indicatorRows(541, 200, 24),
@@ -87,7 +100,12 @@ function mockPrisma(options: { partialNuclear?: boolean } = {}) {
   ];
   return {
     omiePrice: {
-      findMany: async () => Array.from({ length: 24 }, (_, index) => ({ fechaPrograma: new Date("2026-01-01T00:00:00.000Z"), periodo: index + 1, precioEurMWh: 50 }))
+      findMany: async () =>
+        Array.from({ length: 24 }, (_, index) => ({
+          fechaPrograma: new Date(`${options.omieProgramDate ?? "2026-01-01"}T00:00:00.000Z`),
+          periodo: index + 1,
+          precioEurMWh: options.omieProgramDate ? index + 1 : 50
+        }))
     },
     esiosIndicatorValue: {
       findMany: async ({ where }: { where: { indicatorId?: number | { in?: number[] } } }) => {
