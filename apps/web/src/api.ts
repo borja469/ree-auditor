@@ -1166,6 +1166,37 @@ export type GasMibgasPricesResponse = {
   };
 };
 
+export type GasMibgasManualPriceRow = {
+  id: string;
+  product: string;
+  placeOfDelivery: string;
+  area: string;
+  firstDayDelivery: string;
+  lastDayDelivery: string;
+  priceEurMwh: number;
+  source: string;
+  comment: string | null;
+  usuario: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type GasMibgasManualPricesResponse = {
+  total: number;
+  rows: GasMibgasManualPriceRow[];
+};
+
+export type GasMibgasManualPriceInput = {
+  product?: string;
+  placeOfDelivery?: string;
+  area?: string;
+  firstDayDelivery: string;
+  lastDayDelivery?: string;
+  priceEurMwh: number | string;
+  source?: string;
+  comment?: string;
+};
+
 export type GasMibgasHistoryFilters = {
   product: string;
   placeOfDelivery?: string;
@@ -3623,6 +3654,22 @@ export async function uploadPricingMeffFile(file: File, onProgress?: (progress: 
 
 export async function getGasMibgasPrices(filters: GasMibgasFilters = {}): Promise<GasMibgasPricesResponse> {
   return getJson(`/gas/mibgas/prices${toQuery(filters)}`);
+}
+
+export async function getGasMibgasManualPrices(filters: {
+  deliveryFrom?: string;
+  deliveryTo?: string;
+  product?: string[];
+  placeOfDelivery?: string[];
+  area?: string[];
+  skip?: number;
+  take?: number;
+} = {}): Promise<GasMibgasManualPricesResponse> {
+  return getJson(`/gas/mibgas/manual-prices${toQuery(filters)}`);
+}
+
+export async function saveGasMibgasManualPrice(input: GasMibgasManualPriceInput): Promise<GasMibgasManualPriceRow> {
+  return sendJson(`/gas/mibgas/manual-prices`, "POST", "Guardando MIBGAS D+1", REQUEST_TIMEOUT_MS, input);
 }
 
 export async function getGasMibgasHistory(filters: GasMibgasHistoryFilters): Promise<GasMibgasHistoryResponse> {

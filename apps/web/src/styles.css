@@ -8493,6 +8493,55 @@ select:disabled {
   white-space: nowrap;
 }
 
+.forecast-gas-card {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(150px, 190px) auto;
+  gap: 10px;
+  align-items: end;
+  min-width: 0;
+  padding: 12px;
+  background: #f7fafc;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+}
+
+.forecast-gas-card > div:first-child {
+  display: grid;
+  gap: 4px;
+  align-self: center;
+}
+
+.forecast-gas-card strong {
+  color: var(--color-primary);
+  font-size: 0.82rem;
+}
+
+.forecast-gas-card span,
+.forecast-gas-message {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  font-weight: 780;
+}
+
+.forecast-gas-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.forecast-gas-message {
+  grid-column: 1 / -1;
+}
+
+.forecast-gas-message.success {
+  color: #14532d;
+}
+
+.forecast-gas-message.error {
+  color: #7a271a;
+}
+
 .forecast-hourly-shell {
   max-height: min(52vh, 540px);
 }
@@ -8661,9 +8710,14 @@ select:disabled {
 
   .forecast-ops-grid,
   .forecast-coverage-grid,
+  .forecast-gas-card,
   .forecast-coverage-card,
   .forecast-coverage-card.optional {
     grid-template-columns: 1fr;
+  }
+
+  .forecast-gas-actions {
+    justify-content: stretch;
   }
 
   .forecast-variable-list {

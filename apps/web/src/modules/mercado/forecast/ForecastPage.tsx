@@ -10,10 +10,11 @@ import type {
   ForecastPredictionRangeResponse,
   ForecastPredictionRun,
   ForecastTrainResponse,
+  GasMibgasManualPriceRow,
   MercadoCoverageDiagnosticsResponse,
   MercadoCoverageDiagnosticVariable
 } from "../../../api";
-import { downloadEsiosIndicator, getMercadoCoverageDiagnostics } from "../../../api";
+import { downloadEsiosIndicator, getGasMibgasManualPrices, getMercadoCoverageDiagnostics, saveGasMibgasManualPrice } from "../../../api";
 import { getTodayInputValue } from "../../../app-shell/AppState";
 import { downloadBlob } from "../../../components/technical-data-table/TechnicalDataTableHelpers";
 import { EChart, PanelTitle, formatDecimalNumber, formatNumber } from "../../shared/RestoredModuleCommon";
@@ -249,6 +250,7 @@ function ForecastOperationsPanel({
         <ForecastMiniMetric label="Cobertura base" value={coverage ? `${completeCount}/${relevantCoverage.length}` : loading ? "..." : "-"} />
         <ForecastMiniMetric label="Ultima prevision" value={fmt(latestMean)} />
       </div>
+      <ForecastGasD1Card forecastDate={forecastDate} />
       <div className="forecast-coverage-grid">
         {relevantCoverage.map((item) => (
           <ForecastCoverageCard
@@ -280,6 +282,105 @@ function ForecastOperationsPanel({
         </div>
       )}
     </section>
+  );
+}
+
+function ForecastGasD1Card({ forecastDate }: { forecastDate: string }) {
+  const [priceText, setPriceText] = useState("");
+  const [savedRow, setSavedRow] = useState<GasMibgasManualPriceRow>();
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string>();
+  const [error, setError] = useState<string>();
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(undefined);
+    try {
+      const response = await getGasMibgasManualPrices({
+        deliveryFrom: forecastDate,
+        deliveryTo: forecastDate,
+        product: ["GDAES_D+1"],
+        placeOfDelivery: ["PVB"],
+        area: ["ES"],
+        take: 1
+      });
+      const row = response.rows[0];
+      setSavedRow(row);
+      if (row) {
+        setPriceText(String(row.priceEurMwh).replace(".", ","));
+      } else {
+        setPriceText("");
+      }
+    } catch (caught) {
+      setError(readError(caught));
+    } finally {
+      setLoading(false);
+    }
+  }, [forecastDate]);
+
+  useEffect(() => {
+    setMessage(undefined);
+    void load();
+  }, [load]);
+
+  async function save() {
+    const price = parseUserNumber(priceText);
+    if (price === null || price < 0) {
+      setError("Introduce un precio MIBGAS valido.");
+      return;
+    }
+    setSaving(true);
+    setError(undefined);
+    setMessage(undefined);
+    try {
+      const row = await saveGasMibgasManualPrice({
+        product: "GDAES_D+1",
+        placeOfDelivery: "PVB",
+        area: "ES",
+        firstDayDelivery: forecastDate,
+        lastDayDelivery: forecastDate,
+        priceEurMwh: price,
+        source: "SUBASTA_MANUAL",
+        comment: "MIBGAS D+1 desde pantalla de prevision"
+      });
+      setSavedRow(row);
+      setPriceText(String(row.priceEurMwh).replace(".", ","));
+      setMessage(`Guardado ${fmt(row.priceEurMwh)} EUR/MWh para ${forecastDate}.`);
+    } catch (caught) {
+      setError(readError(caught));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="forecast-gas-card">
+      <div>
+        <strong>MIBGAS D+1</strong>
+        <span>
+          {savedRow
+            ? `Manual ${fmt(savedRow.priceEurMwh)} EUR/MWh - ${savedRow.source}`
+            : loading
+              ? "Consultando valor manual..."
+              : "Sin override manual para esta fecha"}
+        </span>
+      </div>
+      <label className="filter-field">
+        <span>Precio EUR/MWh</span>
+        <input inputMode="decimal" placeholder="84,21" value={priceText} onChange={(event) => setPriceText(event.target.value)} />
+      </label>
+      <div className="forecast-gas-actions">
+        <button className="secondary-button" disabled={loading || saving} onClick={load} type="button">
+          <RefreshCw size={15} />
+          Revisar
+        </button>
+        <button className="primary-button" disabled={saving} onClick={save} type="button">
+          {saving ? "Guardando" : "Guardar gas"}
+        </button>
+      </div>
+      {(message || error) && <div className={`forecast-gas-message ${error ? "error" : "success"}`}>{error ?? message}</div>}
+    </div>
   );
 }
 
@@ -773,6 +874,11 @@ function addDays(value: string, days: number) {
 
 function readError(error: unknown) {
   return error instanceof Error ? error.message : "No se pudo completar la operacion.";
+}
+
+function parseUserNumber(value: string) {
+  const parsed = Number(value.trim().replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function coverageLabel(variable: string) {
