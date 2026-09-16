@@ -49,6 +49,21 @@ export class ForecastController {
     return this.forecastService.deletePrediction(id);
   }
 
+  @Get("train/jobs")
+  listTrainingJobs(@Query() query: { take?: number; status?: string; modelo?: string }) {
+    return this.forecastService.listTrainingJobs(query);
+  }
+
+  @Get("train/jobs/:id")
+  getTrainingJob(@Param("id") id: string) {
+    return this.forecastService.getTrainingJob(id);
+  }
+
+  @Post("train/jobs")
+  createTrainingJob(@Body() body: TrainForecastDto, @Headers("x-user") usuario?: string) {
+    return this.forecastService.createTrainingJob(body, usuario);
+  }
+
   @Post("train")
   train(@Body() body: TrainForecastDto, @Headers("x-user") usuario?: string) {
     return this.forecastService.train(body, usuario);

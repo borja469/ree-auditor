@@ -6,6 +6,7 @@ import { TrainForecastDto } from "./dto/train-forecast.dto";
 import { ForecastComparisonService } from "./forecast-comparison.service";
 import { ForecastModelStoreService } from "./forecast-model-store.service";
 import { ForecastPredictionRunStoreService } from "./forecast-prediction-run-store.service";
+import { ForecastTrainingJobService } from "./forecast-training-job.service";
 import { ForecastPredictionService } from "./prediction.service";
 import { ForecastModelFactory } from "./prediction-engine/model-factory";
 import { ForecastTrainingService } from "./prediction-engine/training.service";
@@ -18,7 +19,8 @@ export class ForecastService {
     private readonly modelStore: ForecastModelStoreService,
     private readonly predictionService: ForecastPredictionService,
     private readonly comparisonService: ForecastComparisonService,
-    private readonly predictionRunStore: ForecastPredictionRunStoreService
+    private readonly predictionRunStore: ForecastPredictionRunStoreService,
+    private readonly trainingJobService: ForecastTrainingJobService
   ) {}
 
   async getModels() {
@@ -64,5 +66,17 @@ export class ForecastService {
       geoId: dto.geoId,
       usuario
     });
+  }
+
+  createTrainingJob(dto: TrainForecastDto, usuario?: string) {
+    return this.trainingJobService.createJob(dto, usuario);
+  }
+
+  listTrainingJobs(filters: { take?: number; status?: string; modelo?: string }) {
+    return this.trainingJobService.listJobs(filters);
+  }
+
+  getTrainingJob(id: string) {
+    return this.trainingJobService.getJob(id);
   }
 }
