@@ -53,6 +53,8 @@ type EnrichedForecastRow = MercadoBaseRow & {
   hidraulicaStorageLow: number | null;
   renewablePressurePct: number | null;
   residualDemandLow: number | null;
+  solarResidualDemandLow: number | null;
+  windPressurePct: number | null;
   solarPressureHigh: number | null;
   rampaDemanda: number | null;
   rampaEolica: number | null;
@@ -83,6 +85,8 @@ const NUMERIC_FEATURES = [
   "hidraulicaStorageLow",
   "renewablePressurePct",
   "residualDemandLow",
+  "solarResidualDemandLow",
+  "windPressurePct",
   "solarPressureHigh",
   "eolica",
   "fotovoltaica",
@@ -116,6 +120,8 @@ const LINEAR_BASELINE_FEATURES = new Set([
   "solarSobreDemandaPct",
   "renewablePressurePct",
   "residualDemandLow",
+  "solarResidualDemandLow",
+  "windPressurePct",
   "solarPressureHigh",
   "nuclearDisponibleMw",
   "nuclearDisponibleSobreDemandaPct",
@@ -144,8 +150,8 @@ const D1_SAFE_FEATURES = new Set([
   "eolicaSobreDemandaPct",
   "fotovoltaica",
   "solarSobreDemandaPct",
-  "renewablePressurePct",
-  "residualDemandLow",
+  "solarResidualDemandLow",
+  "windPressurePct",
   "solarPressureHigh",
   "nuclearDisponibleMw",
   "nuclearDisponibleSobreDemandaPct",
@@ -455,13 +461,15 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
     const forecastRenewable = sumNullable(row.eolica, solar);
     const demandaResidual = subtractIfPresent(row.demandaPrevista, row.eolica, solar);
     const solarSobreDemandaPct = ratioPct(solar, row.demandaPrevista);
+    const eolicaSobreDemandaPct = ratioPct(row.eolica, row.demandaPrevista);
+    const solarResidualDemandLow = solarSobreDemandaPct !== null && solarSobreDemandaPct >= 25 ? positiveGap(demandaResidual, 12_000, 1_000) : 0;
     return {
       ...row,
       festivoNacional: false,
       huecoTermico: subtractIfPresent(row.demandaPrevista, row.eolica, row.fotovoltaica, row.termosolar, row.nuclear, row.hidraulicaUGH, row.hidraulicaNoUGH),
       demandaResidual,
       coberturaRenovablePct: ratioPct(renovable, row.demandaPrevista),
-      eolicaSobreDemandaPct: ratioPct(row.eolica, row.demandaPrevista),
+      eolicaSobreDemandaPct,
       solarSobreDemandaPct,
       hidraulicaSobreDemandaPct: ratioPct(hidraulica, row.demandaPrevista),
       nuclearSobreDemandaPct: ratioPct(row.nuclear, row.demandaPrevista),
@@ -471,6 +479,8 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       hidraulicaStorageLow: positiveGap(row.hidraulicaStorageIndex, HYDRAULIC_STORAGE_LOW_THRESHOLD, 1_000_000),
       renewablePressurePct: ratioPct(forecastRenewable, row.demandaPrevista),
       residualDemandLow: positiveGap(demandaResidual, 12_000, 1_000),
+      solarResidualDemandLow,
+      windPressurePct: eolicaSobreDemandaPct,
       solarPressureHigh: positiveExcess(solarSobreDemandaPct, 55),
       rampaDemanda: null,
       rampaEolica: null,
