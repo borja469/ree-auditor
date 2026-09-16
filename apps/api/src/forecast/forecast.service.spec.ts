@@ -71,6 +71,7 @@ void describe("Forecast prediction engine", () => {
     assert.equal(dataset.featureNames.includes("huecoTermicoD1"), true);
     assert.equal(dataset.featureNames.includes("rampaHuecoTermicoD1"), true);
     assert.equal(dataset.featureNames.includes("eveningThermalGapPressure"), true);
+    assert.equal(dataset.featureNames.includes("eveningSolarExitThermalGap"), true);
     assert.equal(dataset.featureNames.includes("fotovoltaica"), false);
     assert.equal(dataset.featureNames.includes("solarPctOfDailyMax"), true);
     assert.equal(dataset.featureNames.includes("solarDropFromDailyMax"), true);
@@ -120,9 +121,11 @@ void describe("Forecast prediction engine", () => {
     assert.equal(evening?.features.huecoTermicoD1, 782);
     assert.equal(evening?.features.rampaHuecoTermicoD1, 29);
     assert.equal(evening?.features.eveningThermalGapPressure, 782);
+    assert.equal(evening?.features.eveningSolarExitThermalGap, 15640);
     assert.equal(evening?.features.solarPctOfDailyMax, 75);
     assert.equal(evening?.features.solarDropFromDailyMax, 20);
     assert.equal(noon?.features.eveningThermalGapPressure, 0);
+    assert.equal(noon?.features.eveningSolarExitThermalGap, 0);
     assert.equal(dataset.featureNames.includes("huecoTermico"), false);
   });
 

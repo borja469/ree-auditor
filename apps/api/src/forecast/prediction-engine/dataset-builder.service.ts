@@ -70,6 +70,7 @@ type EnrichedForecastRow = MercadoBaseRow & {
   rampaHuecoTermico: number | null;
   rampaHuecoTermicoD1: number | null;
   eveningThermalGapPressure: number | null;
+  eveningSolarExitThermalGap: number | null;
   rampaPrecioOmie: number | null;
 };
 
@@ -121,6 +122,7 @@ const NUMERIC_FEATURES = [
   "rampaHuecoTermico",
   "rampaHuecoTermicoD1",
   "eveningThermalGapPressure",
+  "eveningSolarExitThermalGap",
   "rampaPrecioOmie"
 ] as const;
 
@@ -191,6 +193,7 @@ const D1_SAFE_FEATURES = new Set([
   "rampaSolar",
   "rampaHuecoTermicoD1",
   "eveningThermalGapPressure",
+  "eveningSolarExitThermalGap",
   "season_winter",
   "season_spring",
   "season_summer",
@@ -516,6 +519,7 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
     const solarSobreDemandaPct = ratioPct(solar, row.demandaPrevista);
     const eolicaSobreDemandaPct = ratioPct(row.eolica, row.demandaPrevista);
     const solarResidualDemandLow = solarSobreDemandaPct !== null && solarSobreDemandaPct >= 25 ? positiveGap(demandaResidual, 12_000, 1_000) : 0;
+    const solarDropFromDailyMax = subtractIfPresent(solarMax, solar);
     const precioOmieLag24 = priceByLocalDateHour.get(localDateHourKey(shiftDate(row.date, -1), row.hour)) ?? null;
     const precioOmieLag48 = priceByLocalDateHour.get(localDateHourKey(shiftDate(row.date, -2), row.hour)) ?? null;
     return {
@@ -528,7 +532,7 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       eolicaSobreDemandaPct,
       solarSobreDemandaPct,
       solarPctOfDailyMax: ratioPct(solar, solarMax),
-      solarDropFromDailyMax: subtractIfPresent(solarMax, solar),
+      solarDropFromDailyMax,
       hidraulicaSobreDemandaPct: ratioPct(hidraulica, row.demandaPrevista),
       nuclearSobreDemandaPct: ratioPct(row.nuclear, row.demandaPrevista),
       nuclearDisponibleSobreDemandaPct: ratioPct(row.nuclearDisponibleMw, row.demandaPrevista),
@@ -550,6 +554,7 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       rampaHuecoTermico: null,
       rampaHuecoTermicoD1: null,
       eveningThermalGapPressure: eveningThermalGapPressure(huecoTermicoD1, row.hour),
+      eveningSolarExitThermalGap: eveningSolarExitThermalGap(huecoTermicoD1, solarDropFromDailyMax, row.hour),
       rampaPrecioOmie: null
     };
   });
@@ -657,6 +662,13 @@ function eveningThermalGapPressure(value: number | null, hour: number) {
     return null;
   }
   return hour >= 17 && hour <= 21 ? value : 0;
+}
+
+function eveningSolarExitThermalGap(huecoTermicoD1: number | null, solarDropFromDailyMax: number | null, hour: number) {
+  if (!isFiniteNumber(huecoTermicoD1) || !isFiniteNumber(solarDropFromDailyMax)) {
+    return null;
+  }
+  return hour >= 17 && hour <= 21 ? round(huecoTermicoD1 * solarDropFromDailyMax) : 0;
 }
 
 function difference(current: number | null, previous: number | null) {
