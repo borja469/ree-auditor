@@ -3905,6 +3905,10 @@ export async function getForecastPredictionHistory(filters: { modeloId?: string;
   return getJson(`/mercado/forecast/predictions${toQuery(filters)}`);
 }
 
+export async function deleteForecastPrediction(id: string): Promise<ForecastPredictionRun> {
+  return sendJson(`/mercado/forecast/predictions/${encodeURIComponent(id)}`, "DELETE", "Eliminando prediccion Forecast", REQUEST_TIMEOUT_MS);
+}
+
 export async function getAnnualReport(year: number | string): Promise<AnnualReportResponse> {
   return getJson(`/annual-report${toQuery({ year })}`);
 }

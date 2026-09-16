@@ -8648,6 +8648,17 @@ select:disabled {
   border-color: var(--color-primary);
 }
 
+.forecast-history-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.forecast-history-actions .secondary-button.danger {
+  color: #7a271a;
+  border-color: #fecdca;
+}
+
 .forecast-history-result {
   max-height: 220px;
   margin: 0;

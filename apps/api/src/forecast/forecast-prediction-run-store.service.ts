@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -63,6 +63,22 @@ export class ForecastPredictionRunStoreService {
     });
     return rows.map(serializeRun);
   }
+
+  async delete(id: string) {
+    try {
+      const row = await this.prisma.forecastPredictionRun.delete({ where: { id } });
+      return serializeRun(row);
+    } catch (error) {
+      if (isPrismaNotFoundError(error)) {
+        throw new NotFoundException("Prediccion Forecast no encontrada.");
+      }
+      throw error;
+    }
+  }
+}
+
+function isPrismaNotFoundError(error: unknown) {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
 }
 
 function serializeRun(row: {

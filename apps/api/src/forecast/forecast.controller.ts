@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Headers, Param, Post, Query } from "@nestjs/common";
 import { ForecastPredictionsQueryDto } from "./dto/forecast-predictions-query.dto";
 import { PredictForecastDto } from "./dto/predict-forecast.dto";
 import { PredictForecastRangeDto } from "./dto/predict-forecast-range.dto";
@@ -42,6 +42,11 @@ export class ForecastController {
   @Get("predictions")
   listPredictions(@Query() query: ForecastPredictionsQueryDto) {
     return this.forecastService.listPredictions(query);
+  }
+
+  @Delete("predictions/:id")
+  deletePrediction(@Param("id") id: string) {
+    return this.forecastService.deletePrediction(id);
   }
 
   @Post("train")

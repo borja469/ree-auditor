@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   activateForecastModel,
   compareForecastModels,
+  deleteForecastPrediction,
   getForecastModelDetail,
   getForecastModels,
   getForecastPredictionHistory,
@@ -158,6 +159,7 @@ export function useForecastPredictionHistory() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
   const [result, setResult] = useState<ForecastPredictionRun[]>([]);
+  const [deletingId, setDeletingId] = useState<string>();
 
   const refresh = useCallback(async (filters: { modeloId?: string; fechaDesde?: string; fechaHasta?: string } = {}) => {
     setLoading(true);
@@ -171,11 +173,30 @@ export function useForecastPredictionHistory() {
     }
   }, []);
 
+  const deleteRun = useCallback(
+    async (id: string, filters: { modeloId?: string; fechaDesde?: string; fechaHasta?: string } = {}) => {
+      if (!window.confirm("Eliminar esta prediccion guardada?")) {
+        return;
+      }
+      setDeletingId(id);
+      setError(undefined);
+      try {
+        await deleteForecastPrediction(id);
+        await refresh(filters);
+      } catch (caught) {
+        setError(readError(caught));
+      } finally {
+        setDeletingId(undefined);
+      }
+    },
+    [refresh]
+  );
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  return { refresh, result, loading, error };
+  return { refresh, result, loading, error, deleteRun, deletingId };
 }
 
 function readError(error: unknown) {

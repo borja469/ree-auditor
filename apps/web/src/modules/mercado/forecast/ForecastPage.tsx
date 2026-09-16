@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EChartsOption } from "echarts";
-import { Activity, AlertTriangle, BarChart3, CheckCircle2, Download, Eye, LineChart, Play, RefreshCw, Table2, Zap } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, CheckCircle2, Download, Eye, LineChart, Play, RefreshCw, Table2, Trash2, Zap } from "lucide-react";
 import type {
   EsiosDownloadSummary,
   ForecastCompareResponse,
@@ -175,10 +175,12 @@ export function ForecastPage() {
           error={history.error}
           loading={history.loading}
           models={models.data?.models ?? []}
+          onDelete={(id, filters) => history.deleteRun(id, filters)}
           onRefresh={history.refresh}
           onView={setSelectedHistoryRun}
           runs={history.result}
           selectedRun={selectedHistoryRun}
+          deletingId={history.deletingId}
         />
       </div>
     </section>
@@ -746,17 +748,21 @@ export function ForecastFeatureImportance({ comparison, detail }: { comparison?:
 }
 
 export function ForecastPredictionHistory({
+  deletingId,
   error,
   loading,
   models,
+  onDelete,
   onRefresh,
   onView,
   runs,
   selectedRun
 }: {
+  deletingId?: string;
   error?: string;
   loading: boolean;
   models: ForecastModelListItem[];
+  onDelete: (id: string, filters?: { modeloId?: string; fechaDesde?: string; fechaHasta?: string }) => void;
   onRefresh: (filters?: { modeloId?: string; fechaDesde?: string; fechaHasta?: string }) => void;
   onView: (run: ForecastPredictionRun) => void;
   runs: ForecastPredictionRun[];
@@ -786,7 +792,20 @@ export function ForecastPredictionHistory({
                 <td>{run.modeloId.slice(0, 8)}</td>
                 <td>{run.fechaDesde} / {run.fechaHasta}</td>
                 <td>{fmt(readRunAverage(run))}</td>
-                <td><button className="secondary-button" onClick={() => onView(run)} type="button"><Eye size={15} />Resultado</button></td>
+                <td>
+                  <div className="forecast-history-actions">
+                    <button className="secondary-button" onClick={() => onView(run)} type="button"><Eye size={15} />Resultado</button>
+                    <button
+                      className="secondary-button danger"
+                      disabled={deletingId === run.id}
+                      onClick={() => onDelete(run.id, { modeloId: modeloId || undefined, fechaDesde: fechaDesde || undefined, fechaHasta: fechaHasta || undefined })}
+                      type="button"
+                    >
+                      <Trash2 size={15} />
+                      {deletingId === run.id ? "Eliminando" : "Eliminar"}
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>

@@ -52,6 +52,10 @@ export class ForecastService {
     return this.predictionRunStore.list(filters);
   }
 
+  deletePrediction(id: string) {
+    return this.predictionRunStore.delete(id);
+  }
+
   train(dto: TrainForecastDto, usuario?: string) {
     return this.trainingService.train({
       fechaDesde: dto.fechaDesde,
