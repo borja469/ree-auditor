@@ -200,6 +200,7 @@ export function ForecastPage() {
           loading={models.loading}
           models={models.data?.models ?? []}
           onActivate={activate.activate}
+          onCloseDetail={() => models.setDetail(undefined)}
           onViewDetail={models.loadDetail}
         />
       </details>
@@ -487,6 +488,7 @@ export function ForecastModelsPanel({
   loading,
   models,
   onActivate,
+  onCloseDetail,
   onViewDetail
 }: {
   activeLoadingId?: string;
@@ -494,6 +496,7 @@ export function ForecastModelsPanel({
   loading: boolean;
   models: ForecastModelListItem[];
   onActivate: (id: string) => void;
+  onCloseDetail: () => void;
   onViewDetail: (id: string) => void;
 }) {
   return (
@@ -544,15 +547,94 @@ export function ForecastModelsPanel({
           </table>
         </div>
       )}
-      {detail && (
-        <div className="forecast-detail-strip">
-          <strong>{detail.nombre} v{detail.version}</strong>
-          <span>Registros {formatNumber(detail.numeroRegistros)}</span>
-          <span>Variables {formatNumber(detail.variablesUtilizadas.length)}</span>
-          <span>Walk-forward RMSE {fmt(detail.walkForwardMetricas.rmse)}</span>
-        </div>
-      )}
+      {detail && <ForecastModelDetailModal detail={detail} onClose={onCloseDetail} />}
     </section>
+  );
+}
+
+function ForecastModelDetailModal({ detail, onClose }: { detail: ForecastModelDetail; onClose: () => void }) {
+  const topImportance = [...detail.featureImportance].sort((left, right) => right.importance - left.importance).slice(0, 15);
+  return (
+    <div className="ops-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="ops-modal forecast-result-modal forecast-model-detail-modal" role="dialog" aria-modal="true" aria-label="Detalle del modelo" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="ops-modal-head">
+          <div>
+            <strong>{detail.nombre} v{detail.version}</strong>
+            <span>{detail.tipo} - {detail.fechaDesde} / {detail.fechaHasta}</span>
+          </div>
+          <button aria-label="Cerrar" type="button" onClick={onClose}>
+            <X size={18} />
+          </button>
+        </div>
+        <div className="ops-modal-body">
+          <div className="forecast-result-grid">
+            <ForecastMiniMetric label="Activo" value={detail.activo ? "Si" : "No"} />
+            <ForecastMiniMetric label="Registros" value={formatNumber(detail.numeroRegistros)} />
+            <ForecastMiniMetric label="MAE" value={fmt(detail.metricas.mae)} />
+            <ForecastMiniMetric label="RMSE" value={fmt(detail.metricas.rmse)} />
+            <ForecastMiniMetric label="R" value={fmt(detail.metricas.r, 4)} />
+            <ForecastMiniMetric label="WF MAE" value={fmt(detail.walkForwardMetricas.mae)} />
+            <ForecastMiniMetric label="WF RMSE" value={fmt(detail.walkForwardMetricas.rmse)} />
+            <ForecastMiniMetric label="WF folds" value={formatNumber(detail.walkForwardMetricas.folds)} />
+          </div>
+          <div className="forecast-detail-strip">
+            <strong>Entrenamiento</strong>
+            <span>{formatDateTime(detail.fecha)}</span>
+            <span>Duracion {formatNumber(Math.round(detail.duracionMs / 1000))} s</span>
+            {detail.usuario && <span>{detail.usuario}</span>}
+          </div>
+          <div className="forecast-model-detail-grid">
+            <section className="forecast-model-detail-box">
+              <strong>Variables utilizadas</strong>
+              <div className="forecast-chip-list readonly">
+                {detail.variablesUtilizadas.map((variable) => <span key={variable}>{variable}</span>)}
+              </div>
+            </section>
+            <section className="forecast-model-detail-box">
+              <strong>Variables excluidas</strong>
+              {detail.variablesDescartadas.length === 0 ? (
+                <span className="forecast-muted-text">Sin exclusiones registradas.</span>
+              ) : (
+                <div className="mercado-table-shell compact forecast-model-detail-table">
+                  <table className="mercado-table forecast-table compact">
+                    <thead><tr><th>Variable</th><th>Motivo</th><th>Cobertura</th></tr></thead>
+                    <tbody>
+                      {detail.variablesDescartadas.map((item) => (
+                        <tr key={item.variable}>
+                          <td>{item.variable}</td>
+                          <td>{item.reason}</td>
+                          <td>{fmt(item.coveragePct, 0)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </div>
+          <section className="forecast-model-detail-box">
+            <strong>Importancia de variables</strong>
+            {topImportance.length === 0 ? (
+              <span className="forecast-muted-text">Sin importancia registrada.</span>
+            ) : (
+              <div className="mercado-table-shell compact forecast-model-detail-table">
+                <table className="mercado-table forecast-table compact">
+                  <thead><tr><th>Variable</th><th>Importancia</th></tr></thead>
+                  <tbody>
+                    {topImportance.map((item) => (
+                      <tr key={item.variable}>
+                        <td>{item.variable}</td>
+                        <td>{fmt(item.importance * 100, 2)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+      </div>
+    </div>
   );
 }
 
