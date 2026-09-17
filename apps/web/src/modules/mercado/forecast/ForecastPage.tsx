@@ -116,8 +116,7 @@ export function ForecastPage() {
 
   useEffect(() => {
     void loadCoverage(forecastDate);
-    void history.refresh({ fechaDesde: forecastDate, fechaHasta: forecastDate });
-  }, [forecastDate, history.refresh, loadCoverage]);
+  }, [forecastDate, loadCoverage]);
 
   async function downloadCoverageIndicator(indicatorId: number) {
     setDownloadLoadingId(indicatorId);
@@ -169,7 +168,7 @@ export function ForecastPage() {
 
       <ForecastPredictionChart result={prediction.result} />
 
-      <ForecastOfficialHistoryChart forecastDate={forecastDate} />
+      <ForecastOfficialHistoryChart />
 
       <ForecastPredictionHistory
         deletingId={history.deletingId}
@@ -791,18 +790,14 @@ function ForecastPredictionResultModal({
   );
 }
 
-function ForecastOfficialHistoryChart({ forecastDate }: { forecastDate: string }) {
-  const [fechaDesde, setFechaDesde] = useState(addDays(forecastDate, -14));
-  const [fechaHasta, setFechaHasta] = useState(forecastDate);
+function ForecastOfficialHistoryChart() {
+  const today = getTodayInputValue();
+  const [fechaDesde, setFechaDesde] = useState(addDays(today, -14));
+  const [fechaHasta, setFechaHasta] = useState(today);
   const [runs, setRuns] = useState<ForecastPredictionRun[]>([]);
   const [datasetRows, setDatasetRows] = useState<MercadoDatasetRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    setFechaHasta(forecastDate);
-    setFechaDesde(addDays(forecastDate, -14));
-  }, [forecastDate]);
 
   const load = useCallback(async () => {
     setLoading(true);
