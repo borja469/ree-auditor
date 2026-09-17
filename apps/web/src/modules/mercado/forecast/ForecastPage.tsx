@@ -1,31 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EChartsOption } from "echarts";
-import { Activity, AlertTriangle, BarChart3, CheckCircle2, Download, Eye, LineChart, Play, RefreshCw, Table2, Trash2, Zap } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, CheckCircle2, Download, Eye, LineChart, Play, RefreshCw, Table2, Trash2 } from "lucide-react";
 import type {
   EsiosDownloadSummary,
-  ForecastCompareResponse,
-  ForecastFeatureImportanceItem,
   ForecastModelDetail,
   ForecastModelListItem,
   ForecastPredictionRangeResponse,
   ForecastPredictionRun,
-  ForecastTrainResponse,
   GasMibgasManualPriceRow,
   MercadoDatasetRow,
   MercadoCoverageDiagnosticsResponse,
   MercadoCoverageDiagnosticVariable
 } from "../../../api";
-import { downloadEsiosIndicator, getForecastModelDetail, getGasMibgasManualPrices, getMercadoCoverageDiagnostics, getMercadoDataset, saveGasMibgasManualPrice } from "../../../api";
+import { downloadEsiosIndicator, getForecastModelDetail, getGasMibgasManualPrices, getMercadoCoverageDiagnostics, getMercadoDataset, getOfficialForecastPredictions, saveGasMibgasManualPrice } from "../../../api";
 import { getTodayInputValue } from "../../../app-shell/AppState";
 import { downloadBlob } from "../../../components/technical-data-table/TechnicalDataTableHelpers";
 import { EChart, PanelTitle, formatDecimalNumber, formatNumber } from "../../shared/RestoredModuleCommon";
 import {
   useActivateForecastModel,
-  useCompareForecastModels,
   useForecastModels,
   useForecastPredictionHistory,
-  usePredictForecastRange,
-  useTrainForecastModel
+  usePredictForecastRange
 } from "./useForecast";
 
 const D1_QUICK_DOWNLOADS: Record<string, number> = {
@@ -51,20 +46,18 @@ type ForecastModelSourceItem = {
   indicatorId?: number;
   status?: MercadoCoverageDiagnosticVariable["status"];
   coveragePct?: number;
+  expectedHours?: number;
+  distinctHours?: number;
   note: string;
 };
 
 export function ForecastPage() {
   const today = getTodayInputValue();
   const tomorrow = addDays(today, 1);
-  const defaultStart = `${today.slice(0, 4)}-01-01`;
   const models = useForecastModels();
   const history = useForecastPredictionHistory();
   const activate = useActivateForecastModel(models.refresh);
-  const train = useTrainForecastModel(() => void models.refresh());
-  const compare = useCompareForecastModels();
   const prediction = usePredictForecastRange(() => void history.refresh());
-  const [selectedCompareIds, setSelectedCompareIds] = useState<string[]>([]);
   const [selectedHistoryRun, setSelectedHistoryRun] = useState<ForecastPredictionRun>();
   const [forecastDate, setForecastDate] = useState(tomorrow);
   const [coverage, setCoverage] = useState<MercadoCoverageDiagnosticsResponse>();
@@ -142,7 +135,7 @@ export function ForecastPage() {
   return (
     <section className="omie-layout omie-layout-a mercado-module forecast-page">
       <div className="panel wide omie-control-panel forecast-header">
-        <PanelTitle icon={<LineChart size={18} />} title="Prevision Horaria" subtitle="Entrena, compara y utiliza modelos de prevision del mercado electrico." />
+        <PanelTitle icon={<LineChart size={18} />} title="Prevision Horaria" subtitle="Operacion diaria, validacion e historico oficial del mercado electrico." />
         <button className="secondary-button" disabled={models.loading} onClick={models.refresh} type="button">
           <RefreshCw size={16} />
           Refrescar
@@ -192,6 +185,8 @@ export function ForecastPage() {
         validatingId={history.validatingId}
       />
 
+      <ForecastOfficialHistoryChart forecastDate={forecastDate} />
+
       <ForecastPredictionHistory
         deletingId={history.deletingId}
         error={history.error}
@@ -208,40 +203,15 @@ export function ForecastPage() {
       />
 
       <details className="forecast-internal-tools">
-        <summary>Herramientas internas de modelo</summary>
+        <summary>Herramientas del modelo</summary>
         <ForecastModelsPanel
           activeLoadingId={activate.loadingId}
           detail={models.detail}
           loading={models.loading}
           models={models.data?.models ?? []}
           onActivate={activate.activate}
-          onSelectCompare={setSelectedCompareIds}
           onViewDetail={models.loadDetail}
-          selectedCompareIds={selectedCompareIds}
         />
-
-        <div className="mercado-dashboard-grid two">
-          <ForecastTrainingForm
-            defaultFechaDesde={defaultStart}
-            defaultFechaHasta={today}
-            loading={train.loading}
-            models={models.data?.registeredModels ?? []}
-            onTrain={train.train}
-            result={train.result}
-            error={train.error}
-          />
-          <ForecastModelComparison
-            comparison={compare.result}
-            error={compare.error}
-            loading={compare.loading}
-            models={models.data?.models ?? []}
-            onCompare={compare.compare}
-            selectedIds={selectedCompareIds}
-            setSelectedIds={setSelectedCompareIds}
-          />
-        </div>
-
-        <ForecastFeatureImportance comparison={compare.result} detail={models.detail} prediction={prediction.result} />
       </details>
     </section>
   );
@@ -325,25 +295,7 @@ function ForecastOperationsPanel({
         <ForecastMiniMetric label="Ultima prevision" value={fmt(latestMean)} />
       </div>
       <ForecastGasD1Card forecastDate={forecastDate} />
-      <ForecastActiveSources sources={activeSources} />
-      <div className="forecast-coverage-grid">
-        {relevantCoverage.map((item) => (
-          <ForecastCoverageCard
-            item={item}
-            key={item.variable}
-            loadingIndicatorId={downloadLoadingId}
-            onDownloadIndicator={onDownloadIndicator}
-          />
-        ))}
-        {derivedCoverage.map((item) => (
-          <ForecastDerivedCoverageCard
-            item={item}
-            key={item.variable}
-            loadingIndicatorId={downloadLoadingId}
-            onDownloadIndicator={onDownloadIndicator}
-          />
-        ))}
-      </div>
+      <ForecastActiveSources sources={activeSources} loadingIndicatorId={downloadLoadingId} onDownloadIndicator={onDownloadIndicator} />
       {latestRun && (
         <div className="forecast-detail-strip">
           <strong>Run guardado {latestRun.id.slice(0, 8)}</strong>
@@ -455,64 +407,15 @@ function ForecastGasD1Card({ forecastDate }: { forecastDate: string }) {
   );
 }
 
-function ForecastCoverageCard({
-  item,
+function ForecastActiveSources({
   loadingIndicatorId,
-  onDownloadIndicator
+  onDownloadIndicator,
+  sources
 }: {
-  item: MercadoCoverageDiagnosticVariable;
   loadingIndicatorId?: number;
   onDownloadIndicator: (indicatorId: number) => void;
+  sources: ForecastModelSourceItem[];
 }) {
-  const indicatorId = item.indicatorId ?? D1_QUICK_DOWNLOADS[item.variable];
-  return (
-    <div className={`forecast-coverage-card ${coverageTone(item.status)}`}>
-      <div>
-        <strong>{coverageLabel(item.variable)}</strong>
-        <span>{coverageStatusLabel(item.status)} - {formatNumber(item.distinctHours)}/{formatNumber(item.expectedHours)} h</span>
-      </div>
-      <div className="mercado-coverage-bar">
-        <span style={{ width: `${Math.min(Math.max(item.coveragePct, 0), 100)}%` }} />
-        <strong>{fmt(item.coveragePct, 0)}%</strong>
-      </div>
-      {indicatorId && (
-        <button className="secondary-button" disabled={loadingIndicatorId === indicatorId} onClick={() => onDownloadIndicator(indicatorId)} type="button">
-          <Download size={15} />
-          {loadingIndicatorId === indicatorId ? "Descargando" : "Descargar"}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function ForecastDerivedCoverageCard({
-  item,
-  loadingIndicatorId,
-  onDownloadIndicator
-}: {
-  item: ForecastDerivedSignalCoverage;
-  loadingIndicatorId?: number;
-  onDownloadIndicator: (indicatorId: number) => void;
-}) {
-  return (
-    <div className={`forecast-coverage-card ${coverageTone(item.status)}`}>
-      <div>
-        <strong>{item.label}</strong>
-        <span>Indicador {item.indicatorId} - {formatNumber(item.distinctHours)}/{formatNumber(item.expectedHours)} h</span>
-      </div>
-      <div className="mercado-coverage-bar">
-        <span style={{ width: `${Math.min(Math.max(item.coveragePct, 0), 100)}%` }} />
-        <strong>{fmt(item.coveragePct, 0)}%</strong>
-      </div>
-      <button className="secondary-button" disabled={loadingIndicatorId === item.indicatorId} onClick={() => onDownloadIndicator(item.indicatorId)} type="button">
-        <Download size={15} />
-        {loadingIndicatorId === item.indicatorId ? "Descargando" : "Descargar"}
-      </button>
-    </div>
-  );
-}
-
-function ForecastActiveSources({ sources }: { sources: ForecastModelSourceItem[] }) {
   return (
     <div className="forecast-source-grid">
       {sources.map((source) => (
@@ -521,8 +424,17 @@ function ForecastActiveSources({ sources }: { sources: ForecastModelSourceItem[]
             <strong>{source.label}</strong>
             <span>{source.source}</span>
           </div>
-          <small>{source.note}</small>
           {typeof source.coveragePct === "number" && <b>{fmt(source.coveragePct, 0)}%</b>}
+          <small>
+            {source.expectedHours ? `${coverageStatusLabel(source.status ?? "complete")} - ${formatNumber(source.distinctHours ?? 0)}/${formatNumber(source.expectedHours)} h - ` : ""}
+            {source.note}
+          </small>
+          {source.indicatorId && (
+            <button className="secondary-button" disabled={loadingIndicatorId === source.indicatorId} onClick={() => onDownloadIndicator(source.indicatorId!)} type="button">
+              <Download size={15} />
+              {loadingIndicatorId === source.indicatorId ? "Descargando" : "Descargar"}
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -535,18 +447,14 @@ export function ForecastModelsPanel({
   loading,
   models,
   onActivate,
-  onSelectCompare,
-  onViewDetail,
-  selectedCompareIds
+  onViewDetail
 }: {
   activeLoadingId?: string;
   detail?: ForecastModelDetail;
   loading: boolean;
   models: ForecastModelListItem[];
   onActivate: (id: string) => void;
-  onSelectCompare: (ids: string[]) => void;
   onViewDetail: (id: string) => void;
-  selectedCompareIds: string[];
 }) {
   return (
     <section className="panel wide mercado-panel">
@@ -558,7 +466,6 @@ export function ForecastModelsPanel({
           <table className="mercado-table forecast-table">
             <thead>
               <tr>
-                <th>Comparar</th>
                 <th>Modelo</th>
                 <th>Activo</th>
                 <th>Version</th>
@@ -572,9 +479,6 @@ export function ForecastModelsPanel({
             <tbody>
               {models.map((model) => (
                 <tr key={model.id}>
-                  <td>
-                    <input checked={selectedCompareIds.includes(model.id)} onChange={() => onSelectCompare(toggleValue(selectedCompareIds, model.id))} type="checkbox" />
-                  </td>
                   <td><strong>{model.nombre}</strong><small>{model.tipo}</small></td>
                   <td><span className={`ops-status-badge ${model.activo ? "valid" : "partial"}`}>{model.activo ? "Activo" : "Inactivo"}</span></td>
                   <td>{model.version}</td>
@@ -607,119 +511,6 @@ export function ForecastModelsPanel({
           <span>Variables {formatNumber(detail.variablesUtilizadas.length)}</span>
           <span>Walk-forward RMSE {fmt(detail.walkForwardMetricas.rmse)}</span>
         </div>
-      )}
-    </section>
-  );
-}
-
-export function ForecastTrainingForm({
-  defaultFechaDesde,
-  defaultFechaHasta,
-  error,
-  loading,
-  models,
-  onTrain,
-  result
-}: {
-  defaultFechaDesde: string;
-  defaultFechaHasta: string;
-  error?: string;
-  loading: boolean;
-  models: Array<{ id: string; name: string; status: string }>;
-  onTrain: (request: { fechaDesde: string; fechaHasta: string; modelo: string }) => void;
-  result?: ForecastTrainResponse;
-}) {
-  const [fechaDesde, setFechaDesde] = useState(defaultFechaDesde);
-  const [fechaHasta, setFechaHasta] = useState(defaultFechaHasta);
-  const [modelo, setModelo] = useState("randomForestD1");
-
-  return (
-    <section className="panel mercado-panel">
-      <PanelTitle icon={<Zap size={18} />} title="Entrenamiento" subtitle="crea una nueva version del modelo" />
-      <div className="omie-toolbar compact">
-        <label className="filter-field"><span>Fecha desde</span><input type="date" value={fechaDesde} onChange={(event) => setFechaDesde(event.target.value)} /></label>
-        <label className="filter-field"><span>Fecha hasta</span><input type="date" value={fechaHasta} onChange={(event) => setFechaHasta(event.target.value)} /></label>
-        <label className="filter-field">
-          <span>Modelo</span>
-          <select value={modelo} onChange={(event) => setModelo(event.target.value)}>
-            {models.map((item) => <option disabled={item.status !== "available"} key={item.id} value={item.id}>{item.name}</option>)}
-          </select>
-        </label>
-        <button className="primary-button" disabled={loading} onClick={() => onTrain({ fechaDesde, fechaHasta, modelo })} type="button">
-          <Play size={16} />
-          Entrenar modelo
-        </button>
-      </div>
-      {error && <div className="status-message error">{error}</div>}
-      {result && (
-        <div className="forecast-result-grid">
-          <ForecastMiniMetric label="MAE" value={fmt(result.mae)} />
-          <ForecastMiniMetric label="RMSE" value={fmt(result.rmse)} />
-          <ForecastMiniMetric label="R" value={fmt(result.r, 4)} />
-          <ForecastMiniMetric label="Observaciones" value={formatNumber(result.numeroObservaciones)} />
-          <div className="forecast-variable-list"><strong>Usadas</strong><span>{result.variablesUtilizadas.join(", ")}</span></div>
-          <div className="forecast-variable-list"><strong>Excluidas</strong><span>{result.variablesExcluidas.map((item) => item.variable).join(", ") || "-"}</span></div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-export function ForecastModelComparison({
-  comparison,
-  error,
-  loading,
-  models,
-  onCompare,
-  selectedIds,
-  setSelectedIds
-}: {
-  comparison?: ForecastCompareResponse;
-  error?: string;
-  loading: boolean;
-  models: ForecastModelListItem[];
-  onCompare: (ids: string[]) => void;
-  selectedIds: string[];
-  setSelectedIds: (ids: string[]) => void;
-}) {
-  return (
-    <section className="panel mercado-panel">
-      <div className="mercado-panel-head">
-        <PanelTitle icon={<BarChart3 size={18} />} title="Comparacion" subtitle="MAE/RMSE, variables e importancia" />
-        <button className="secondary-button" disabled={loading || selectedIds.length < 2} onClick={() => onCompare(selectedIds)} type="button">Comparar</button>
-      </div>
-      <div className="forecast-chip-list">
-        {models.map((model) => (
-          <button className={selectedIds.includes(model.id) ? "active" : ""} key={model.id} onClick={() => setSelectedIds(toggleValue(selectedIds, model.id))} type="button">
-            v{model.version} {model.tipo}
-          </button>
-        ))}
-      </div>
-      {error && <div className="status-message error">{error}</div>}
-      {comparison ? (
-        <>
-          <div className="page-note">{comparison.recomendacion.motivo}</div>
-          <EChart height={230} option={buildComparisonChart(comparison)} />
-          <div className="mercado-table-shell compact">
-            <table className="mercado-table forecast-table compact">
-              <thead><tr><th>Modelo</th><th>MAE</th><th>RMSE</th><th>R</th><th>Variables</th><th>Top importance</th></tr></thead>
-              <tbody>
-                {comparison.models.map((model) => (
-                  <tr key={model.id}>
-                    <td><strong>v{model.version}</strong><small>{model.tipo}</small></td>
-                    <td>{fmt(model.metricas.mae)}</td>
-                    <td>{fmt(model.metricas.rmse)}</td>
-                    <td>{fmt(model.metricas.r, 4)}</td>
-                    <td>{model.variablesUtilizadas.length}</td>
-                    <td>{model.featureImportance.slice(0, 3).map((item) => item.variable).join(", ")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      ) : (
-        <div className="empty-state">Selecciona dos o mas modelos para comparar.</div>
       )}
     </section>
   );
@@ -818,16 +609,6 @@ export function ForecastHourlyTable({ result }: { result?: ForecastPredictionRan
           </table>
         </div>
       )}
-    </section>
-  );
-}
-
-export function ForecastFeatureImportance({ comparison, detail }: { comparison?: ForecastCompareResponse; detail?: ForecastModelDetail; prediction?: ForecastPredictionRangeResponse }) {
-  const items = comparison?.models[0]?.featureImportance ?? detail?.featureImportance ?? [];
-  return (
-    <section className="panel mercado-panel">
-      <PanelTitle icon={<BarChart3 size={18} />} title="Importancia de variables" subtitle="ranking del modelo seleccionado/comparado" />
-      {items.length ? <EChart height={300} option={buildImportanceChart(items)} /> : <div className="empty-state">Abre el detalle de un modelo o ejecuta una comparacion.</div>}
     </section>
   );
 }
@@ -932,6 +713,16 @@ type ForecastActualComparisonRow = {
   precioReal: number;
   error: number;
   absError: number;
+};
+
+type ForecastOfficialHistoryRow = {
+  fecha: string;
+  runId: string;
+  previsto: number | null;
+  real: number | null;
+  error: number | null;
+  absError: number | null;
+  validatedAt: string | null;
 };
 
 function ForecastActualComparisonPanel({
@@ -1063,22 +854,102 @@ function ForecastActualComparisonPanel({
   );
 }
 
-function ForecastMiniMetric({ label, value }: { label: string; value: string }) {
-  return <div className="technical-kpi"><span>{label}</span><strong>{value}</strong></div>;
+function ForecastOfficialHistoryChart({ forecastDate }: { forecastDate: string }) {
+  const [fechaDesde, setFechaDesde] = useState(addDays(forecastDate, -14));
+  const [fechaHasta, setFechaHasta] = useState(forecastDate);
+  const [runs, setRuns] = useState<ForecastPredictionRun[]>([]);
+  const [datasetRows, setDatasetRows] = useState<MercadoDatasetRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    setFechaHasta(forecastDate);
+    setFechaDesde(addDays(forecastDate, -14));
+  }, [forecastDate]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(undefined);
+    try {
+      const [officialRuns, dataset] = await Promise.all([
+        getOfficialForecastPredictions({ fechaDesde, fechaHasta }),
+        getMercadoDataset({ fechaDesde, fechaHasta, take: 5000 })
+      ]);
+      setRuns(officialRuns);
+      setDatasetRows(dataset.rows);
+    } catch (caught) {
+      setError(readError(caught));
+    } finally {
+      setLoading(false);
+    }
+  }, [fechaDesde, fechaHasta]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const rows = useMemo(() => buildOfficialHistoryRows(runs, datasetRows), [datasetRows, runs]);
+  const metrics = useMemo(() => buildOfficialHistoryMetrics(rows), [rows]);
+
+  return (
+    <section className="panel wide mercado-panel forecast-official-panel">
+      <div className="mercado-panel-head">
+        <PanelTitle icon={<LineChart size={18} />} title="Historico oficial" subtitle="prevision validada frente a OMIE real" />
+        <div className="forecast-date-control">
+          <label className="filter-field"><span>Desde</span><input type="date" value={fechaDesde} onChange={(event) => setFechaDesde(event.target.value)} /></label>
+          <label className="filter-field"><span>Hasta</span><input type="date" value={fechaHasta} onChange={(event) => setFechaHasta(event.target.value)} /></label>
+          <button className="secondary-button" disabled={loading} onClick={load} type="button">
+            <RefreshCw size={16} />
+            Actualizar
+          </button>
+        </div>
+      </div>
+      {error && <div className="status-message error">{error}</div>}
+      <div className="forecast-result-grid">
+        <ForecastMiniMetric label="Dias validos" value={formatNumber(rows.length)} />
+        <ForecastMiniMetric label="MAE diario" value={fmt(metrics.mae)} />
+        <ForecastMiniMetric label="RMSE diario" value={fmt(metrics.rmse)} />
+        <ForecastMiniMetric label="Bias diario" value={fmt(metrics.bias)} />
+      </div>
+      {rows.length === 0 ? (
+        <div className="empty-state">Todavia no hay previsiones validadas en este rango.</div>
+      ) : (
+        <div className="mercado-dashboard-grid two">
+          <EChart height={320} option={buildOfficialHistoryChart(rows)} />
+          <div className="mercado-table-shell forecast-official-table">
+            <table className="mercado-table forecast-table compact">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Validada</th>
+                  <th>Previsto</th>
+                  <th>Real</th>
+                  <th>Error</th>
+                  <th>Abs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.fecha}>
+                    <td>{row.fecha}</td>
+                    <td>{formatDateTime(row.validatedAt)}</td>
+                    <td>{fmt(row.previsto)}</td>
+                    <td>{fmt(row.real)}</td>
+                    <td>{fmt(row.error)}</td>
+                    <td>{fmt(row.absError)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }
 
-function buildComparisonChart(comparison: ForecastCompareResponse): EChartsOption {
-  return {
-    tooltip: { trigger: "axis" },
-    legend: { top: 0 },
-    grid: { left: 44, right: 16, top: 42, bottom: 32 },
-    xAxis: { type: "category", data: comparison.models.map((model) => `v${model.version}`) },
-    yAxis: { type: "value" },
-    series: [
-      { name: "MAE", type: "bar", data: comparison.models.map((model) => model.metricas.mae) },
-      { name: "RMSE", type: "bar", data: comparison.models.map((model) => model.metricas.rmse) }
-    ]
-  };
+function ForecastMiniMetric({ label, value }: { label: string; value: string }) {
+  return <div className="technical-kpi"><span>{label}</span><strong>{value}</strong></div>;
 }
 
 function buildPredictionChart(result: ForecastPredictionRangeResponse): EChartsOption {
@@ -1093,17 +964,6 @@ function buildPredictionChart(result: ForecastPredictionRangeResponse): EChartsO
   };
 }
 
-function buildImportanceChart(items: ForecastFeatureImportanceItem[]): EChartsOption {
-  const ordered = [...items].slice(0, 12).reverse();
-  return {
-    tooltip: { trigger: "axis" },
-    grid: { left: 130, right: 18, top: 20, bottom: 28 },
-    xAxis: { type: "value" },
-    yAxis: { type: "category", data: ordered.map((item) => item.variable) },
-    series: [{ name: "Importancia", type: "bar", data: ordered.map((item) => Number((item.importance * 100).toFixed(2))) }]
-  };
-}
-
 function buildActualComparisonChart(rows: ForecastActualComparisonRow[]): EChartsOption {
   return {
     tooltip: { trigger: "axis" },
@@ -1115,6 +975,22 @@ function buildActualComparisonChart(rows: ForecastActualComparisonRow[]): EChart
     series: [
       { name: "Previsto", type: "line", showSymbol: false, data: rows.map((row) => row.precioPrevisto) },
       { name: "Real OMIE", type: "line", showSymbol: false, data: rows.map((row) => row.precioReal) }
+    ]
+  };
+}
+
+function buildOfficialHistoryChart(rows: ForecastOfficialHistoryRow[]): EChartsOption {
+  return {
+    tooltip: { trigger: "axis" },
+    legend: { top: 0 },
+    grid: { left: 54, right: 20, top: 42, bottom: 42 },
+    dataZoom: [{ type: "inside" }],
+    xAxis: { type: "category", data: rows.map((row) => row.fecha) },
+    yAxis: { type: "value" },
+    series: [
+      { name: "Previsto validado", type: "line", showSymbol: true, data: rows.map((row) => row.previsto) },
+      { name: "Real OMIE", type: "line", showSymbol: true, data: rows.map((row) => row.real) },
+      { name: "Error", type: "bar", yAxisIndex: 0, data: rows.map((row) => row.error) }
     ]
   };
 }
@@ -1202,6 +1078,56 @@ function buildActualComparisonMetrics(rows: ForecastActualComparisonRow[]) {
   return { meanForecast, meanActual, mae, rmse, bias };
 }
 
+function buildOfficialHistoryRows(runs: ForecastPredictionRun[], datasetRows: MercadoDatasetRow[]): ForecastOfficialHistoryRow[] {
+  const realByDate = new Map<string, number>();
+  const groupedReal = new Map<string, number[]>();
+  for (const row of datasetRows) {
+    if (!isFiniteNumber(row.precioOmie)) {
+      continue;
+    }
+    const date = row.datetimeLocal.slice(0, 10);
+    groupedReal.set(date, [...(groupedReal.get(date) ?? []), row.precioOmie]);
+  }
+  for (const [date, values] of groupedReal) {
+    realByDate.set(date, average(values));
+  }
+
+  const byDate = new Map<string, ForecastOfficialHistoryRow>();
+  for (const run of runs) {
+    const output = run.output as Partial<ForecastPredictionRangeResponse> | null | undefined;
+    for (const day of output?.predicciones ?? []) {
+      if (byDate.has(day.fecha)) {
+        continue;
+      }
+      const previsto = isFiniteNumber(day.precioMedioPrevisto) ? day.precioMedioPrevisto : average(day.prediccionesHorarias.map((row) => row.precioPrevisto).filter(isFiniteNumber));
+      const real = realByDate.get(day.fecha) ?? null;
+      const error = isFiniteNumber(previsto) && isFiniteNumber(real) ? previsto - real : null;
+      byDate.set(day.fecha, {
+        fecha: day.fecha,
+        runId: run.id,
+        previsto: isFiniteNumber(previsto) ? previsto : null,
+        real,
+        error,
+        absError: isFiniteNumber(error) ? Math.abs(error) : null,
+        validatedAt: run.validatedAt
+      });
+    }
+  }
+  return [...byDate.values()].sort((left, right) => left.fecha.localeCompare(right.fecha));
+}
+
+function buildOfficialHistoryMetrics(rows: ForecastOfficialHistoryRow[]) {
+  const comparable = rows.filter((row): row is ForecastOfficialHistoryRow & { error: number; absError: number } => isFiniteNumber(row.error) && isFiniteNumber(row.absError));
+  if (comparable.length === 0) {
+    return { mae: null, rmse: null, bias: null };
+  }
+  return {
+    mae: average(comparable.map((row) => row.absError)),
+    rmse: Math.sqrt(average(comparable.map((row) => row.error * row.error))),
+    bias: average(comparable.map((row) => row.error))
+  };
+}
+
 function buildDerivedSignalCoverage(rows: MercadoDatasetRow[], expectedHours: number): ForecastDerivedSignalCoverage[] {
   const expected = expectedHours || rows.length;
   return [
@@ -1268,13 +1194,16 @@ function buildActiveModelSources(
 }
 
 function sourceFromCoverage(key: string, label: string, item: MercadoCoverageDiagnosticVariable | undefined, note: string): ForecastModelSourceItem {
+  const indicatorId = item?.indicatorId ?? D1_QUICK_DOWNLOADS[key];
   return {
     key,
     label,
-    source: item?.indicatorId ? `Indicador ${item.indicatorId} - ${item.indicatorName ?? item.variable}` : "Sin indicador resuelto",
-    indicatorId: item?.indicatorId ?? undefined,
+    source: indicatorId ? `Indicador ${indicatorId}${item?.indicatorName ? ` - ${item.indicatorName}` : ""}` : "Sin indicador resuelto",
+    indicatorId,
     status: item?.status,
     coveragePct: item?.coveragePct,
+    expectedHours: item?.expectedHours,
+    distinctHours: item?.distinctHours,
     note
   };
 }
@@ -1287,6 +1216,8 @@ function sourceFromDerived(key: string, label: string, item: ForecastDerivedSign
     indicatorId: item?.indicatorId,
     status: item?.status,
     coveragePct: item?.coveragePct,
+    expectedHours: item?.expectedHours,
+    distinctHours: item?.distinctHours,
     note
   };
 }
@@ -1311,10 +1242,6 @@ function average(values: number[]) {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
-}
-
-function toggleValue(values: string[], value: string) {
-  return values.includes(value) ? values.filter((item) => item !== value) : [...values, value];
 }
 
 function fmt(value: number | null | undefined, decimals = 2) {

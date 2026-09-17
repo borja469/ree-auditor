@@ -8505,13 +8505,21 @@ select:disabled {
 }
 
 .forecast-source-card small {
-  grid-column: 1 / -1;
+  grid-column: 1 / 2;
 }
 
 .forecast-source-card b {
   align-self: start;
   color: var(--color-primary);
   font-size: 0.78rem;
+}
+
+.forecast-source-card .secondary-button {
+  grid-column: 2;
+  grid-row: 2 / span 2;
+  align-self: end;
+  min-height: 30px;
+  padding-inline: 9px;
 }
 
 .forecast-coverage-card {
@@ -8614,12 +8622,14 @@ select:disabled {
   max-height: min(52vh, 540px);
 }
 
-.forecast-actual-panel {
+.forecast-actual-panel,
+.forecast-official-panel {
   display: grid;
   gap: 12px;
 }
 
-.forecast-actual-table {
+.forecast-actual-table,
+.forecast-official-table {
   max-height: 300px;
 }
 
@@ -8820,6 +8830,12 @@ select:disabled {
   .forecast-coverage-card,
   .forecast-coverage-card.optional {
     grid-template-columns: 1fr;
+  }
+
+  .forecast-source-card .secondary-button {
+    grid-column: 1;
+    grid-row: auto;
+    justify-self: start;
   }
 
   .forecast-gas-actions {
