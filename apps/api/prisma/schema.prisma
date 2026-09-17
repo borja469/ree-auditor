@@ -1240,6 +1240,23 @@ model ForecastTrainingJob {
   @@map("forecast_training_jobs")
 }
 
+model ForecastTrainingAutomationConfig {
+  id                   Int       @id @default(1)
+  active               Boolean   @default(false)
+  scheduleTime         String    @default("02:00") @map("schedule_time") @db.VarChar(5)
+  trainingStartDate    DateTime  @default(dbgenerated("'2025-01-01'::date")) @map("training_start_date") @db.Date
+  modelo               String    @default("gradientBoostingD1") @db.VarChar(60)
+  useActiveModelType   Boolean   @default(true) @map("use_active_model_type")
+  geoId                Int?      @map("geo_id")
+  lastRunKey           String?   @map("last_run_key") @db.VarChar(32)
+  lastRunAt            DateTime? @map("last_run_at")
+  lastJobId            String?   @map("last_job_id") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@map("forecast_training_automation_config")
+}
+
 model ForecastPredictionRun {
   id             String        @id @default(uuid()) @db.Uuid
   modeloId       String        @map("modelo_id") @db.Uuid

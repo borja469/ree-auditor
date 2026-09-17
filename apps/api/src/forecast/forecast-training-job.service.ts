@@ -6,7 +6,7 @@ import { PrismaService } from "../prisma/prisma.service";
 import { TrainForecastDto } from "./dto/train-forecast.dto";
 import { ForecastTrainingService } from "./prediction-engine/training.service";
 
-type ForecastTrainingJobStatus = "PENDING" | "RUNNING" | "SUCCESS" | "ERROR";
+type ForecastTrainingJobStatus = "PENDING" | "RUNNING" | "SUCCESS" | "ERROR" | "SKIPPED";
 
 @Injectable()
 export class ForecastTrainingJobService {
@@ -34,6 +34,27 @@ export class ForecastTrainingJobService {
     return this.getJob(row.id);
   }
 
+  async createSkippedJob(input: TrainForecastDto & { modelo?: string }, reason: string, usuario?: string) {
+    const modelo = input.modelo ?? "linear";
+    const now = new Date();
+    const row = await this.prisma.forecastTrainingJob.create({
+      data: {
+        status: "SKIPPED",
+        modelo,
+        fechaDesde: parseDate(input.fechaDesde),
+        fechaHasta: parseDate(input.fechaHasta),
+        geoId: input.geoId,
+        usuario,
+        input: { ...input, modelo, automationSkipped: true } as Prisma.InputJsonObject,
+        result: { skipped: true, reason } as Prisma.InputJsonObject,
+        errorMessage: reason,
+        startedAt: now,
+        finishedAt: now
+      }
+    });
+    return this.getJob(row.id);
+  }
+
   async listJobs(filters: { take?: number; status?: string; modelo?: string } = {}) {
     const rows = await this.prisma.forecastTrainingJob.findMany({
       where: {
@@ -44,6 +65,16 @@ export class ForecastTrainingJobService {
       take: boundedTake(filters.take)
     });
     return rows.map(toJobDto);
+  }
+
+  async hasActiveJob(modelo?: string) {
+    const count = await this.prisma.forecastTrainingJob.count({
+      where: {
+        status: { in: ["PENDING", "RUNNING"] },
+        modelo
+      }
+    });
+    return count > 0;
   }
 
   async getJob(id: string) {
@@ -103,7 +134,7 @@ export class ForecastTrainingJobService {
       cwd: process.cwd(),
       detached: true,
       stdio: "ignore",
-      env: process.env
+      env: { ...process.env, FORECAST_TRAINING_JOB_RUNNER: "1" }
     });
     child.unref();
     this.logger.log(`Forecast training job spawned id=${jobId} pid=${child.pid ?? "unknown"}`);

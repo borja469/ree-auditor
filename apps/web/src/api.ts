@@ -2217,6 +2217,52 @@ export type ForecastTrainResponse = {
   fechaEntrenamiento: string;
 };
 
+export type ForecastTrainingJob = {
+  id: string;
+  status: "PENDING" | "RUNNING" | "SUCCESS" | "ERROR" | "SKIPPED";
+  modelo: string;
+  fechaDesde: string;
+  fechaHasta: string;
+  geoId: number | null;
+  usuario: string | null;
+  input: unknown;
+  result: {
+    tiempoEntrenamientoMs?: number;
+    walkForwardMetricas?: ForecastMetrics & { folds?: number };
+    skipped?: boolean;
+    reason?: string;
+  } | null;
+  errorMessage: string | null;
+  forecastModelId: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ForecastTrainingAutomationConfig = {
+  active: boolean;
+  scheduleTime: string;
+  trainingStartDate: string;
+  modelo: string;
+  useActiveModelType: boolean;
+  geoId: number | null;
+  lastRunKey: string | null;
+  lastRunAt: string | null;
+  lastRunAtUtc: string | null;
+  lastJobId: string | null;
+  nextTrainingEndDate: string;
+};
+
+export type ForecastTrainingAutomationConfigInput = {
+  active?: boolean;
+  scheduleTime?: string;
+  trainingStartDate?: string;
+  modelo?: string;
+  useActiveModelType?: boolean;
+  geoId?: number | null;
+};
+
 export type ForecastCompareResponse = {
   models: Array<{
     id: string;
@@ -3900,6 +3946,22 @@ export async function activateForecastModel(id: string): Promise<ForecastModelDe
 
 export async function trainForecastModel(request: { fechaDesde: string; fechaHasta: string; modelo: string; geoId?: number | string }): Promise<ForecastTrainResponse> {
   return sendJson(`/mercado/forecast/train`, "POST", "Entrenando modelo Forecast", REQUEST_TIMEOUT_MS * 12, request);
+}
+
+export async function getForecastTrainingJobs(filters: { take?: number | string; status?: string; modelo?: string } = {}): Promise<ForecastTrainingJob[]> {
+  return getJson(`/mercado/forecast/train/jobs${toQuery(filters)}`);
+}
+
+export async function getForecastTrainingAutomationConfig(): Promise<ForecastTrainingAutomationConfig> {
+  return getJson(`/mercado/forecast/training-automation`);
+}
+
+export async function saveForecastTrainingAutomationConfig(config: ForecastTrainingAutomationConfigInput): Promise<ForecastTrainingAutomationConfig> {
+  return sendJson(`/mercado/forecast/training-automation`, "PUT", "Guardando automatismo Forecast", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function runForecastTrainingAutomation(): Promise<ForecastTrainingJob> {
+  return sendJson(`/mercado/forecast/training-automation/run`, "POST", "Lanzando entrenamiento Forecast", REQUEST_TIMEOUT_MS, {});
 }
 
 export async function compareForecastModels(ids: string[]): Promise<ForecastCompareResponse> {

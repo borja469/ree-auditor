@@ -6,6 +6,7 @@ import { ForecastController } from "./forecast.controller";
 import { ForecastModelStoreService } from "./forecast-model-store.service";
 import { ForecastPredictionRunStoreService } from "./forecast-prediction-run-store.service";
 import { ForecastService } from "./forecast.service";
+import { ForecastTrainingAutomationService } from "./forecast-training-automation.service";
 import { ForecastTrainingJobService } from "./forecast-training-job.service";
 import { ForecastPredictionService } from "./prediction.service";
 import { ForecastDatasetBuilderService } from "./prediction-engine/dataset-builder.service";
@@ -22,6 +23,7 @@ import { ForecastValidationService } from "./prediction-engine/validation.servic
     ForecastService,
     ForecastComparisonService,
     ForecastModelStoreService,
+    ForecastTrainingAutomationService,
     ForecastTrainingJobService,
     ForecastPredictionRunStoreService,
     ForecastPredictionService,

@@ -6,6 +6,7 @@ import { TrainForecastDto } from "./dto/train-forecast.dto";
 import { ForecastComparisonService } from "./forecast-comparison.service";
 import { ForecastModelStoreService } from "./forecast-model-store.service";
 import { ForecastPredictionRunStoreService } from "./forecast-prediction-run-store.service";
+import { ForecastTrainingAutomationConfigInput, ForecastTrainingAutomationService } from "./forecast-training-automation.service";
 import { ForecastTrainingJobService } from "./forecast-training-job.service";
 import { ForecastPredictionService } from "./prediction.service";
 import { ForecastModelFactory } from "./prediction-engine/model-factory";
@@ -20,6 +21,7 @@ export class ForecastService {
     private readonly predictionService: ForecastPredictionService,
     private readonly comparisonService: ForecastComparisonService,
     private readonly predictionRunStore: ForecastPredictionRunStoreService,
+    private readonly trainingAutomationService: ForecastTrainingAutomationService,
     private readonly trainingJobService: ForecastTrainingJobService
   ) {}
 
@@ -99,6 +101,18 @@ export class ForecastService {
 
   getTrainingJob(id: string) {
     return this.trainingJobService.getJob(id);
+  }
+
+  getTrainingAutomationConfig() {
+    return this.trainingAutomationService.getAutomationConfig();
+  }
+
+  saveTrainingAutomationConfig(input: ForecastTrainingAutomationConfigInput) {
+    return this.trainingAutomationService.saveAutomationConfig(input);
+  }
+
+  runTrainingAutomation(usuario?: string) {
+    return this.trainingAutomationService.runAutomation(usuario ?? "forecast-manual");
   }
 }
 

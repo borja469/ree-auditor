@@ -8424,6 +8424,51 @@ select:disabled {
   max-height: min(44vh, 430px);
 }
 
+.forecast-automation-box {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  background: #f8fbfc;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+}
+
+.forecast-automation-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.forecast-automation-head > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.forecast-automation-head strong {
+  color: var(--color-primary);
+  font-size: 0.84rem;
+}
+
+.forecast-automation-head span {
+  color: var(--color-muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.forecast-automation-form {
+  display: grid;
+  grid-template-columns: minmax(90px, 120px) minmax(100px, 130px) minmax(140px, 170px) minmax(160px, 1fr) minmax(120px, 150px) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.forecast-training-jobs-table {
+  max-height: 260px;
+}
+
 .forecast-ops-panel {
   display: grid;
   gap: 12px;
@@ -8906,6 +8951,10 @@ select:disabled {
   }
 
   .forecast-result-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .forecast-automation-form {
     grid-template-columns: 1fr;
   }
 

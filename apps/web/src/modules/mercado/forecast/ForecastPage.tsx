@@ -7,6 +7,9 @@ import type {
   ForecastModelListItem,
   ForecastPredictionRangeResponse,
   ForecastPredictionRun,
+  ForecastTrainingAutomationConfig,
+  ForecastTrainingAutomationConfigInput,
+  ForecastTrainingJob,
   GasMibgasManualPriceRow,
   MercadoDatasetRow,
   MercadoCoverageDiagnosticsResponse,
@@ -20,6 +23,7 @@ import {
   useActivateForecastModel,
   useForecastModels,
   useForecastPredictionHistory,
+  useForecastTrainingAutomation,
   usePredictForecastRange
 } from "./useForecast";
 
@@ -56,6 +60,7 @@ export function ForecastPage() {
   const tomorrow = addDays(today, 1);
   const models = useForecastModels();
   const history = useForecastPredictionHistory();
+  const trainingAutomation = useForecastTrainingAutomation();
   const activate = useActivateForecastModel(models.refresh);
   const prediction = usePredictForecastRange(() => void history.refresh());
   const [selectedHistoryRun, setSelectedHistoryRun] = useState<ForecastPredictionRun>();
@@ -196,6 +201,7 @@ export function ForecastPage() {
         <summary>Herramientas del modelo</summary>
         <ForecastModelsPanel
           activeLoadingId={activate.loadingId}
+          automation={trainingAutomation}
           detail={models.detail}
           loading={models.loading}
           models={models.data?.models ?? []}
@@ -484,6 +490,7 @@ function ForecastActiveSources({
 
 export function ForecastModelsPanel({
   activeLoadingId,
+  automation,
   detail,
   loading,
   models,
@@ -492,6 +499,7 @@ export function ForecastModelsPanel({
   onViewDetail
 }: {
   activeLoadingId?: string;
+  automation: ReturnType<typeof useForecastTrainingAutomation>;
   detail?: ForecastModelDetail;
   loading: boolean;
   models: ForecastModelListItem[];
@@ -502,6 +510,17 @@ export function ForecastModelsPanel({
   return (
     <section className="panel wide mercado-panel">
       <PanelTitle icon={<Table2 size={18} />} title="Modelos" subtitle="versiones entrenadas y estado operativo" />
+      <ForecastTrainingAutomationPanel
+        config={automation.config}
+        error={automation.error}
+        jobs={automation.jobs}
+        loading={automation.loading}
+        onRefresh={automation.refresh}
+        onRunNow={automation.runNow}
+        onSave={automation.save}
+        running={automation.running}
+        saving={automation.saving}
+      />
       {models.length === 0 ? (
         <div className="empty-state">No hay modelos entrenados todavia.</div>
       ) : (
@@ -549,6 +568,131 @@ export function ForecastModelsPanel({
       )}
       {detail && <ForecastModelDetailModal detail={detail} onClose={onCloseDetail} />}
     </section>
+  );
+}
+
+function ForecastTrainingAutomationPanel({
+  config,
+  error,
+  jobs,
+  loading,
+  onRefresh,
+  onRunNow,
+  onSave,
+  running,
+  saving
+}: {
+  config?: ForecastTrainingAutomationConfig;
+  error?: string;
+  jobs: ForecastTrainingJob[];
+  loading: boolean;
+  onRefresh: () => void;
+  onRunNow: () => void;
+  onSave: (input: ForecastTrainingAutomationConfigInput) => void;
+  running: boolean;
+  saving: boolean;
+}) {
+  const [draft, setDraft] = useState<ForecastTrainingAutomationConfig>();
+
+  useEffect(() => {
+    if (config) {
+      setDraft(config);
+    }
+  }, [config]);
+
+  return (
+    <div className="forecast-automation-box">
+      <div className="forecast-automation-head">
+        <div>
+          <strong>Entrenamiento diario</strong>
+          <span>
+            {config?.active ? "Activo" : "Pausado"} - proximo hasta {config?.nextTrainingEndDate ?? "-"}
+          </span>
+        </div>
+        <div className="row-actions">
+          <button className="secondary-button" disabled={loading} onClick={onRefresh} type="button">
+            <RefreshCw size={15} />
+            Refrescar
+          </button>
+          <button className="primary-button" disabled={running || !draft} onClick={onRunNow} type="button">
+            <Play size={15} />
+            {running ? "Lanzando" : "Lanzar ahora"}
+          </button>
+        </div>
+      </div>
+      {error && <div className="status-message error">{error}</div>}
+      {draft ? (
+        <>
+          <div className="forecast-automation-form">
+            <label className="filter-field">
+              <span>Activo</span>
+              <select value={draft.active ? "yes" : "no"} onChange={(event) => setDraft({ ...draft, active: event.target.value === "yes" })}>
+                <option value="no">No</option>
+                <option value="yes">Si</option>
+              </select>
+            </label>
+            <label className="filter-field">
+              <span>Hora</span>
+              <input type="time" value={draft.scheduleTime} onChange={(event) => setDraft({ ...draft, scheduleTime: event.target.value })} />
+            </label>
+            <label className="filter-field">
+              <span>Desde entrenamiento</span>
+              <input type="date" value={draft.trainingStartDate} onChange={(event) => setDraft({ ...draft, trainingStartDate: event.target.value })} />
+            </label>
+            <label className="filter-field">
+              <span>Tipo</span>
+              <input value={draft.modelo} onChange={(event) => setDraft({ ...draft, modelo: event.target.value })} />
+            </label>
+            <label className="filter-field">
+              <span>Usar tipo activo</span>
+              <select value={draft.useActiveModelType ? "yes" : "no"} onChange={(event) => setDraft({ ...draft, useActiveModelType: event.target.value === "yes" })}>
+                <option value="yes">Si</option>
+                <option value="no">No</option>
+              </select>
+            </label>
+            <button className="secondary-button" disabled={saving} onClick={() => onSave(draft)} type="button">
+              <CheckCircle2 size={15} />
+              {saving ? "Guardando" : "Guardar"}
+            </button>
+          </div>
+          <div className="forecast-detail-strip">
+            <strong>Ultima ejecucion</strong>
+            <span>{config?.lastRunAt ?? "Sin ejecuciones"}</span>
+            <span>{config?.lastRunKey ?? "-"}</span>
+            {config?.lastJobId && <span>Job {config.lastJobId.slice(0, 8)}</span>}
+          </div>
+        </>
+      ) : (
+        <div className="empty-state">Cargando automatismo de entrenamiento.</div>
+      )}
+      <ForecastTrainingJobsTable jobs={jobs} />
+    </div>
+  );
+}
+
+function ForecastTrainingJobsTable({ jobs }: { jobs: ForecastTrainingJob[] }) {
+  if (jobs.length === 0) {
+    return <div className="empty-state">Sin entrenamientos registrados.</div>;
+  }
+  return (
+    <div className="mercado-table-shell compact forecast-training-jobs-table">
+      <table className="mercado-table forecast-table compact">
+        <thead><tr><th>Creado</th><th>Estado</th><th>Modelo</th><th>Rango</th><th>Duracion</th><th>MAE WF</th><th>Modelo generado</th></tr></thead>
+        <tbody>
+          {jobs.map((job) => (
+            <tr key={job.id}>
+              <td>{formatDateTime(job.createdAt)}</td>
+              <td><span className={`ops-status-badge ${trainingJobTone(job.status)}`}>{trainingJobLabel(job.status)}</span></td>
+              <td>{job.modelo}</td>
+              <td>{job.fechaDesde} / {job.fechaHasta}</td>
+              <td>{formatTrainingDuration(job)}</td>
+              <td>{fmt(job.result?.walkForwardMetricas?.mae)}</td>
+              <td>{job.forecastModelId ? job.forecastModelId.slice(0, 8) : job.errorMessage ?? "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -1113,6 +1257,45 @@ function predictionStatusTone(run: ForecastPredictionRun) {
     return "invalid";
   }
   return "partial";
+}
+
+function trainingJobLabel(status: ForecastTrainingJob["status"]) {
+  const labels: Record<ForecastTrainingJob["status"], string> = {
+    PENDING: "Pendiente",
+    RUNNING: "Entrenando",
+    SUCCESS: "Correcto",
+    ERROR: "Error",
+    SKIPPED: "Saltado"
+  };
+  return labels[status] ?? status;
+}
+
+function trainingJobTone(status: ForecastTrainingJob["status"]) {
+  if (status === "SUCCESS") {
+    return "valid";
+  }
+  if (status === "ERROR") {
+    return "invalid";
+  }
+  if (status === "SKIPPED") {
+    return "partial";
+  }
+  return "partial";
+}
+
+function formatTrainingDuration(job: ForecastTrainingJob) {
+  if (job.result?.tiempoEntrenamientoMs) {
+    return `${fmt(job.result.tiempoEntrenamientoMs / 60000, 1)} min`;
+  }
+  if (job.startedAt && job.finishedAt) {
+    const minutes = (new Date(job.finishedAt).getTime() - new Date(job.startedAt).getTime()) / 60000;
+    return `${fmt(minutes, 1)} min`;
+  }
+  if (job.startedAt) {
+    const minutes = (Date.now() - new Date(job.startedAt).getTime()) / 60000;
+    return `${fmt(minutes, 1)} min`;
+  }
+  return "-";
 }
 
 function buildPredictionDetailRows(run: ForecastPredictionRun, datasetRows: MercadoDatasetRow[]): ForecastPredictionDetailRow[] {

@@ -3,11 +3,15 @@ import {
   activateForecastModel,
   compareForecastModels,
   deleteForecastPrediction,
+  getForecastTrainingAutomationConfig,
+  getForecastTrainingJobs,
   getForecastModelDetail,
   getForecastModels,
   getForecastPredictionHistory,
   rejectForecastPrediction,
   predictForecastRange,
+  runForecastTrainingAutomation,
+  saveForecastTrainingAutomationConfig,
   trainForecastModel,
   validateForecastPrediction,
   type ForecastCompareResponse,
@@ -15,6 +19,9 @@ import {
   type ForecastModelsResponse,
   type ForecastPredictionRangeResponse,
   type ForecastPredictionRun,
+  type ForecastTrainingAutomationConfig,
+  type ForecastTrainingAutomationConfigInput,
+  type ForecastTrainingJob,
   type ForecastTrainResponse
 } from "../../../api";
 
@@ -233,6 +240,67 @@ export function useForecastPredictionHistory() {
   }, [refresh]);
 
   return { refresh, result, loading, error, deleteRun, deletingId, validateRun, rejectRun, validatingId };
+}
+
+export function useForecastTrainingAutomation() {
+  const [config, setConfig] = useState<ForecastTrainingAutomationConfig>();
+  const [jobs, setJobs] = useState<ForecastTrainingJob[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string>();
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(undefined);
+    try {
+      const [nextConfig, nextJobs] = await Promise.all([
+        getForecastTrainingAutomationConfig(),
+        getForecastTrainingJobs({ take: 8 })
+      ]);
+      setConfig(nextConfig);
+      setJobs(nextJobs);
+    } catch (caught) {
+      setError(readError(caught));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const save = useCallback(
+    async (input: ForecastTrainingAutomationConfigInput) => {
+      setSaving(true);
+      setError(undefined);
+      try {
+        setConfig(await saveForecastTrainingAutomationConfig(input));
+        await refresh();
+      } catch (caught) {
+        setError(readError(caught));
+      } finally {
+        setSaving(false);
+      }
+    },
+    [refresh]
+  );
+
+  const runNow = useCallback(async () => {
+    setRunning(true);
+    setError(undefined);
+    try {
+      await runForecastTrainingAutomation();
+      await refresh();
+    } catch (caught) {
+      setError(readError(caught));
+    } finally {
+      setRunning(false);
+    }
+  }, [refresh]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  return { config, jobs, loading, saving, running, error, refresh, save, runNow };
 }
 
 function readError(error: unknown) {
