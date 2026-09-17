@@ -2274,8 +2274,14 @@ export type ForecastPredictionRun = {
   tipoPrediccion: string;
   input: unknown;
   output: unknown;
+  status: "PENDIENTE_VALIDACION" | "VALIDADA" | "RECHAZADA";
+  isOfficial: boolean;
+  validatedAt: string | null;
+  validatedBy: string | null;
+  validationComment: string | null;
   usuario: string | null;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type EsiosDownloadLog = {
@@ -3904,8 +3910,20 @@ export async function predictForecastRange(request: { modeloId: string; fechaDes
   return sendJson(`/mercado/forecast/predict/range`, "POST", "Calculando prevision Forecast", REQUEST_TIMEOUT_MS * 4, request);
 }
 
-export async function getForecastPredictionHistory(filters: { modeloId?: string; fechaDesde?: string; fechaHasta?: string } = {}): Promise<ForecastPredictionRun[]> {
+export async function getForecastPredictionHistory(filters: { modeloId?: string; fechaDesde?: string; fechaHasta?: string; status?: string; official?: string } = {}): Promise<ForecastPredictionRun[]> {
   return getJson(`/mercado/forecast/predictions${toQuery(filters)}`);
+}
+
+export async function getOfficialForecastPredictions(filters: { fechaDesde?: string; fechaHasta?: string } = {}): Promise<ForecastPredictionRun[]> {
+  return getJson(`/mercado/forecast/predictions/official${toQuery(filters)}`);
+}
+
+export async function validateForecastPrediction(id: string, comment?: string): Promise<ForecastPredictionRun> {
+  return sendJson(`/mercado/forecast/predictions/${encodeURIComponent(id)}/validate`, "POST", "Validando prediccion Forecast", REQUEST_TIMEOUT_MS, { comment });
+}
+
+export async function rejectForecastPrediction(id: string, comment?: string): Promise<ForecastPredictionRun> {
+  return sendJson(`/mercado/forecast/predictions/${encodeURIComponent(id)}/reject`, "POST", "Rechazando prediccion Forecast", REQUEST_TIMEOUT_MS, { comment });
 }
 
 export async function deleteForecastPrediction(id: string): Promise<ForecastPredictionRun> {

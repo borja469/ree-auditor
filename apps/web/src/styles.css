@@ -5326,6 +5326,11 @@ select:disabled {
   background: #fee2e2;
 }
 
+.ops-status-badge.invalid {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
 .ops-status-badge.processing {
   color: #075985;
   background: #e0f2fe;
@@ -8720,6 +8725,23 @@ select:disabled {
 .forecast-history-actions .secondary-button.danger {
   color: #7a271a;
   border-color: #fecdca;
+}
+
+.forecast-internal-tools {
+  display: grid;
+  gap: 12px;
+}
+
+.forecast-internal-tools > summary {
+  cursor: pointer;
+  width: fit-content;
+  color: var(--color-primary);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.forecast-internal-tools[open] > summary {
+  margin-bottom: 12px;
 }
 
 .forecast-history-result {

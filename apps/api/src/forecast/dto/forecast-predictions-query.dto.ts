@@ -14,4 +14,12 @@ export class ForecastPredictionsQueryDto {
   @IsString()
   @Matches(/^\d{4}-\d{2}-\d{2}$/)
   fechaHasta?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: "PENDIENTE_VALIDACION" | "VALIDADA" | "RECHAZADA";
+
+  @IsOptional()
+  @IsString()
+  official?: string;
 }

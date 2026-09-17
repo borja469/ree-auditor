@@ -6,8 +6,10 @@ import {
   getForecastModelDetail,
   getForecastModels,
   getForecastPredictionHistory,
+  rejectForecastPrediction,
   predictForecastRange,
   trainForecastModel,
+  validateForecastPrediction,
   type ForecastCompareResponse,
   type ForecastModelDetail,
   type ForecastModelsResponse,
@@ -160,6 +162,7 @@ export function useForecastPredictionHistory() {
   const [error, setError] = useState<string>();
   const [result, setResult] = useState<ForecastPredictionRun[]>([]);
   const [deletingId, setDeletingId] = useState<string>();
+  const [validatingId, setValidatingId] = useState<string>();
 
   const refresh = useCallback(async (filters: { modeloId?: string; fechaDesde?: string; fechaHasta?: string } = {}) => {
     setLoading(true);
@@ -192,11 +195,44 @@ export function useForecastPredictionHistory() {
     [refresh]
   );
 
+  const validateRun = useCallback(
+    async (id: string, filters: { modeloId?: string; fechaDesde?: string; fechaHasta?: string } = {}) => {
+      setValidatingId(id);
+      setError(undefined);
+      try {
+        await validateForecastPrediction(id);
+        await refresh(filters);
+      } catch (caught) {
+        setError(readError(caught));
+      } finally {
+        setValidatingId(undefined);
+      }
+    },
+    [refresh]
+  );
+
+  const rejectRun = useCallback(
+    async (id: string, filters: { modeloId?: string; fechaDesde?: string; fechaHasta?: string } = {}) => {
+      const comment = window.prompt("Motivo de rechazo de la prevision") ?? "";
+      setValidatingId(id);
+      setError(undefined);
+      try {
+        await rejectForecastPrediction(id, comment);
+        await refresh(filters);
+      } catch (caught) {
+        setError(readError(caught));
+      } finally {
+        setValidatingId(undefined);
+      }
+    },
+    [refresh]
+  );
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  return { refresh, result, loading, error, deleteRun, deletingId };
+  return { refresh, result, loading, error, deleteRun, deletingId, validateRun, rejectRun, validatingId };
 }
 
 function readError(error: unknown) {

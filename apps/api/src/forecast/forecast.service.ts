@@ -51,11 +51,32 @@ export class ForecastService {
   }
 
   listPredictions(filters: ForecastPredictionsQueryDto) {
-    return this.predictionRunStore.list(filters);
+    return this.predictionRunStore.list({
+      modeloId: filters.modeloId,
+      fechaDesde: filters.fechaDesde,
+      fechaHasta: filters.fechaHasta,
+      status: filters.status,
+      official: parseBoolean(filters.official)
+    });
   }
 
   deletePrediction(id: string) {
     return this.predictionRunStore.delete(id);
+  }
+
+  validatePrediction(id: string, input: { comment?: string }, usuario?: string) {
+    return this.predictionRunStore.validate(id, { usuario, comment: input.comment });
+  }
+
+  rejectPrediction(id: string, input: { comment?: string }, usuario?: string) {
+    return this.predictionRunStore.reject(id, { usuario, comment: input.comment });
+  }
+
+  listOfficialPredictions(filters: ForecastPredictionsQueryDto) {
+    return this.predictionRunStore.listOfficial({
+      fechaDesde: filters.fechaDesde,
+      fechaHasta: filters.fechaHasta
+    });
   }
 
   train(dto: TrainForecastDto, usuario?: string) {
@@ -79,4 +100,11 @@ export class ForecastService {
   getTrainingJob(id: string) {
     return this.trainingJobService.getJob(id);
   }
+}
+
+function parseBoolean(value: string | undefined) {
+  if (value === undefined) {
+    return undefined;
+  }
+  return value === "true" || value === "1";
 }

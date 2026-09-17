@@ -1250,13 +1250,21 @@ model ForecastPredictionRun {
   tipoPrediccion String        @map("tipo_prediccion") @db.VarChar(40)
   input          Json
   output         Json
+  status         String        @default("PENDIENTE_VALIDACION") @db.VarChar(40)
+  isOfficial     Boolean       @default(false) @map("is_official")
+  validatedAt    DateTime?     @map("validated_at")
+  validatedBy    String?       @map("validated_by") @db.VarChar(160)
+  validationComment String?    @map("validation_comment") @db.Text
   usuario        String?       @db.VarChar(160)
   createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
 
   @@index([modeloId])
   @@index([fechaEjecucion])
   @@index([fechaDesde, fechaHasta])
   @@index([tipoPrediccion])
+  @@index([status])
+  @@index([isOfficial])
   @@map("forecast_prediction_runs")
 }
 

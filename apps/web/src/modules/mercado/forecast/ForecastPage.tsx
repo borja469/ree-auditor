@@ -167,38 +167,6 @@ export function ForecastPage() {
         onRefreshCoverage={() => loadCoverage(forecastDate)}
       />
 
-      <ForecastModelsPanel
-        activeLoadingId={activate.loadingId}
-        detail={models.detail}
-        loading={models.loading}
-        models={models.data?.models ?? []}
-        onActivate={activate.activate}
-        onSelectCompare={setSelectedCompareIds}
-        onViewDetail={models.loadDetail}
-        selectedCompareIds={selectedCompareIds}
-      />
-
-      <div className="mercado-dashboard-grid two">
-        <ForecastTrainingForm
-          defaultFechaDesde={defaultStart}
-          defaultFechaHasta={today}
-          loading={train.loading}
-          models={models.data?.registeredModels ?? []}
-          onTrain={train.train}
-          result={train.result}
-          error={train.error}
-        />
-        <ForecastModelComparison
-          comparison={compare.result}
-          error={compare.error}
-          loading={compare.loading}
-          models={models.data?.models ?? []}
-          onCompare={compare.compare}
-          selectedIds={selectedCompareIds}
-          setSelectedIds={setSelectedCompareIds}
-        />
-      </div>
-
       <div className="mercado-dashboard-grid two">
         <ForecastPredictionRangeForm
           activeModelId={activeModelId}
@@ -216,22 +184,65 @@ export function ForecastPage() {
 
       <ForecastHourlyTable result={prediction.result} />
 
-      <ForecastActualComparisonPanel forecastDate={forecastDate} runs={historyForTarget} />
+      <ForecastActualComparisonPanel
+        forecastDate={forecastDate}
+        runs={historyForTarget}
+        onReject={(id) => history.rejectRun(id, { fechaDesde: forecastDate, fechaHasta: forecastDate })}
+        onValidate={(id) => history.validateRun(id, { fechaDesde: forecastDate, fechaHasta: forecastDate })}
+        validatingId={history.validatingId}
+      />
 
-      <div className="mercado-dashboard-grid two">
-        <ForecastFeatureImportance comparison={compare.result} detail={models.detail} prediction={prediction.result} />
-        <ForecastPredictionHistory
-          error={history.error}
-          loading={history.loading}
+      <ForecastPredictionHistory
+        deletingId={history.deletingId}
+        error={history.error}
+        loading={history.loading}
+        models={models.data?.models ?? []}
+        onDelete={(id, filters) => history.deleteRun(id, filters)}
+        onRefresh={history.refresh}
+        onReject={(id, filters) => history.rejectRun(id, filters)}
+        onValidate={(id, filters) => history.validateRun(id, filters)}
+        onView={setSelectedHistoryRun}
+        runs={history.result}
+        selectedRun={selectedHistoryRun}
+        validatingId={history.validatingId}
+      />
+
+      <details className="forecast-internal-tools">
+        <summary>Herramientas internas de modelo</summary>
+        <ForecastModelsPanel
+          activeLoadingId={activate.loadingId}
+          detail={models.detail}
+          loading={models.loading}
           models={models.data?.models ?? []}
-          onDelete={(id, filters) => history.deleteRun(id, filters)}
-          onRefresh={history.refresh}
-          onView={setSelectedHistoryRun}
-          runs={history.result}
-          selectedRun={selectedHistoryRun}
-          deletingId={history.deletingId}
+          onActivate={activate.activate}
+          onSelectCompare={setSelectedCompareIds}
+          onViewDetail={models.loadDetail}
+          selectedCompareIds={selectedCompareIds}
         />
-      </div>
+
+        <div className="mercado-dashboard-grid two">
+          <ForecastTrainingForm
+            defaultFechaDesde={defaultStart}
+            defaultFechaHasta={today}
+            loading={train.loading}
+            models={models.data?.registeredModels ?? []}
+            onTrain={train.train}
+            result={train.result}
+            error={train.error}
+          />
+          <ForecastModelComparison
+            comparison={compare.result}
+            error={compare.error}
+            loading={compare.loading}
+            models={models.data?.models ?? []}
+            onCompare={compare.compare}
+            selectedIds={selectedCompareIds}
+            setSelectedIds={setSelectedCompareIds}
+          />
+        </div>
+
+        <ForecastFeatureImportance comparison={compare.result} detail={models.detail} prediction={prediction.result} />
+      </details>
     </section>
   );
 }
@@ -741,7 +752,7 @@ export function ForecastPredictionRangeForm({
 
   return (
     <section className="panel mercado-panel">
-      <PanelTitle icon={<Activity size={18} />} title="Prediccion" subtitle="prevision horaria por rango de fechas" />
+      <PanelTitle icon={<Activity size={18} />} title="Prevision operativa" subtitle="genera la prevision pendiente de validacion" />
       <div className="omie-toolbar compact">
         <label className="filter-field">
           <span>Modelo</span>
@@ -753,7 +764,7 @@ export function ForecastPredictionRangeForm({
         <label className="filter-field"><span>Fecha hasta</span><input type="date" value={fechaHasta} onChange={(event) => onDateChange(event.target.value)} /></label>
         <button className="primary-button" disabled={loading || !effectiveModelId} onClick={() => onPredict({ modeloId: effectiveModelId, fechaDesde, fechaHasta })} type="button">
           <Play size={16} />
-          Predecir
+          Calcular prevision
         </button>
       </div>
       {error && <div className="status-message error">{error}</div>}
@@ -828,9 +839,12 @@ export function ForecastPredictionHistory({
   models,
   onDelete,
   onRefresh,
+  onReject,
+  onValidate,
   onView,
   runs,
-  selectedRun
+  selectedRun,
+  validatingId
 }: {
   deletingId?: string;
   error?: string;
@@ -838,17 +852,20 @@ export function ForecastPredictionHistory({
   models: ForecastModelListItem[];
   onDelete: (id: string, filters?: { modeloId?: string; fechaDesde?: string; fechaHasta?: string }) => void;
   onRefresh: (filters?: { modeloId?: string; fechaDesde?: string; fechaHasta?: string }) => void;
+  onReject: (id: string, filters?: { modeloId?: string; fechaDesde?: string; fechaHasta?: string }) => void;
+  onValidate: (id: string, filters?: { modeloId?: string; fechaDesde?: string; fechaHasta?: string }) => void;
   onView: (run: ForecastPredictionRun) => void;
   runs: ForecastPredictionRun[];
   selectedRun?: ForecastPredictionRun;
+  validatingId?: string;
 }) {
   const [modeloId, setModeloId] = useState("");
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
 
   return (
-    <section className="panel mercado-panel">
-      <PanelTitle icon={<RefreshCw size={18} />} title="Historico" subtitle="auditoria de predicciones ejecutadas" />
+    <section className="panel wide mercado-panel">
+      <PanelTitle icon={<RefreshCw size={18} />} title="Historico de previsiones" subtitle="validacion, oficiales y auditoria por fechas" />
       <div className="omie-toolbar compact">
         <label className="filter-field"><span>Modelo</span><select value={modeloId} onChange={(event) => setModeloId(event.target.value)}><option value="">Todos</option>{models.map((model) => <option key={model.id} value={model.id}>v{model.version} {model.tipo}</option>)}</select></label>
         <label className="filter-field"><span>Desde</span><input type="date" value={fechaDesde} onChange={(event) => setFechaDesde(event.target.value)} /></label>
@@ -858,17 +875,36 @@ export function ForecastPredictionHistory({
       {error && <div className="status-message error">{error}</div>}
       <div className="mercado-table-shell compact">
         <table className="mercado-table forecast-table compact">
-          <thead><tr><th>Ejecutado</th><th>Modelo</th><th>Rango</th><th>Media</th><th>Accion</th></tr></thead>
+          <thead><tr><th>Ejecutado</th><th>Estado</th><th>Modelo</th><th>Rango</th><th>Media</th><th>Accion</th></tr></thead>
           <tbody>
             {runs.map((run) => (
               <tr key={run.id}>
                 <td>{formatDateTime(run.fechaEjecucion)}</td>
+                <td><span className={`ops-status-badge ${predictionStatusTone(run)}`}>{predictionStatusLabel(run)}</span></td>
                 <td>{run.modeloId.slice(0, 8)}</td>
                 <td>{run.fechaDesde} / {run.fechaHasta}</td>
                 <td>{fmt(readRunAverage(run))}</td>
                 <td>
                   <div className="forecast-history-actions">
                     <button className="secondary-button" onClick={() => onView(run)} type="button"><Eye size={15} />Resultado</button>
+                    <button
+                      className="secondary-button"
+                      disabled={run.isOfficial || validatingId === run.id}
+                      onClick={() => onValidate(run.id, { modeloId: modeloId || undefined, fechaDesde: fechaDesde || undefined, fechaHasta: fechaHasta || undefined })}
+                      type="button"
+                    >
+                      <CheckCircle2 size={15} />
+                      {validatingId === run.id ? "Validando" : "Validar"}
+                    </button>
+                    <button
+                      className="secondary-button"
+                      disabled={run.status === "RECHAZADA" || validatingId === run.id}
+                      onClick={() => onReject(run.id, { modeloId: modeloId || undefined, fechaDesde: fechaDesde || undefined, fechaHasta: fechaHasta || undefined })}
+                      type="button"
+                    >
+                      <AlertTriangle size={15} />
+                      Rechazar
+                    </button>
                     <button
                       className="secondary-button danger"
                       disabled={deletingId === run.id}
@@ -898,7 +934,19 @@ type ForecastActualComparisonRow = {
   absError: number;
 };
 
-function ForecastActualComparisonPanel({ forecastDate, runs }: { forecastDate: string; runs: ForecastPredictionRun[] }) {
+function ForecastActualComparisonPanel({
+  forecastDate,
+  onReject,
+  onValidate,
+  runs,
+  validatingId
+}: {
+  forecastDate: string;
+  onReject: (id: string) => void;
+  onValidate: (id: string) => void;
+  runs: ForecastPredictionRun[];
+  validatingId?: string;
+}) {
   const [selectedRunId, setSelectedRunId] = useState("");
   const [datasetRows, setDatasetRows] = useState<MercadoDatasetRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -949,9 +997,25 @@ function ForecastActualComparisonPanel({ forecastDate, runs }: { forecastDate: s
             <RefreshCw size={16} />
             OMIE real
           </button>
+          <button className="primary-button" disabled={!selectedRun || selectedRun.isOfficial || validatingId === selectedRun?.id} onClick={() => selectedRun && onValidate(selectedRun.id)} type="button">
+            <CheckCircle2 size={16} />
+            {validatingId === selectedRun?.id ? "Validando" : "Marcar valida"}
+          </button>
+          <button className="secondary-button" disabled={!selectedRun || selectedRun.status === "RECHAZADA" || validatingId === selectedRun?.id} onClick={() => selectedRun && onReject(selectedRun.id)} type="button">
+            <AlertTriangle size={16} />
+            Rechazar
+          </button>
         </div>
       </div>
       {error && <div className="status-message error">{error}</div>}
+      {selectedRun && (
+        <div className="forecast-detail-strip">
+          <strong>{predictionStatusLabel(selectedRun)}</strong>
+          <span>Ejecutada {formatDateTime(selectedRun.fechaEjecucion)}</span>
+          {selectedRun.validatedAt && <span>Validada {formatDateTime(selectedRun.validatedAt)}</span>}
+          {selectedRun.validatedBy && <span>{selectedRun.validatedBy}</span>}
+        </div>
+      )}
       {!selectedRun && <div className="empty-state">No hay prevision guardada para esta fecha.</div>}
       {selectedRun && comparisonRows.length === 0 && !loading && (
         <div className="empty-state">Sin cruce con OMIE real. Revisa que el precio real este cargado para {forecastDate}.</div>
@@ -1072,6 +1136,28 @@ function readRunAverage(run: ForecastPredictionRun) {
   }
   const values = days.map((day) => day.precioMedioPrevisto).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+}
+
+function predictionStatusLabel(run: ForecastPredictionRun) {
+  if (run.isOfficial) {
+    return "Oficial";
+  }
+  const labels: Record<ForecastPredictionRun["status"], string> = {
+    PENDIENTE_VALIDACION: "Pendiente",
+    VALIDADA: "Validada",
+    RECHAZADA: "Rechazada"
+  };
+  return labels[run.status] ?? run.status;
+}
+
+function predictionStatusTone(run: ForecastPredictionRun) {
+  if (run.isOfficial || run.status === "VALIDADA") {
+    return "valid";
+  }
+  if (run.status === "RECHAZADA") {
+    return "invalid";
+  }
+  return "partial";
 }
 
 function buildActualComparisonRows(run: ForecastPredictionRun | undefined, datasetRows: MercadoDatasetRow[]): ForecastActualComparisonRow[] {

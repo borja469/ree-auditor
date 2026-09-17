@@ -44,6 +44,21 @@ export class ForecastController {
     return this.forecastService.listPredictions(query);
   }
 
+  @Get("predictions/official")
+  listOfficialPredictions(@Query() query: ForecastPredictionsQueryDto) {
+    return this.forecastService.listOfficialPredictions(query);
+  }
+
+  @Post("predictions/:id/validate")
+  validatePrediction(@Param("id") id: string, @Body() body: { comment?: string }, @Headers("x-user") usuario?: string) {
+    return this.forecastService.validatePrediction(id, body, usuario);
+  }
+
+  @Post("predictions/:id/reject")
+  rejectPrediction(@Param("id") id: string, @Body() body: { comment?: string }, @Headers("x-user") usuario?: string) {
+    return this.forecastService.rejectPrediction(id, body, usuario);
+  }
+
   @Delete("predictions/:id")
   deletePrediction(@Param("id") id: string) {
     return this.forecastService.deletePrediction(id);
