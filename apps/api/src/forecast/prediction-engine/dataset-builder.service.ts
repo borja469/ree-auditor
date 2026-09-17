@@ -37,6 +37,15 @@ type MercadoBaseRow = {
   bombeo: number | null;
   intercambios: number | null;
   precioGasMibgas?: number | null;
+  ntcFranceImportD1?: number | null;
+  ntcFranceExportD1?: number | null;
+  ntcPortugalImportD1?: number | null;
+  ntcPortugalExportD1?: number | null;
+  ntcMoroccoImportD1?: number | null;
+  ntcMoroccoExportD1?: number | null;
+  ccgtDisponibleMw?: number | null;
+  hydroDisponibleMw?: number | null;
+  pumpingDisponibleMw?: number | null;
 };
 
 type EnrichedForecastRow = MercadoBaseRow & {
@@ -72,6 +81,16 @@ type EnrichedForecastRow = MercadoBaseRow & {
   eveningThermalGapPressure: number | null;
   eveningSolarExitThermalGap: number | null;
   rampaPrecioOmie: number | null;
+  ntcFranceNetD1: number | null;
+  ntcPortugalNetD1: number | null;
+  ntcMoroccoNetD1: number | null;
+  ntcImportTotalD1: number | null;
+  ntcExportTotalD1: number | null;
+  ntcNetImportD1: number | null;
+  ccgtDisponibleSobreDemandaPct: number | null;
+  hydroDisponibleSobreDemandaPct: number | null;
+  pumpingDisponibleSobreDemandaPct: number | null;
+  thermalAvailabilityPressure: number | null;
 };
 
 const NUMERIC_FEATURES = [
@@ -116,6 +135,25 @@ const NUMERIC_FEATURES = [
   "bombeo",
   "intercambios",
   "precioGasMibgas",
+  "ntcFranceImportD1",
+  "ntcFranceExportD1",
+  "ntcFranceNetD1",
+  "ntcPortugalImportD1",
+  "ntcPortugalExportD1",
+  "ntcPortugalNetD1",
+  "ntcMoroccoImportD1",
+  "ntcMoroccoExportD1",
+  "ntcMoroccoNetD1",
+  "ntcImportTotalD1",
+  "ntcExportTotalD1",
+  "ntcNetImportD1",
+  "ccgtDisponibleMw",
+  "ccgtDisponibleSobreDemandaPct",
+  "hydroDisponibleMw",
+  "hydroDisponibleSobreDemandaPct",
+  "pumpingDisponibleMw",
+  "pumpingDisponibleSobreDemandaPct",
+  "thermalAvailabilityPressure",
   "rampaDemanda",
   "rampaEolica",
   "rampaSolar",
@@ -188,6 +226,25 @@ const D1_SAFE_FEATURES = new Set([
   "hidraulicaStoragePctOfMax",
   "hidraulicaStorageLow",
   "precioGasMibgas",
+  "ntcFranceImportD1",
+  "ntcFranceExportD1",
+  "ntcFranceNetD1",
+  "ntcPortugalImportD1",
+  "ntcPortugalExportD1",
+  "ntcPortugalNetD1",
+  "ntcMoroccoImportD1",
+  "ntcMoroccoExportD1",
+  "ntcMoroccoNetD1",
+  "ntcImportTotalD1",
+  "ntcExportTotalD1",
+  "ntcNetImportD1",
+  "ccgtDisponibleMw",
+  "ccgtDisponibleSobreDemandaPct",
+  "hydroDisponibleMw",
+  "hydroDisponibleSobreDemandaPct",
+  "pumpingDisponibleMw",
+  "pumpingDisponibleSobreDemandaPct",
+  "thermalAvailabilityPressure",
   "rampaDemanda",
   "rampaEolica",
   "rampaSolar",
@@ -204,6 +261,20 @@ const MIN_TRAINING_ROWS = 24;
 const NUCLEAR_AVAILABLE_LOW_THRESHOLD_MW = 7_000;
 const HYDRAULIC_STORAGE_HIGH_REFERENCE = 15_500_000;
 const HYDRAULIC_STORAGE_LOW_THRESHOLD = 12_500_000;
+const THERMAL_AVAILABILITY_LOW_REFERENCE_MW = 18_000;
+const D1_MARKET_FEATURE_INDICATORS = {
+  ntcFranceImportD1: 1844,
+  ntcFranceExportD1: 1848,
+  ntcPortugalImportD1: 1845,
+  ntcPortugalExportD1: 1849,
+  ntcMoroccoImportD1: 1846,
+  ntcMoroccoExportD1: 1850,
+  ccgtDisponibleMw: 477,
+  hydroDisponibleMw: 472,
+  pumpingDisponibleMw: 473
+} as const;
+type D1MarketFeatureName = keyof typeof D1_MARKET_FEATURE_INDICATORS;
+type D1MarketFeatureValues = Partial<Record<D1MarketFeatureName, number>>;
 
 @Injectable()
 export class ForecastDatasetBuilderService {
@@ -214,17 +285,18 @@ export class ForecastDatasetBuilderService {
   ) {}
 
   async buildTrainingDataset(options: ForecastDatasetOptions): Promise<ForecastDataset> {
-    const [dataset, mappings, gasPriceByDate] = await Promise.all([
+    const [dataset, mappings, gasPriceByDate, d1MarketFeaturesByTimestamp] = await Promise.all([
       this.mercadoDatasetService.buildHourlyDataset({
         fechaDesde: options.fechaDesde,
         fechaHasta: options.fechaHasta,
         geoId: options.geoId
       }) as Promise<{ filters: { fechaDesde: string; fechaHasta: string }; totalRows: number; rows: MercadoBaseRow[] }>,
       this.mercadoIndicatorMappingService.resolveMappings(),
-      this.loadGasMibgasPrices(options.fechaDesde, options.fechaHasta)
+      this.loadGasMibgasPrices(options.fechaDesde, options.fechaHasta),
+      this.loadD1MarketFeatures(options.fechaDesde, options.fechaHasta)
     ]);
 
-    const enrichedRows = enrichRows(withGasPrices(dataset.rows, gasPriceByDate));
+    const enrichedRows = enrichRows(withD1MarketFeatures(withGasPrices(dataset.rows, gasPriceByDate), d1MarketFeaturesByTimestamp));
     const targetRows = enrichedRows.filter((row) => isFiniteNumber(row.precioOmie));
     if (targetRows.length < MIN_TRAINING_ROWS) {
       throw new BadRequestException(`No hay suficientes observaciones con precio OMIE. Minimo requerido: ${MIN_TRAINING_ROWS}.`);
@@ -296,15 +368,16 @@ export class ForecastDatasetBuilderService {
 
   async buildPredictionRangeDataset(options: ForecastDatasetOptions & { featureNames: string[] }): Promise<ForecastDataset> {
     const contextFechaDesde = subtractDays(options.fechaDesde, requiredContextDays(options.featureNames));
-    const [dataset, gasPriceByDate] = await Promise.all([
+    const [dataset, gasPriceByDate, d1MarketFeaturesByTimestamp] = await Promise.all([
       this.mercadoDatasetService.buildHourlyDataset({
         fechaDesde: contextFechaDesde,
         fechaHasta: options.fechaHasta,
         geoId: options.geoId
       }) as Promise<{ filters: { fechaDesde: string; fechaHasta: string }; totalRows: number; rows: MercadoBaseRow[] }>,
-      this.loadGasMibgasPrices(contextFechaDesde, options.fechaHasta)
+      this.loadGasMibgasPrices(contextFechaDesde, options.fechaHasta),
+      this.loadD1MarketFeatures(contextFechaDesde, options.fechaHasta)
     ]);
-    const enrichedRows = enrichRows(withGasPrices(dataset.rows, gasPriceByDate)).filter((row) => isRequestedDate(row.date, options.fechaDesde, options.fechaHasta));
+    const enrichedRows = enrichRows(withD1MarketFeatures(withGasPrices(dataset.rows, gasPriceByDate), d1MarketFeaturesByTimestamp)).filter((row) => isRequestedDate(row.date, options.fechaDesde, options.fechaHasta));
     const featureMatrix = enrichedRows.map((row) => buildFeatureValues(row));
     const featureCoverage = new Map(options.featureNames.map((feature) => [feature, coveragePct(featureMatrix, feature)]));
     const requiredFeatures = options.featureNames.filter((feature) => !TARGET_LEAKAGE_FEATURES.has(feature));
@@ -422,6 +495,50 @@ export class ForecastDatasetBuilderService {
       })
     );
   }
+
+  private async loadD1MarketFeatures(fechaDesde?: string, fechaHasta?: string) {
+    if (!this.prisma || !fechaDesde || !fechaHasta) {
+      return new Map<string, D1MarketFeatureValues>();
+    }
+    const start = parseUtcDate(fechaDesde);
+    start.setUTCDate(start.getUTCDate() - 1);
+    const end = parseUtcDate(fechaHasta);
+    end.setUTCDate(end.getUTCDate() + 1);
+    end.setUTCHours(23, 59, 59, 999);
+
+    const indicatorEntries = Object.entries(D1_MARKET_FEATURE_INDICATORS) as Array<[D1MarketFeatureName, number]>;
+    const rows = await this.prisma.esiosIndicatorValue.findMany({
+      where: {
+        indicatorId: { in: indicatorEntries.map((entry) => entry[1]) },
+        datetime: {
+          gte: start,
+          lte: end
+        },
+        value: { not: null }
+      },
+      select: {
+        indicatorId: true,
+        datetimeUtc: true,
+        datetime: true,
+        value: true
+      }
+    });
+
+    const featureByIndicator = new Map(indicatorEntries.map(([feature, indicatorId]) => [indicatorId, feature]));
+    const valuesByTimestamp = new Map<string, D1MarketFeatureValues>();
+    for (const row of rows) {
+      const feature = featureByIndicator.get(row.indicatorId);
+      if (!feature || row.value === null) {
+        continue;
+      }
+      const timestamp = (row.datetimeUtc ?? row.datetime).toISOString();
+      const current = valuesByTimestamp.get(timestamp) ?? {};
+      current[feature] = round((current[feature] ?? 0) + decimalToNumber(row.value));
+      valuesByTimestamp.set(timestamp, current);
+    }
+
+    return valuesByTimestamp;
+  }
 }
 
 function featureAllowList(modelo?: string) {
@@ -437,6 +554,13 @@ function withGasPrices(rows: MercadoBaseRow[], gasPriceByDate: Map<string, numbe
   return rows.map((row) => ({
     ...row,
     precioGasMibgas: gasPriceByDate.get(row.date) ?? gasPriceByDate.get(row.timestampUtc.slice(0, 10)) ?? null
+  }));
+}
+
+function withD1MarketFeatures(rows: MercadoBaseRow[], featuresByTimestamp: Map<string, D1MarketFeatureValues>): MercadoBaseRow[] {
+  return rows.map((row) => ({
+    ...row,
+    ...(featuresByTimestamp.get(row.timestampUtc) ?? {})
   }));
 }
 
@@ -523,6 +647,12 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
     const solarDropFromDailyMax = subtractIfPresent(solarMax, solar);
     const precioOmieLag24 = priceByLocalDateHour.get(localDateHourKey(shiftDate(row.date, -1), row.hour)) ?? null;
     const precioOmieLag48 = priceByLocalDateHour.get(localDateHourKey(shiftDate(row.date, -2), row.hour)) ?? null;
+    const ntcFranceNetD1 = subtractIfPresent(row.ntcFranceImportD1 ?? null, row.ntcFranceExportD1 ?? null);
+    const ntcPortugalNetD1 = subtractIfPresent(row.ntcPortugalImportD1 ?? null, row.ntcPortugalExportD1 ?? null);
+    const ntcMoroccoNetD1 = subtractIfPresent(row.ntcMoroccoImportD1 ?? null, row.ntcMoroccoExportD1 ?? null);
+    const ntcImportTotalD1 = sumNullable(row.ntcFranceImportD1 ?? null, row.ntcPortugalImportD1 ?? null, row.ntcMoroccoImportD1 ?? null);
+    const ntcExportTotalD1 = sumNullable(row.ntcFranceExportD1 ?? null, row.ntcPortugalExportD1 ?? null, row.ntcMoroccoExportD1 ?? null);
+    const ntcNetImportD1 = subtractIfPresent(ntcImportTotalD1, ntcExportTotalD1);
     return {
       ...row,
       festivoNacional: false,
@@ -556,7 +686,17 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       rampaHuecoTermicoD1: null,
       eveningThermalGapPressure: eveningThermalGapPressure(huecoTermicoD1, row.hour),
       eveningSolarExitThermalGap: eveningSolarExitThermalGap(huecoTermicoD1, solarDropFromDailyMax, row.hour),
-      rampaPrecioOmie: null
+      rampaPrecioOmie: null,
+      ntcFranceNetD1,
+      ntcPortugalNetD1,
+      ntcMoroccoNetD1,
+      ntcImportTotalD1,
+      ntcExportTotalD1,
+      ntcNetImportD1,
+      ccgtDisponibleSobreDemandaPct: ratioPct(row.ccgtDisponibleMw ?? null, row.demandaPrevista),
+      hydroDisponibleSobreDemandaPct: ratioPct(row.hydroDisponibleMw ?? null, row.demandaPrevista),
+      pumpingDisponibleSobreDemandaPct: ratioPct(row.pumpingDisponibleMw ?? null, row.demandaPrevista),
+      thermalAvailabilityPressure: positiveGap(row.ccgtDisponibleMw ?? null, THERMAL_AVAILABILITY_LOW_REFERENCE_MW, 1_000)
     };
   });
 
