@@ -440,9 +440,29 @@ export class EsiosApiService {
       now()
     )`);
     await this.prisma.$executeRaw`
+      WITH incoming
+        (indicator_id, datetime, datetime_utc, value, geo_id, geo_key, geo_name, created_at, updated_at)
+      AS (
+        VALUES ${Prisma.join(rows)}
+      ),
+      deduplicated AS (
+        SELECT DISTINCT ON (indicator_id, datetime_utc, geo_key)
+          indicator_id,
+          datetime,
+          datetime_utc,
+          value,
+          geo_id,
+          geo_key,
+          geo_name,
+          created_at,
+          updated_at
+        FROM incoming
+        ORDER BY indicator_id, datetime_utc, geo_key, updated_at DESC
+      )
       INSERT INTO esios_indicator_values
         (indicator_id, datetime, datetime_utc, value, geo_id, geo_key, geo_name, created_at, updated_at)
-      VALUES ${Prisma.join(rows)}
+      SELECT indicator_id, datetime, datetime_utc, value, geo_id, geo_key, geo_name, created_at, updated_at
+      FROM deduplicated
       ON CONFLICT (indicator_id, datetime_utc, geo_key)
       DO UPDATE SET
         datetime = EXCLUDED.datetime,
