@@ -439,30 +439,66 @@ export class EsiosApiService {
       now(),
       now()
     )`);
+    try {
+      await this.prisma.$executeRaw`
+        WITH incoming
+          (indicator_id, datetime, datetime_utc, value, geo_id, geo_key, geo_name, created_at, updated_at)
+        AS (
+          VALUES ${Prisma.join(rows)}
+        ),
+        deduplicated AS (
+          SELECT DISTINCT ON (indicator_id, datetime_utc, geo_key)
+            indicator_id,
+            datetime,
+            datetime_utc,
+            value,
+            geo_id,
+            geo_key,
+            geo_name,
+            created_at,
+            updated_at
+          FROM incoming
+          ORDER BY indicator_id, datetime_utc, geo_key, updated_at DESC
+        )
+        INSERT INTO esios_indicator_values
+          (indicator_id, datetime, datetime_utc, value, geo_id, geo_key, geo_name, created_at, updated_at)
+        SELECT indicator_id, datetime, datetime_utc, value, geo_id, geo_key, geo_name, created_at, updated_at
+        FROM deduplicated
+        ON CONFLICT (indicator_id, datetime_utc, geo_key)
+        DO UPDATE SET
+          datetime = EXCLUDED.datetime,
+          datetime_utc = EXCLUDED.datetime_utc,
+          value = EXCLUDED.value,
+          geo_id = EXCLUDED.geo_id,
+          geo_key = EXCLUDED.geo_key,
+          geo_name = EXCLUDED.geo_name,
+          updated_at = now()
+      `;
+    } catch (error) {
+      if (!isCardinalityViolation(error)) {
+        throw error;
+      }
+      for (const value of values) {
+        await this.upsertSingleValue(value);
+      }
+    }
+  }
+
+  private async upsertSingleValue(value: EsiosIndicatorValueInput) {
     await this.prisma.$executeRaw`
-      WITH incoming
-        (indicator_id, datetime, datetime_utc, value, geo_id, geo_key, geo_name, created_at, updated_at)
-      AS (
-        VALUES ${Prisma.join(rows)}
-      ),
-      deduplicated AS (
-        SELECT DISTINCT ON (indicator_id, datetime_utc, geo_key)
-          indicator_id,
-          datetime,
-          datetime_utc,
-          value,
-          geo_id,
-          geo_key,
-          geo_name,
-          created_at,
-          updated_at
-        FROM incoming
-        ORDER BY indicator_id, datetime_utc, geo_key, updated_at DESC
-      )
       INSERT INTO esios_indicator_values
         (indicator_id, datetime, datetime_utc, value, geo_id, geo_key, geo_name, created_at, updated_at)
-      SELECT indicator_id, datetime, datetime_utc, value, geo_id, geo_key, geo_name, created_at, updated_at
-      FROM deduplicated
+      VALUES (
+        ${value.indicatorId},
+        ${value.datetime},
+        ${value.datetimeUtc},
+        ${value.value},
+        ${value.geoId},
+        ${geoKey(value)},
+        ${value.geoName},
+        now(),
+        now()
+      )
       ON CONFLICT (indicator_id, datetime_utc, geo_key)
       DO UPDATE SET
         datetime = EXCLUDED.datetime,
@@ -765,6 +801,14 @@ function parseDateValue(value: string | null) {
   }
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function isCardinalityViolation(error: unknown) {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const candidate = error as { code?: unknown; message?: unknown };
+  return candidate.code === "21000" || (typeof candidate.message === "string" && candidate.message.includes("Code: `21000`"));
 }
 
 function chunkArray<T>(values: T[], size: number) {
