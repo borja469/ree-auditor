@@ -8620,14 +8620,41 @@ select:disabled {
 
 .forecast-result-modal {
   width: min(1280px, 100%);
+  color: #17313f;
+  background: #ffffff;
+  border-color: #d8e2e8;
 }
 
 .forecast-result-modal .ops-modal-head span {
   display: block;
   margin-top: 3px;
-  color: #8ea5ae;
+  color: #5f7580;
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.forecast-result-modal .ops-modal-head {
+  border-bottom-color: #d8e2e8;
+}
+
+.forecast-result-modal .ops-modal-head strong {
+  color: #17313f;
+}
+
+.forecast-result-modal .ops-modal-head button {
+  color: #17313f;
+  background: #f7fafc;
+  border-color: #d8e2e8;
+}
+
+.forecast-result-modal .technical-kpi,
+.forecast-result-modal .forecast-detail-strip {
+  background: #f8fbfc;
+  border-color: #d8e2e8;
+}
+
+.forecast-result-modal .mercado-table-shell {
+  background: #ffffff;
 }
 
 .forecast-official-panel {

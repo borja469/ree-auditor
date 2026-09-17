@@ -164,8 +164,7 @@ export function ForecastPage() {
       <div className="mercado-dashboard-grid two">
         <ForecastPredictionRangeForm
           activeModelId={activeModelId}
-          fechaDesde={forecastDate}
-          fechaHasta={forecastDate}
+          forecastDate={forecastDate}
           error={prediction.error}
           loading={prediction.loading}
           models={models.data?.models ?? []}
@@ -516,9 +515,8 @@ export function ForecastModelsPanel({
 
 export function ForecastPredictionRangeForm({
   activeModelId,
-  fechaDesde,
-  fechaHasta,
   error,
+  forecastDate,
   loading,
   models,
   onDateChange,
@@ -526,9 +524,8 @@ export function ForecastPredictionRangeForm({
   result
 }: {
   activeModelId: string;
-  fechaDesde: string;
-  fechaHasta: string;
   error?: string;
+  forecastDate: string;
   loading: boolean;
   models: ForecastModelListItem[];
   onDateChange: (date: string) => void;
@@ -561,9 +558,8 @@ export function ForecastPredictionRangeForm({
             {models.map((model) => <option key={model.id} value={model.id}>{model.activo ? "Activo - " : ""}v{model.version} {model.tipo}</option>)}
           </select>
         </label>
-        <label className="filter-field"><span>Fecha desde</span><input type="date" value={fechaDesde} onChange={(event) => onDateChange(event.target.value)} /></label>
-        <label className="filter-field"><span>Fecha hasta</span><input type="date" value={fechaHasta} onChange={(event) => onDateChange(event.target.value)} /></label>
-        <button className="primary-button" disabled={loading || !effectiveModelId} onClick={() => onPredict({ modeloId: effectiveModelId, fechaDesde, fechaHasta })} type="button">
+        <label className="filter-field"><span>Fecha objetivo</span><input type="date" value={forecastDate} onChange={(event) => onDateChange(event.target.value)} /></label>
+        <button className="primary-button" disabled={loading || !effectiveModelId} onClick={() => onPredict({ modeloId: effectiveModelId, fechaDesde: forecastDate, fechaHasta: forecastDate })} type="button">
           <Play size={16} />
           Calcular prevision
         </button>
@@ -931,14 +927,25 @@ function buildPredictionChart(result: ForecastPredictionRangeResponse): EChartsO
 function buildPredictionDetailChart(rows: ForecastPredictionDetailRow[]): EChartsOption {
   return {
     tooltip: { trigger: "axis" },
-    legend: { top: 0 },
+    legend: { top: 0, textStyle: { color: "#17313f", fontWeight: 700 } },
     grid: { left: 54, right: 20, top: 42, bottom: 42 },
     dataZoom: [{ type: "inside" }],
-    xAxis: { type: "category", data: rows.map((row) => row.datetimeLocal.slice(11, 16)) },
-    yAxis: { type: "value" },
+    xAxis: {
+      type: "category",
+      data: rows.map((row) => row.datetimeLocal.slice(11, 16)),
+      axisLabel: { color: "#31505d" },
+      axisLine: { lineStyle: { color: "#9eb3bd" } },
+      splitLine: { lineStyle: { color: "#e6eef2" } }
+    },
+    yAxis: {
+      type: "value",
+      axisLabel: { color: "#31505d" },
+      axisLine: { lineStyle: { color: "#9eb3bd" } },
+      splitLine: { lineStyle: { color: "#e6eef2" } }
+    },
     series: [
-      { name: "Previsto", type: "line", showSymbol: false, data: rows.map((row) => row.precioPrevisto) },
-      { name: "Real OMIE", type: "line", showSymbol: false, data: rows.map((row) => row.precioReal) }
+      { name: "Previsto", type: "line", showSymbol: false, lineStyle: { color: "#006c8f", width: 2 }, data: rows.map((row) => row.precioPrevisto) },
+      { name: "Real OMIE", type: "line", showSymbol: false, lineStyle: { color: "#b54708", width: 2 }, data: rows.map((row) => row.precioReal) }
     ]
   };
 }
