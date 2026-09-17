@@ -888,11 +888,34 @@ function buildPredictionChart(result: ForecastPredictionRangeResponse): EChartsO
   const rows = flattenPredictionRows(result);
   return {
     tooltip: { trigger: "axis" },
-    grid: { left: 54, right: 20, top: 24, bottom: 50 },
+    legend: { top: 0, textStyle: { color: "#17313f", fontWeight: 700 } },
+    grid: { left: 64, right: 28, top: 48, bottom: 62 },
     dataZoom: [{ type: "inside" }, { type: "slider", height: 18, bottom: 8 }],
-    xAxis: { type: "category", data: rows.map((row) => row.datetimeLocal?.slice(11, 16) ?? row.timestampUtc.slice(11, 16)) },
-    yAxis: { type: "value" },
-    series: [{ name: "Precio previsto", type: "line", showSymbol: false, data: rows.map((row) => row.precioPrevisto) }]
+    xAxis: {
+      type: "category",
+      name: "Hora",
+      nameLocation: "middle",
+      nameGap: 34,
+      data: rows.map((row) => row.datetimeLocal?.slice(11, 16) ?? row.timestampUtc.slice(11, 16)),
+      axisLabel: { color: "#31505d" },
+      axisLine: { lineStyle: { color: "#9eb3bd" } }
+    },
+    yAxis: {
+      type: "value",
+      name: "EUR/MWh",
+      nameGap: 42,
+      axisLabel: { color: "#31505d" },
+      splitLine: { lineStyle: { color: "#e6eef2" } }
+    },
+    series: [{
+      name: "Precio previsto",
+      type: "line",
+      showSymbol: true,
+      symbolSize: 5,
+      label: chartValueLabel("top"),
+      lineStyle: { color: "#006c8f", width: 2 },
+      data: rows.map((row) => row.precioPrevisto)
+    }]
   };
 }
 
@@ -900,10 +923,13 @@ function buildPredictionDetailChart(rows: ForecastPredictionDetailRow[]): EChart
   return {
     tooltip: { trigger: "axis" },
     legend: { top: 0, textStyle: { color: "#17313f", fontWeight: 700 } },
-    grid: { left: 54, right: 20, top: 42, bottom: 42 },
+    grid: { left: 64, right: 28, top: 48, bottom: 56 },
     dataZoom: [{ type: "inside" }],
     xAxis: {
       type: "category",
+      name: "Hora",
+      nameLocation: "middle",
+      nameGap: 34,
       data: rows.map((row) => row.datetimeLocal.slice(11, 16)),
       axisLabel: { color: "#31505d" },
       axisLine: { lineStyle: { color: "#9eb3bd" } },
@@ -911,13 +937,15 @@ function buildPredictionDetailChart(rows: ForecastPredictionDetailRow[]): EChart
     },
     yAxis: {
       type: "value",
+      name: "EUR/MWh",
+      nameGap: 42,
       axisLabel: { color: "#31505d" },
       axisLine: { lineStyle: { color: "#9eb3bd" } },
       splitLine: { lineStyle: { color: "#e6eef2" } }
     },
     series: [
-      { name: "Previsto", type: "line", showSymbol: false, lineStyle: { color: "#006c8f", width: 2 }, data: rows.map((row) => row.precioPrevisto) },
-      { name: "Real OMIE", type: "line", showSymbol: false, lineStyle: { color: "#b54708", width: 2 }, data: rows.map((row) => row.precioReal) }
+      { name: "Previsto", type: "line", showSymbol: true, symbolSize: 5, label: chartValueLabel("top"), lineStyle: { color: "#006c8f", width: 2 }, data: rows.map((row) => row.precioPrevisto) },
+      { name: "Real OMIE", type: "line", showSymbol: true, symbolSize: 5, label: chartValueLabel("bottom"), lineStyle: { color: "#b54708", width: 2 }, data: rows.map((row) => row.precioReal) }
     ]
   };
 }
@@ -925,16 +953,42 @@ function buildPredictionDetailChart(rows: ForecastPredictionDetailRow[]): EChart
 function buildOfficialHistoryChart(rows: ForecastOfficialHistoryRow[]): EChartsOption {
   return {
     tooltip: { trigger: "axis" },
-    legend: { top: 0 },
-    grid: { left: 54, right: 20, top: 42, bottom: 42 },
+    legend: { top: 0, textStyle: { color: "#17313f", fontWeight: 700 } },
+    grid: { left: 64, right: 28, top: 48, bottom: 56 },
     dataZoom: [{ type: "inside" }],
-    xAxis: { type: "category", data: rows.map((row) => row.fecha) },
-    yAxis: { type: "value" },
+    xAxis: {
+      type: "category",
+      name: "Fecha",
+      nameLocation: "middle",
+      nameGap: 34,
+      data: rows.map((row) => row.fecha),
+      axisLabel: { color: "#31505d" },
+      axisLine: { lineStyle: { color: "#9eb3bd" } }
+    },
+    yAxis: {
+      type: "value",
+      name: "EUR/MWh",
+      nameGap: 42,
+      axisLabel: { color: "#31505d" },
+      splitLine: { lineStyle: { color: "#e6eef2" } }
+    },
     series: [
-      { name: "Previsto validado", type: "line", showSymbol: true, data: rows.map((row) => row.previsto) },
-      { name: "Real OMIE", type: "line", showSymbol: true, data: rows.map((row) => row.real) },
-      { name: "Error", type: "bar", yAxisIndex: 0, data: rows.map((row) => row.error) }
+      { name: "Previsto validado", type: "line", showSymbol: true, symbolSize: 6, label: chartValueLabel("top"), lineStyle: { color: "#006c8f", width: 2 }, data: rows.map((row) => row.previsto) },
+      { name: "Real OMIE", type: "line", showSymbol: true, symbolSize: 6, label: chartValueLabel("bottom"), lineStyle: { color: "#b54708", width: 2 }, data: rows.map((row) => row.real) },
+      { name: "Error", type: "bar", yAxisIndex: 0, label: chartValueLabel("top"), itemStyle: { color: "#8a9aa3" }, data: rows.map((row) => row.error) }
     ]
+  };
+}
+
+function chartValueLabel(position: "top" | "bottom") {
+  return {
+    show: true,
+    position,
+    hideOverlap: true,
+    color: "#17313f",
+    fontSize: 10,
+    fontWeight: 700,
+    formatter: (params: { value?: unknown }) => (isFiniteNumber(params.value) ? formatDecimalNumber(params.value, 0) : "")
   };
 }
 
