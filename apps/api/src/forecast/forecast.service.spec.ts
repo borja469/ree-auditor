@@ -70,7 +70,12 @@ void describe("Forecast prediction engine", () => {
     assert.equal(dataset.featureNames.includes("demandaPrevista"), true);
     assert.equal(dataset.featureNames.includes("solarPrevista"), true);
     assert.equal(dataset.featureNames.includes("huecoTermicoD1"), true);
+    assert.equal(dataset.featureNames.includes("huecoTermicoSobreDemandaPct"), true);
+    assert.equal(dataset.featureNames.includes("hydroScarcityThermalPressure"), true);
+    assert.equal(dataset.featureNames.includes("lowStorageHighGap"), true);
     assert.equal(dataset.featureNames.includes("rampaHuecoTermicoD1"), true);
+    assert.equal(dataset.featureNames.includes("thermalGapRampPressure"), true);
+    assert.equal(dataset.featureNames.includes("demandRampThermalPressure"), true);
     assert.equal(dataset.featureNames.includes("eveningThermalGapPressure"), true);
     assert.equal(dataset.featureNames.includes("eveningSolarExitThermalGap"), true);
     assert.equal(dataset.featureNames.includes("fotovoltaica"), false);
@@ -120,7 +125,12 @@ void describe("Forecast prediction engine", () => {
     const noon = dataset.rows.find((row: { datetimeLocal?: string }) => row.datetimeLocal === "2026-01-03T12:00:00");
 
     assert.equal(evening?.features.huecoTermicoD1, 782);
+    assert.equal(evening?.features.huecoTermicoSobreDemandaPct, 47.108434);
+    assert.equal(evening?.features.hydroScarcityThermalPressure, 252.258342);
+    assert.equal(evening?.features.lowStorageHighGap, 1564);
     assert.equal(evening?.features.rampaHuecoTermicoD1, 29);
+    assert.equal(evening?.features.thermalGapRampPressure, 22678);
+    assert.equal(evening?.features.demandRampThermalPressure, 7820);
     assert.equal(evening?.features.eveningThermalGapPressure, 782);
     assert.equal(evening?.features.eveningSolarExitThermalGap, 15640);
     assert.equal(evening?.features.solarPctOfDailyMax, 75);

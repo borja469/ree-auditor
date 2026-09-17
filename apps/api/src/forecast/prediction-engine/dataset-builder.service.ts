@@ -53,6 +53,10 @@ type EnrichedForecastRow = MercadoBaseRow & {
   demandaResidual: number | null;
   huecoTermico: number | null;
   huecoTermicoD1: number | null;
+  huecoTermicoSobreDemandaPct: number | null;
+  huecoSobreCcgtDisponible: number | null;
+  huecoSobreDespachableDisponible: number | null;
+  margenDespachableMw: number | null;
   coberturaRenovablePct: number | null;
   eolicaSobreDemandaPct: number | null;
   solarSobreDemandaPct: number | null;
@@ -87,10 +91,19 @@ type EnrichedForecastRow = MercadoBaseRow & {
   ntcImportTotalD1: number | null;
   ntcExportTotalD1: number | null;
   ntcNetImportD1: number | null;
+  ntcNetSobreDemandaPct: number | null;
+  exportPressure: number | null;
+  importSupport: number | null;
+  huecoAjustadoInterconexion: number | null;
   ccgtDisponibleSobreDemandaPct: number | null;
   hydroDisponibleSobreDemandaPct: number | null;
   pumpingDisponibleSobreDemandaPct: number | null;
   thermalAvailabilityPressure: number | null;
+  hydroScarcityThermalPressure: number | null;
+  hydroSupportRatio: number | null;
+  lowStorageHighGap: number | null;
+  thermalGapRampPressure: number | null;
+  demandRampThermalPressure: number | null;
 };
 
 const NUMERIC_FEATURES = [
@@ -103,6 +116,10 @@ const NUMERIC_FEATURES = [
   "demandaResidual",
   "huecoTermico",
   "huecoTermicoD1",
+  "huecoTermicoSobreDemandaPct",
+  "huecoSobreCcgtDisponible",
+  "huecoSobreDespachableDisponible",
+  "margenDespachableMw",
   "coberturaRenovablePct",
   "eolicaSobreDemandaPct",
   "solarSobreDemandaPct",
@@ -147,6 +164,10 @@ const NUMERIC_FEATURES = [
   "ntcImportTotalD1",
   "ntcExportTotalD1",
   "ntcNetImportD1",
+  "ntcNetSobreDemandaPct",
+  "exportPressure",
+  "importSupport",
+  "huecoAjustadoInterconexion",
   "ccgtDisponibleMw",
   "ccgtDisponibleSobreDemandaPct",
   "hydroDisponibleMw",
@@ -154,11 +175,16 @@ const NUMERIC_FEATURES = [
   "pumpingDisponibleMw",
   "pumpingDisponibleSobreDemandaPct",
   "thermalAvailabilityPressure",
+  "hydroScarcityThermalPressure",
+  "hydroSupportRatio",
+  "lowStorageHighGap",
   "rampaDemanda",
   "rampaEolica",
   "rampaSolar",
   "rampaHuecoTermico",
   "rampaHuecoTermicoD1",
+  "thermalGapRampPressure",
+  "demandRampThermalPressure",
   "eveningThermalGapPressure",
   "eveningSolarExitThermalGap",
   "rampaPrecioOmie"
@@ -208,6 +234,10 @@ const D1_SAFE_FEATURES = new Set([
   "demandaPrevista",
   "demandaResidual",
   "huecoTermicoD1",
+  "huecoTermicoSobreDemandaPct",
+  "huecoSobreCcgtDisponible",
+  "huecoSobreDespachableDisponible",
+  "margenDespachableMw",
   "eolica",
   "eolicaSobreDemandaPct",
   "solarPrevista",
@@ -238,6 +268,10 @@ const D1_SAFE_FEATURES = new Set([
   "ntcImportTotalD1",
   "ntcExportTotalD1",
   "ntcNetImportD1",
+  "ntcNetSobreDemandaPct",
+  "exportPressure",
+  "importSupport",
+  "huecoAjustadoInterconexion",
   "ccgtDisponibleMw",
   "ccgtDisponibleSobreDemandaPct",
   "hydroDisponibleMw",
@@ -245,10 +279,15 @@ const D1_SAFE_FEATURES = new Set([
   "pumpingDisponibleMw",
   "pumpingDisponibleSobreDemandaPct",
   "thermalAvailabilityPressure",
+  "hydroScarcityThermalPressure",
+  "hydroSupportRatio",
+  "lowStorageHighGap",
   "rampaDemanda",
   "rampaEolica",
   "rampaSolar",
   "rampaHuecoTermicoD1",
+  "thermalGapRampPressure",
+  "demandRampThermalPressure",
   "eveningThermalGapPressure",
   "eveningSolarExitThermalGap",
   "season_winter",
@@ -653,11 +692,18 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
     const ntcImportTotalD1 = sumNullable(row.ntcFranceImportD1 ?? null, row.ntcPortugalImportD1 ?? null, row.ntcMoroccoImportD1 ?? null);
     const ntcExportTotalD1 = sumNullable(row.ntcFranceExportD1 ?? null, row.ntcPortugalExportD1 ?? null, row.ntcMoroccoExportD1 ?? null);
     const ntcNetImportD1 = subtractIfPresent(ntcImportTotalD1, ntcExportTotalD1);
+    const despachableDisponibleMw = sumNullable(row.ccgtDisponibleMw ?? null, row.hydroDisponibleMw ?? null, row.nuclearDisponibleMw);
+    const hidraulicaStorageLow = positiveGap(row.hidraulicaStorageIndex, HYDRAULIC_STORAGE_LOW_THRESHOLD, 1_000_000);
+    const hidraulicaStorageNormalizado = normalizedRatio(row.hidraulicaStorageIndex, HYDRAULIC_STORAGE_HIGH_REFERENCE);
     return {
       ...row,
       festivoNacional: false,
       huecoTermico: subtractIfPresent(row.demandaPrevista, row.eolica, solar, row.nuclear, row.hidraulicaUGH, row.hidraulicaNoUGH),
       huecoTermicoD1,
+      huecoTermicoSobreDemandaPct: ratioPct(huecoTermicoD1, row.demandaPrevista),
+      huecoSobreCcgtDisponible: ratio(huecoTermicoD1, row.ccgtDisponibleMw ?? null),
+      huecoSobreDespachableDisponible: ratio(huecoTermicoD1, despachableDisponibleMw),
+      margenDespachableMw: subtractIfPresent(despachableDisponibleMw, huecoTermicoD1),
       demandaResidual,
       coberturaRenovablePct: ratioPct(renovable, row.demandaPrevista),
       eolicaSobreDemandaPct,
@@ -669,7 +715,7 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       nuclearDisponibleSobreDemandaPct: ratioPct(row.nuclearDisponibleMw, row.demandaPrevista),
       nuclearPressureLow: positiveGap(row.nuclearDisponibleMw, NUCLEAR_AVAILABLE_LOW_THRESHOLD_MW, 100),
       hidraulicaStoragePctOfMax: ratioPct(row.hidraulicaStorageIndex, HYDRAULIC_STORAGE_HIGH_REFERENCE),
-      hidraulicaStorageLow: positiveGap(row.hidraulicaStorageIndex, HYDRAULIC_STORAGE_LOW_THRESHOLD, 1_000_000),
+      hidraulicaStorageLow,
       renewablePressurePct: ratioPct(forecastRenewable, row.demandaPrevista),
       residualDemandLow: positiveGap(demandaResidual, 12_000, 1_000),
       solarResidualDemandLow,
@@ -693,10 +739,20 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
       ntcImportTotalD1,
       ntcExportTotalD1,
       ntcNetImportD1,
+      ntcNetSobreDemandaPct: ratioPct(ntcNetImportD1, row.demandaPrevista),
+      exportPressure: ratioPct(ntcExportTotalD1, row.demandaPrevista),
+      importSupport: ratioPct(ntcImportTotalD1, row.demandaPrevista),
+      huecoAjustadoInterconexion: subtractIfPresent(huecoTermicoD1, ntcNetImportD1),
       ccgtDisponibleSobreDemandaPct: ratioPct(row.ccgtDisponibleMw ?? null, row.demandaPrevista),
       hydroDisponibleSobreDemandaPct: ratioPct(row.hydroDisponibleMw ?? null, row.demandaPrevista),
       pumpingDisponibleSobreDemandaPct: ratioPct(row.pumpingDisponibleMw ?? null, row.demandaPrevista),
-      thermalAvailabilityPressure: positiveGap(row.ccgtDisponibleMw ?? null, THERMAL_AVAILABILITY_LOW_REFERENCE_MW, 1_000)
+      thermalAvailabilityPressure: positiveGap(row.ccgtDisponibleMw ?? null, THERMAL_AVAILABILITY_LOW_REFERENCE_MW, 1_000),
+      hydroScarcityThermalPressure:
+        isFiniteNumber(huecoTermicoD1) && isFiniteNumber(hidraulicaStorageNormalizado) ? round(huecoTermicoD1 * (1 - hidraulicaStorageNormalizado)) : null,
+      hydroSupportRatio: ratio(row.hydroDisponibleMw ?? null, isFiniteNumber(huecoTermicoD1) ? Math.max(huecoTermicoD1, 1) : null),
+      lowStorageHighGap: multiplyIfPresent(hidraulicaStorageLow, huecoTermicoD1),
+      thermalGapRampPressure: null,
+      demandRampThermalPressure: null
     };
   });
 
@@ -709,6 +765,8 @@ function enrichRows(rows: MercadoBaseRow[]): EnrichedForecastRow[] {
     current.rampaHuecoTermico = difference(current.huecoTermico, previous.huecoTermico);
     current.rampaHuecoTermicoD1 = difference(current.huecoTermicoD1, previous.huecoTermicoD1);
     current.rampaPrecioOmie = difference(current.precioOmie, previous.precioOmie);
+    current.thermalGapRampPressure = multiplyIfPresent(current.rampaHuecoTermicoD1, current.huecoTermicoD1);
+    current.demandRampThermalPressure = multiplyIfPresent(current.rampaDemanda, current.huecoTermicoD1);
   }
 
   return enriched;
@@ -775,6 +833,27 @@ function ratioPct(numerator: number | null, denominator: number | null) {
     return null;
   }
   return round((numerator / denominator) * 100);
+}
+
+function ratio(numerator: number | null, denominator: number | null, epsilon = 1) {
+  if (!isFiniteNumber(numerator) || !isFiniteNumber(denominator) || Math.abs(denominator) < epsilon) {
+    return null;
+  }
+  return round(numerator / denominator);
+}
+
+function normalizedRatio(value: number | null, reference: number) {
+  if (!isFiniteNumber(value) || !isFiniteNumber(reference) || reference <= 0) {
+    return null;
+  }
+  return round(Math.min(1, Math.max(0, value / reference)));
+}
+
+function multiplyIfPresent(left: number | null, right: number | null) {
+  if (!isFiniteNumber(left) || !isFiniteNumber(right)) {
+    return null;
+  }
+  return round(left * right);
 }
 
 function positiveGap(value: number | null, threshold: number, divisor = 1) {
