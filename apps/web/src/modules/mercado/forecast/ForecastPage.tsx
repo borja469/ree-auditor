@@ -148,6 +148,7 @@ export function ForecastPage() {
       <ForecastOperationsPanel
         activeModel={activeModel}
         activeModelDetail={activeModelDetail}
+        activeModelId={activeModelId}
         coverage={coverage}
         derivedCoverage={derivedCoverage}
         downloadLoadingId={downloadLoadingId}
@@ -156,24 +157,17 @@ export function ForecastPage() {
         forecastDate={forecastDate}
         historyRuns={historyForTarget}
         loading={coverageLoading}
+        models={models.data?.models ?? []}
         onDateChange={setForecastDate}
         onDownloadIndicator={downloadCoverageIndicator}
+        onPredict={prediction.predict}
         onRefreshCoverage={() => loadCoverage(forecastDate)}
+        predictionError={prediction.error}
+        predictionLoading={prediction.loading}
+        predictionResult={prediction.result}
       />
 
-      <div className="mercado-dashboard-grid two">
-        <ForecastPredictionRangeForm
-          activeModelId={activeModelId}
-          forecastDate={forecastDate}
-          error={prediction.error}
-          loading={prediction.loading}
-          models={models.data?.models ?? []}
-          onDateChange={setForecastDate}
-          onPredict={prediction.predict}
-          result={prediction.result}
-        />
-        <ForecastPredictionChart result={prediction.result} />
-      </div>
+      <ForecastPredictionChart result={prediction.result} />
 
       <ForecastOfficialHistoryChart forecastDate={forecastDate} />
 
@@ -217,6 +211,7 @@ export function ForecastPage() {
 function ForecastOperationsPanel({
   activeModel,
   activeModelDetail,
+  activeModelId,
   coverage,
   derivedCoverage,
   downloadLoadingId,
@@ -225,12 +220,18 @@ function ForecastOperationsPanel({
   forecastDate,
   historyRuns,
   loading,
+  models,
   onDateChange,
   onDownloadIndicator,
-  onRefreshCoverage
+  onPredict,
+  onRefreshCoverage,
+  predictionError,
+  predictionLoading,
+  predictionResult
 }: {
   activeModel?: ForecastModelListItem;
   activeModelDetail?: ForecastModelDetail;
+  activeModelId: string;
   coverage?: MercadoCoverageDiagnosticsResponse;
   derivedCoverage: ForecastDerivedSignalCoverage[];
   downloadLoadingId?: number;
@@ -239,10 +240,16 @@ function ForecastOperationsPanel({
   forecastDate: string;
   historyRuns: ForecastPredictionRun[];
   loading: boolean;
+  models: ForecastModelListItem[];
   onDateChange: (date: string) => void;
   onDownloadIndicator: (indicatorId: number) => void;
+  onPredict: (request: { modeloId: string; fechaDesde: string; fechaHasta: string }) => void;
   onRefreshCoverage: () => void;
+  predictionError?: string;
+  predictionLoading: boolean;
+  predictionResult?: ForecastPredictionRangeResponse;
 }) {
+  const [modeloId, setModeloId] = useState(activeModelId);
   const relevantCoverage = useMemo(() => {
     const preferred = ["demandaPrevista", "eolica", "solarPrevista"];
     const byVariable = new Map((coverage?.variables ?? []).map((item) => [item.variable, item]));
@@ -257,12 +264,38 @@ function ForecastOperationsPanel({
   );
   const latestRun = historyRuns[0];
   const latestMean = latestRun ? readRunAverage(latestRun) : null;
+  const effectiveModelId = modeloId || activeModelId;
+  const predictionRows = useMemo(() => flattenPredictionRows(predictionResult), [predictionResult]);
+  const predictionAverage = useMemo(() => averagePrediction(predictionResult), [predictionResult]);
+
+  useEffect(() => {
+    if (!modeloId && activeModelId) {
+      setModeloId(activeModelId);
+    }
+  }, [activeModelId, modeloId]);
+
+  function exportRows() {
+    const rows = predictionRows.map((row) => ({
+      fecha: row.fecha,
+      horaLocal: row.datetimeLocal?.slice(11, 16) ?? "",
+      timestampUtc: row.timestampUtc,
+      precioPrevisto: row.precioPrevisto
+    }));
+    const html = tableHtml("Prediccion horaria", rows);
+    downloadBlob(`forecast-prediccion-${predictionResult?.fechaDesde}-${predictionResult?.fechaHasta}.xls`, html, "application/vnd.ms-excel;charset=utf-8");
+  }
 
   return (
     <section className="panel wide mercado-panel forecast-ops-panel">
       <div className="mercado-panel-head">
-        <PanelTitle icon={<Activity size={18} />} title="Operativa D+1" subtitle="estado para lanzar la prevision de manana" />
-        <div className="forecast-date-control">
+        <PanelTitle icon={<Activity size={18} />} title="Operativa D+1" subtitle="fecha objetivo, modelo, cobertura y prevision del dia" />
+        <div className="forecast-date-control forecast-ops-actions">
+          <label className="filter-field">
+            <span>Modelo</span>
+            <select value={effectiveModelId} onChange={(event) => setModeloId(event.target.value)}>
+              {models.map((model) => <option key={model.id} value={model.id}>{model.activo ? "Activo - " : ""}v{model.version} {model.tipo}</option>)}
+            </select>
+          </label>
           <label className="filter-field">
             <span>Fecha objetivo</span>
             <input type="date" value={forecastDate} onChange={(event) => onDateChange(event.target.value)} />
@@ -271,9 +304,18 @@ function ForecastOperationsPanel({
             <RefreshCw size={16} />
             Cobertura
           </button>
+          <button className="primary-button" disabled={predictionLoading || !effectiveModelId} onClick={() => onPredict({ modeloId: effectiveModelId, fechaDesde: forecastDate, fechaHasta: forecastDate })} type="button">
+            <Play size={16} />
+            Calcular
+          </button>
+          <button className="secondary-button" disabled={predictionRows.length === 0} onClick={exportRows} type="button">
+            <Download size={16} />
+            Excel
+          </button>
         </div>
       </div>
       {error && <div className="status-message error">{error}</div>}
+      {predictionError && <div className="status-message error">{predictionError}</div>}
       {downloadSummary && (
         <div className="status-message success">
           Indicador {downloadSummary.indicatorId}: {formatNumber(downloadSummary.insertedRecords)} nuevos, {formatNumber(downloadSummary.updatedRecords)} actualizados.
@@ -290,6 +332,8 @@ function ForecastOperationsPanel({
         <ForecastMiniMetric label="Tipo modelo" value={activeModel?.tipo ?? "-"} />
         <ForecastMiniMetric label="RMSE activo" value={fmt(activeModel?.metricas.rmse)} />
         <ForecastMiniMetric label="Cobertura modelo" value={coverage ? `${completeCount}/${operationalCoverage.length}` : loading ? "..." : "-"} />
+        <ForecastMiniMetric label="Precio medio previsto" value={fmt(predictionAverage)} />
+        <ForecastMiniMetric label="Horas previstas" value={formatNumber(predictionRows.length)} />
       </div>
       <ForecastGasD1Card forecastDate={forecastDate} />
       <ForecastActiveSources sources={activeSources} loadingIndicatorId={downloadLoadingId} onDownloadIndicator={onDownloadIndicator} />
@@ -513,76 +557,9 @@ export function ForecastModelsPanel({
   );
 }
 
-export function ForecastPredictionRangeForm({
-  activeModelId,
-  error,
-  forecastDate,
-  loading,
-  models,
-  onDateChange,
-  onPredict,
-  result
-}: {
-  activeModelId: string;
-  error?: string;
-  forecastDate: string;
-  loading: boolean;
-  models: ForecastModelListItem[];
-  onDateChange: (date: string) => void;
-  onPredict: (request: { modeloId: string; fechaDesde: string; fechaHasta: string }) => void;
-  result?: ForecastPredictionRangeResponse;
-}) {
-  const [modeloId, setModeloId] = useState(activeModelId);
-  const effectiveModelId = modeloId || activeModelId;
-  const average = useMemo(() => averagePrediction(result), [result]);
-  const predictionRows = useMemo(() => flattenPredictionRows(result), [result]);
-
-  function exportRows() {
-    const rows = predictionRows.map((row) => ({
-      fecha: row.fecha,
-      horaLocal: row.datetimeLocal?.slice(11, 16) ?? "",
-      timestampUtc: row.timestampUtc,
-      precioPrevisto: row.precioPrevisto
-    }));
-    const html = tableHtml("Prediccion horaria", rows);
-    downloadBlob(`forecast-prediccion-${result?.fechaDesde}-${result?.fechaHasta}.xls`, html, "application/vnd.ms-excel;charset=utf-8");
-  }
-
-  return (
-    <section className="panel mercado-panel">
-      <PanelTitle icon={<Activity size={18} />} title="Prevision operativa" subtitle="genera la prevision pendiente de validacion" />
-      <div className="omie-toolbar compact">
-        <label className="filter-field">
-          <span>Modelo</span>
-          <select value={effectiveModelId} onChange={(event) => setModeloId(event.target.value)}>
-            {models.map((model) => <option key={model.id} value={model.id}>{model.activo ? "Activo - " : ""}v{model.version} {model.tipo}</option>)}
-          </select>
-        </label>
-        <label className="filter-field"><span>Fecha objetivo</span><input type="date" value={forecastDate} onChange={(event) => onDateChange(event.target.value)} /></label>
-        <button className="primary-button" disabled={loading || !effectiveModelId} onClick={() => onPredict({ modeloId: effectiveModelId, fechaDesde: forecastDate, fechaHasta: forecastDate })} type="button">
-          <Play size={16} />
-          Calcular prevision
-        </button>
-        <button className="secondary-button" disabled={predictionRows.length === 0} onClick={exportRows} type="button">
-          <Download size={16} />
-          Excel
-        </button>
-      </div>
-      {error && <div className="status-message error">{error}</div>}
-      {result && (
-        <div className="forecast-result-grid">
-          <ForecastMiniMetric label="Precio medio previsto" value={fmt(average)} />
-          <ForecastMiniMetric label="Dias" value={formatNumber(result.predicciones.length)} />
-          <ForecastMiniMetric label="Intervalos" value={result.intervalosConfianza ? "Disponibles" : "Pendiente"} />
-        </div>
-      )}
-    </section>
-  );
-}
-
 export function ForecastPredictionChart({ result }: { result?: ForecastPredictionRangeResponse }) {
   return (
-    <section className="panel mercado-panel">
+    <section className="panel wide mercado-panel">
       <PanelTitle icon={<LineChart size={18} />} title="Grafico de prediccion" subtitle="precio previsto horario" />
       {result ? <EChart height={320} option={buildPredictionChart(result)} /> : <div className="empty-state">Ejecuta una prediccion para ver la serie horaria.</div>}
     </section>

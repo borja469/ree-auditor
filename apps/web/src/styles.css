@@ -8437,6 +8437,10 @@ select:disabled {
   justify-content: flex-end;
 }
 
+.forecast-ops-actions .filter-field {
+  min-width: 160px;
+}
+
 .forecast-ops-grid,
 .forecast-coverage-grid {
   display: grid;
