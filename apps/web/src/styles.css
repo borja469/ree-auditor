@@ -8446,6 +8446,69 @@ select:disabled {
   grid-template-columns: repeat(2, minmax(260px, 1fr));
 }
 
+.forecast-source-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.forecast-source-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f8fbfc;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-md);
+}
+
+.forecast-source-card.complete {
+  background: #f6fbf7;
+  border-color: #cfe8d7;
+}
+
+.forecast-source-card.partial {
+  background: #fffaf0;
+  border-color: #eadab9;
+}
+
+.forecast-source-card.missing {
+  background: #fff7f6;
+  border-color: #f0c9c5;
+}
+
+.forecast-source-card div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.forecast-source-card strong {
+  color: var(--color-primary);
+  font-size: 0.78rem;
+}
+
+.forecast-source-card span,
+.forecast-source-card small {
+  overflow: hidden;
+  color: var(--color-muted);
+  font-size: 0.72rem;
+  font-weight: 760;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.forecast-source-card small {
+  grid-column: 1 / -1;
+}
+
+.forecast-source-card b {
+  align-self: start;
+  color: var(--color-primary);
+  font-size: 0.78rem;
+}
+
 .forecast-coverage-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(112px, 144px) auto;
@@ -8730,6 +8793,7 @@ select:disabled {
 
   .forecast-ops-grid,
   .forecast-coverage-grid,
+  .forecast-source-grid,
   .forecast-gas-card,
   .forecast-coverage-card,
   .forecast-coverage-card.optional {

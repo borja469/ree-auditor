@@ -15,7 +15,7 @@ import type {
   MercadoCoverageDiagnosticsResponse,
   MercadoCoverageDiagnosticVariable
 } from "../../../api";
-import { downloadEsiosIndicator, getGasMibgasManualPrices, getMercadoCoverageDiagnostics, getMercadoDataset, saveGasMibgasManualPrice } from "../../../api";
+import { downloadEsiosIndicator, getForecastModelDetail, getGasMibgasManualPrices, getMercadoCoverageDiagnostics, getMercadoDataset, saveGasMibgasManualPrice } from "../../../api";
 import { getTodayInputValue } from "../../../app-shell/AppState";
 import { downloadBlob } from "../../../components/technical-data-table/TechnicalDataTableHelpers";
 import { EChart, PanelTitle, formatDecimalNumber, formatNumber } from "../../shared/RestoredModuleCommon";
@@ -31,8 +31,27 @@ import {
 const D1_QUICK_DOWNLOADS: Record<string, number> = {
   demandaPrevista: 460,
   eolica: 541,
-  fotovoltaica: 542,
-  termosolar: 543
+  solarPrevista: 10034
+};
+
+type ForecastDerivedSignalCoverage = {
+  variable: string;
+  label: string;
+  indicatorId: number;
+  status: MercadoCoverageDiagnosticVariable["status"];
+  expectedHours: number;
+  distinctHours: number;
+  coveragePct: number;
+};
+
+type ForecastModelSourceItem = {
+  key: string;
+  label: string;
+  source: string;
+  indicatorId?: number;
+  status?: MercadoCoverageDiagnosticVariable["status"];
+  coveragePct?: number;
+  note: string;
 };
 
 export function ForecastPage() {
@@ -49,10 +68,12 @@ export function ForecastPage() {
   const [selectedHistoryRun, setSelectedHistoryRun] = useState<ForecastPredictionRun>();
   const [forecastDate, setForecastDate] = useState(tomorrow);
   const [coverage, setCoverage] = useState<MercadoCoverageDiagnosticsResponse>();
+  const [derivedCoverage, setDerivedCoverage] = useState<ForecastDerivedSignalCoverage[]>([]);
   const [coverageError, setCoverageError] = useState<string>();
   const [coverageLoading, setCoverageLoading] = useState(false);
   const [downloadSummary, setDownloadSummary] = useState<EsiosDownloadSummary>();
   const [downloadLoadingId, setDownloadLoadingId] = useState<number>();
+  const [activeModelDetail, setActiveModelDetail] = useState<ForecastModelDetail>();
 
   const activeModelId = models.data?.models.find((model) => model.activo)?.id ?? models.data?.models[0]?.id ?? "";
   const activeModel = models.data?.models.find((model) => model.id === activeModelId);
@@ -65,13 +86,39 @@ export function ForecastPage() {
     setCoverageLoading(true);
     setCoverageError(undefined);
     try {
-      setCoverage(await getMercadoCoverageDiagnostics({ fechaDesde: date, fechaHasta: date }));
+      const [nextCoverage, dataset] = await Promise.all([
+        getMercadoCoverageDiagnostics({ fechaDesde: date, fechaHasta: date }),
+        getMercadoDataset({ fechaDesde: date, fechaHasta: date })
+      ]);
+      setCoverage(nextCoverage);
+      setDerivedCoverage(buildDerivedSignalCoverage(dataset.rows, nextCoverage.expectedHours));
     } catch (caught) {
       setCoverageError(readError(caught));
     } finally {
       setCoverageLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!activeModelId || activeModelDetail?.id === activeModelId) {
+      return;
+    }
+    let cancelled = false;
+    getForecastModelDetail(activeModelId)
+      .then((detail) => {
+        if (!cancelled) {
+          setActiveModelDetail(detail);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setActiveModelDetail(undefined);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeModelDetail?.id, activeModelId]);
 
   useEffect(() => {
     void loadCoverage(forecastDate);
@@ -106,7 +153,9 @@ export function ForecastPage() {
 
       <ForecastOperationsPanel
         activeModel={activeModel}
+        activeModelDetail={activeModelDetail}
         coverage={coverage}
+        derivedCoverage={derivedCoverage}
         downloadLoadingId={downloadLoadingId}
         downloadSummary={downloadSummary}
         error={coverageError}
@@ -189,7 +238,9 @@ export function ForecastPage() {
 
 function ForecastOperationsPanel({
   activeModel,
+  activeModelDetail,
   coverage,
+  derivedCoverage,
   downloadLoadingId,
   downloadSummary,
   error,
@@ -201,7 +252,9 @@ function ForecastOperationsPanel({
   onRefreshCoverage
 }: {
   activeModel?: ForecastModelListItem;
+  activeModelDetail?: ForecastModelDetail;
   coverage?: MercadoCoverageDiagnosticsResponse;
+  derivedCoverage: ForecastDerivedSignalCoverage[];
   downloadLoadingId?: number;
   downloadSummary?: EsiosDownloadSummary;
   error?: string;
@@ -213,12 +266,17 @@ function ForecastOperationsPanel({
   onRefreshCoverage: () => void;
 }) {
   const relevantCoverage = useMemo(() => {
-    const preferred = ["demandaPrevista", "eolica", "fotovoltaica", "termosolar"];
+    const preferred = ["demandaPrevista", "eolica", "solarPrevista"];
     const byVariable = new Map((coverage?.variables ?? []).map((item) => [item.variable, item]));
     return preferred.map((variable) => byVariable.get(variable)).filter(Boolean) as MercadoCoverageDiagnosticVariable[];
   }, [coverage]);
-  const completeCount = relevantCoverage.filter((item) => item.status === "complete").length;
-  const missingCoverage = relevantCoverage.filter((item) => item.status !== "complete");
+  const operationalCoverage = [...relevantCoverage, ...derivedCoverage];
+  const completeCount = operationalCoverage.filter((item) => item.status === "complete").length;
+  const missingCoverage = operationalCoverage.filter((item) => item.status !== "complete");
+  const activeSources = useMemo(
+    () => buildActiveModelSources(activeModelDetail, coverage, derivedCoverage),
+    [activeModelDetail, coverage, derivedCoverage]
+  );
   const latestRun = historyRuns[0];
   const latestMean = latestRun ? readRunAverage(latestRun) : null;
 
@@ -252,10 +310,11 @@ function ForecastOperationsPanel({
       <div className="forecast-ops-grid">
         <ForecastMiniMetric label="Modelo activo" value={activeModel ? `v${activeModel.version} ${activeModel.tipo}` : "-"} />
         <ForecastMiniMetric label="RMSE activo" value={fmt(activeModel?.metricas.rmse)} />
-        <ForecastMiniMetric label="Cobertura base" value={coverage ? `${completeCount}/${relevantCoverage.length}` : loading ? "..." : "-"} />
+        <ForecastMiniMetric label="Cobertura modelo" value={coverage ? `${completeCount}/${operationalCoverage.length}` : loading ? "..." : "-"} />
         <ForecastMiniMetric label="Ultima prevision" value={fmt(latestMean)} />
       </div>
       <ForecastGasD1Card forecastDate={forecastDate} />
+      <ForecastActiveSources sources={activeSources} />
       <div className="forecast-coverage-grid">
         {relevantCoverage.map((item) => (
           <ForecastCoverageCard
@@ -265,18 +324,14 @@ function ForecastOperationsPanel({
             onDownloadIndicator={onDownloadIndicator}
           />
         ))}
-        <ForecastSignalDownload
-          indicatorId={474}
-          label="Nuclear disponible"
-          loadingIndicatorId={downloadLoadingId}
-          onDownloadIndicator={onDownloadIndicator}
-        />
-        <ForecastSignalDownload
-          indicatorId={623}
-          label="Almacenamiento hidraulico"
-          loadingIndicatorId={downloadLoadingId}
-          onDownloadIndicator={onDownloadIndicator}
-        />
+        {derivedCoverage.map((item) => (
+          <ForecastDerivedCoverageCard
+            item={item}
+            key={item.variable}
+            loadingIndicatorId={downloadLoadingId}
+            onDownloadIndicator={onDownloadIndicator}
+          />
+        ))}
       </div>
       {latestRun && (
         <div className="forecast-detail-strip">
@@ -419,27 +474,46 @@ function ForecastCoverageCard({
   );
 }
 
-function ForecastSignalDownload({
-  indicatorId,
-  label,
+function ForecastDerivedCoverageCard({
+  item,
   loadingIndicatorId,
   onDownloadIndicator
 }: {
-  indicatorId: number;
-  label: string;
+  item: ForecastDerivedSignalCoverage;
   loadingIndicatorId?: number;
   onDownloadIndicator: (indicatorId: number) => void;
 }) {
   return (
-    <div className="forecast-coverage-card optional">
+    <div className={`forecast-coverage-card ${coverageTone(item.status)}`}>
       <div>
-        <strong>{label}</strong>
-        <span>Indicador {indicatorId}</span>
+        <strong>{item.label}</strong>
+        <span>Indicador {item.indicatorId} - {formatNumber(item.distinctHours)}/{formatNumber(item.expectedHours)} h</span>
       </div>
-      <button className="secondary-button" disabled={loadingIndicatorId === indicatorId} onClick={() => onDownloadIndicator(indicatorId)} type="button">
+      <div className="mercado-coverage-bar">
+        <span style={{ width: `${Math.min(Math.max(item.coveragePct, 0), 100)}%` }} />
+        <strong>{fmt(item.coveragePct, 0)}%</strong>
+      </div>
+      <button className="secondary-button" disabled={loadingIndicatorId === item.indicatorId} onClick={() => onDownloadIndicator(item.indicatorId)} type="button">
         <Download size={15} />
-        {loadingIndicatorId === indicatorId ? "Descargando" : "Descargar"}
+        {loadingIndicatorId === item.indicatorId ? "Descargando" : "Descargar"}
       </button>
+    </div>
+  );
+}
+
+function ForecastActiveSources({ sources }: { sources: ForecastModelSourceItem[] }) {
+  return (
+    <div className="forecast-source-grid">
+      {sources.map((source) => (
+        <div className={`forecast-source-card ${source.status ? coverageTone(source.status) : "complete"}`} key={source.key}>
+          <div>
+            <strong>{source.label}</strong>
+            <span>{source.source}</span>
+          </div>
+          <small>{source.note}</small>
+          {typeof source.coveragePct === "number" && <b>{fmt(source.coveragePct, 0)}%</b>}
+        </div>
+      ))}
     </div>
   );
 }
@@ -1042,6 +1116,109 @@ function buildActualComparisonMetrics(rows: ForecastActualComparisonRow[]) {
   return { meanForecast, meanActual, mae, rmse, bias };
 }
 
+function buildDerivedSignalCoverage(rows: MercadoDatasetRow[], expectedHours: number): ForecastDerivedSignalCoverage[] {
+  const expected = expectedHours || rows.length;
+  return [
+    buildDerivedSignal(rows, expected, "nuclearDisponibleMw", "Nuclear disponible", 474),
+    buildDerivedSignal(rows, expected, "hidraulicaStorageIndex", "Almacenamiento hidraulico", 623)
+  ];
+}
+
+function buildDerivedSignal(rows: MercadoDatasetRow[], expectedHours: number, variable: keyof MercadoDatasetRow, label: string, indicatorId: number): ForecastDerivedSignalCoverage {
+  const distinctHours = rows.filter((row) => isFiniteNumber(row[variable])).length;
+  const coveragePct = expectedHours > 0 ? (distinctHours / expectedHours) * 100 : 100;
+  return {
+    variable: String(variable),
+    label,
+    indicatorId,
+    status: coverageStatusFromHours(expectedHours, distinctHours),
+    expectedHours,
+    distinctHours,
+    coveragePct
+  };
+}
+
+function buildActiveModelSources(
+  detail: ForecastModelDetail | undefined,
+  coverage: MercadoCoverageDiagnosticsResponse | undefined,
+  derivedCoverage: ForecastDerivedSignalCoverage[]
+): ForecastModelSourceItem[] {
+  const features = new Set(detail?.variablesUtilizadas ?? []);
+  const showAll = features.size === 0;
+  const baseByVariable = new Map((coverage?.variables ?? []).map((item) => [item.variable, item]));
+  const derivedByVariable = new Map(derivedCoverage.map((item) => [item.variable, item]));
+  const items: ForecastModelSourceItem[] = [];
+
+  if (showAll || usesAny(features, ["demandaPrevista", "demandaResidual", "rampaDemanda", "huecoTermicoD1", "rampaHuecoTermicoD1"])) {
+    const item = baseByVariable.get("demandaPrevista");
+    items.push(sourceFromCoverage("demandaPrevista", "Demanda prevista", item, "Base del modelo activo"));
+  }
+  if (showAll || usesAny(features, ["eolica", "eolicaSobreDemandaPct", "windPressurePct", "rampaEolica", "demandaResidual", "huecoTermicoD1"])) {
+    const item = baseByVariable.get("eolica");
+    items.push(sourceFromCoverage("eolica", "Eolica", item, "Prevision D+1 usada por el activo"));
+  }
+  if (showAll || usesAny(features, ["solarPrevista", "solarSobreDemandaPct", "solarPctOfDailyMax", "solarDropFromDailyMax", "solarResidualDemandLow", "solarPressureHigh", "rampaSolar", "eveningSolarExitThermalGap"])) {
+    const item = baseByVariable.get("solarPrevista");
+    items.push(sourceFromCoverage("solarPrevista", "Solar prevista", item, "Solar total; no exige termosolar separada"));
+  }
+  if (showAll || usesAny(features, ["nuclearDisponibleMw", "nuclearDisponibleSobreDemandaPct", "nuclearPressureLow", "huecoTermicoD1"])) {
+    const item = derivedByVariable.get("nuclearDisponibleMw");
+    items.push(sourceFromDerived("nuclearDisponibleMw", "Nuclear disponible", item, "Suma horaria de centrales"));
+  }
+  if (showAll || usesAny(features, ["hidraulicaStorageIndex", "hidraulicaStoragePctOfMax", "hidraulicaStorageLow"])) {
+    const item = derivedByVariable.get("hidraulicaStorageIndex");
+    items.push(sourceFromDerived("hidraulicaStorageIndex", "Llenado hidraulico", item, "Ultimo dato disponible hasta D+1"));
+  }
+  if (showAll || features.has("precioGasMibgas")) {
+    items.push({
+      key: "precioGasMibgas",
+      label: "Gas MIBGAS",
+      source: "GDAES_D+1 PVB ES",
+      note: "Oficial si existe; override manual como respaldo"
+    });
+  }
+
+  return items;
+}
+
+function sourceFromCoverage(key: string, label: string, item: MercadoCoverageDiagnosticVariable | undefined, note: string): ForecastModelSourceItem {
+  return {
+    key,
+    label,
+    source: item?.indicatorId ? `Indicador ${item.indicatorId} - ${item.indicatorName ?? item.variable}` : "Sin indicador resuelto",
+    indicatorId: item?.indicatorId ?? undefined,
+    status: item?.status,
+    coveragePct: item?.coveragePct,
+    note
+  };
+}
+
+function sourceFromDerived(key: string, label: string, item: ForecastDerivedSignalCoverage | undefined, note: string): ForecastModelSourceItem {
+  return {
+    key,
+    label,
+    source: item ? `Indicador ${item.indicatorId}` : "Sin cobertura calculada",
+    indicatorId: item?.indicatorId,
+    status: item?.status,
+    coveragePct: item?.coveragePct,
+    note
+  };
+}
+
+function usesAny(features: Set<string>, candidates: string[]) {
+  return candidates.some((candidate) => features.has(candidate));
+}
+
+function coverageStatusFromHours(expectedHours: number, distinctHours: number): MercadoCoverageDiagnosticVariable["status"] {
+  if (expectedHours === 0 || distinctHours >= expectedHours) {
+    return "complete";
+  }
+  if (distinctHours > 0) {
+    return "partial";
+  }
+  return "absent";
+}
+
 function average(values: number[]) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
 }
@@ -1081,9 +1258,12 @@ function coverageLabel(variable: string) {
   const labels: Record<string, string> = {
     demandaPrevista: "Demanda",
     eolica: "Eolica",
+    solarPrevista: "Solar total",
     fotovoltaica: "Fotovoltaica",
     termosolar: "Termosolar",
     nuclear: "Nuclear",
+    nuclearDisponibleMw: "Nuclear disponible",
+    hidraulicaStorageIndex: "Almacenamiento hidraulico",
     hidraulicaUGH: "Hidraulica UGH",
     hidraulicaNoUGH: "Hidraulica no UGH",
     bombeo: "Bombeo",

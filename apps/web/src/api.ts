@@ -1927,6 +1927,8 @@ export type MercadoDatasetRow = {
   fotovoltaica: number | null;
   termosolar: number | null;
   nuclear: number | null;
+  nuclearDisponibleMw: number | null;
+  hidraulicaStorageIndex: number | null;
   hidraulicaUGH: number | null;
   hidraulicaNoUGH: number | null;
   bombeo: number | null;
