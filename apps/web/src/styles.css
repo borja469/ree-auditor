@@ -8618,19 +8618,30 @@ select:disabled {
   color: #7a271a;
 }
 
-.forecast-hourly-shell {
-  max-height: min(52vh, 540px);
+.forecast-result-modal {
+  width: min(1280px, 100%);
 }
 
-.forecast-actual-panel,
+.forecast-result-modal .ops-modal-head span {
+  display: block;
+  margin-top: 3px;
+  color: #8ea5ae;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
 .forecast-official-panel {
   display: grid;
   gap: 12px;
 }
 
-.forecast-actual-table,
+.forecast-result-detail-table,
 .forecast-official-table {
   max-height: 300px;
+}
+
+.forecast-result-detail-table .forecast-table.compact {
+  min-width: 1160px;
 }
 
 .forecast-table {

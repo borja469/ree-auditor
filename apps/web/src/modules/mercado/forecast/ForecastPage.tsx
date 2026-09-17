@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { EChartsOption } from "echarts";
-import { Activity, AlertTriangle, BarChart3, CheckCircle2, Download, Eye, LineChart, Play, RefreshCw, Table2, Trash2 } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Download, Eye, LineChart, Play, RefreshCw, Table2, Trash2, X } from "lucide-react";
 import type {
   EsiosDownloadSummary,
   ForecastModelDetail,
@@ -70,6 +70,7 @@ export function ForecastPage() {
 
   const activeModelId = models.data?.models.find((model) => model.activo)?.id ?? models.data?.models[0]?.id ?? "";
   const activeModel = models.data?.models.find((model) => model.id === activeModelId);
+  const modelById = useMemo(() => new Map((models.data?.models ?? []).map((model) => [model.id, model])), [models.data?.models]);
   const historyForTarget = useMemo(
     () => history.result.filter((run) => run.fechaDesde <= forecastDate && run.fechaHasta >= forecastDate),
     [forecastDate, history.result]
@@ -175,16 +176,6 @@ export function ForecastPage() {
         <ForecastPredictionChart result={prediction.result} />
       </div>
 
-      <ForecastHourlyTable result={prediction.result} />
-
-      <ForecastActualComparisonPanel
-        forecastDate={forecastDate}
-        runs={historyForTarget}
-        onReject={(id) => history.rejectRun(id, { fechaDesde: forecastDate, fechaHasta: forecastDate })}
-        onValidate={(id) => history.validateRun(id, { fechaDesde: forecastDate, fechaHasta: forecastDate })}
-        validatingId={history.validatingId}
-      />
-
       <ForecastOfficialHistoryChart forecastDate={forecastDate} />
 
       <ForecastPredictionHistory
@@ -198,9 +189,16 @@ export function ForecastPage() {
         onValidate={(id, filters) => history.validateRun(id, filters)}
         onView={setSelectedHistoryRun}
         runs={history.result}
-        selectedRun={selectedHistoryRun}
         validatingId={history.validatingId}
       />
+
+      {selectedHistoryRun && (
+        <ForecastPredictionResultModal
+          model={modelById.get(selectedHistoryRun.modeloId)}
+          onClose={() => setSelectedHistoryRun(undefined)}
+          run={selectedHistoryRun}
+        />
+      )}
 
       <details className="forecast-internal-tools">
         <summary>Herramientas del modelo</summary>
@@ -289,10 +287,10 @@ function ForecastOperationsPanel({
         </div>
       )}
       <div className="forecast-ops-grid">
-        <ForecastMiniMetric label="Modelo activo" value={activeModel ? `v${activeModel.version} ${activeModel.tipo}` : "-"} />
+        <ForecastMiniMetric label="Version modelo activo" value={activeModel ? `v${activeModel.version}` : "-"} />
+        <ForecastMiniMetric label="Tipo modelo" value={activeModel?.tipo ?? "-"} />
         <ForecastMiniMetric label="RMSE activo" value={fmt(activeModel?.metricas.rmse)} />
         <ForecastMiniMetric label="Cobertura modelo" value={coverage ? `${completeCount}/${operationalCoverage.length}` : loading ? "..." : "-"} />
-        <ForecastMiniMetric label="Ultima prevision" value={fmt(latestMean)} />
       </div>
       <ForecastGasD1Card forecastDate={forecastDate} />
       <ForecastActiveSources sources={activeSources} loadingIndicatorId={downloadLoadingId} onDownloadIndicator={onDownloadIndicator} />
@@ -540,6 +538,18 @@ export function ForecastPredictionRangeForm({
   const [modeloId, setModeloId] = useState(activeModelId);
   const effectiveModelId = modeloId || activeModelId;
   const average = useMemo(() => averagePrediction(result), [result]);
+  const predictionRows = useMemo(() => flattenPredictionRows(result), [result]);
+
+  function exportRows() {
+    const rows = predictionRows.map((row) => ({
+      fecha: row.fecha,
+      horaLocal: row.datetimeLocal?.slice(11, 16) ?? "",
+      timestampUtc: row.timestampUtc,
+      precioPrevisto: row.precioPrevisto
+    }));
+    const html = tableHtml("Prediccion horaria", rows);
+    downloadBlob(`forecast-prediccion-${result?.fechaDesde}-${result?.fechaHasta}.xls`, html, "application/vnd.ms-excel;charset=utf-8");
+  }
 
   return (
     <section className="panel mercado-panel">
@@ -556,6 +566,10 @@ export function ForecastPredictionRangeForm({
         <button className="primary-button" disabled={loading || !effectiveModelId} onClick={() => onPredict({ modeloId: effectiveModelId, fechaDesde, fechaHasta })} type="button">
           <Play size={16} />
           Calcular prevision
+        </button>
+        <button className="secondary-button" disabled={predictionRows.length === 0} onClick={exportRows} type="button">
+          <Download size={16} />
+          Excel
         </button>
       </div>
       {error && <div className="status-message error">{error}</div>}
@@ -579,40 +593,6 @@ export function ForecastPredictionChart({ result }: { result?: ForecastPredictio
   );
 }
 
-export function ForecastHourlyTable({ result }: { result?: ForecastPredictionRangeResponse }) {
-  const rows = flattenPredictionRows(result);
-  function exportRows() {
-    const html = tableHtml("Prediccion horaria", rows);
-    downloadBlob(`forecast-prediccion-${result?.fechaDesde}-${result?.fechaHasta}.xls`, html, "application/vnd.ms-excel;charset=utf-8");
-  }
-  return (
-    <section className="panel wide mercado-panel">
-      <div className="mercado-panel-head">
-        <PanelTitle icon={<Table2 size={18} />} title="Predicciones horarias" subtitle="agrupadas por dia y exportables" />
-        <button className="secondary-button" disabled={rows.length === 0} onClick={exportRows} type="button"><Download size={16} />Excel</button>
-      </div>
-      {rows.length === 0 ? <div className="empty-state">Sin predicciones calculadas.</div> : (
-        <div className="mercado-table-shell forecast-hourly-shell">
-          <table className="mercado-table forecast-table">
-            <thead><tr><th>Fecha</th><th>Hora local</th><th>UTC</th><th>Precio previsto</th><th>Intervalo confianza</th></tr></thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.timestampUtc}>
-                  <td>{row.fecha}</td>
-                  <td>{row.datetimeLocal?.slice(11, 16) ?? "-"}</td>
-                  <td>{row.timestampUtc.slice(11, 16)}</td>
-                  <td>{fmt(row.precioPrevisto)}</td>
-                  <td>Pendiente</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
 export function ForecastPredictionHistory({
   deletingId,
   error,
@@ -624,7 +604,6 @@ export function ForecastPredictionHistory({
   onValidate,
   onView,
   runs,
-  selectedRun,
   validatingId
 }: {
   deletingId?: string;
@@ -637,7 +616,6 @@ export function ForecastPredictionHistory({
   onValidate: (id: string, filters?: { modeloId?: string; fechaDesde?: string; fechaHasta?: string }) => void;
   onView: (run: ForecastPredictionRun) => void;
   runs: ForecastPredictionRun[];
-  selectedRun?: ForecastPredictionRun;
   validatingId?: string;
 }) {
   const [modeloId, setModeloId] = useState("");
@@ -656,63 +634,70 @@ export function ForecastPredictionHistory({
       {error && <div className="status-message error">{error}</div>}
       <div className="mercado-table-shell compact">
         <table className="mercado-table forecast-table compact">
-          <thead><tr><th>Ejecutado</th><th>Estado</th><th>Modelo</th><th>Rango</th><th>Media</th><th>Accion</th></tr></thead>
+          <thead><tr><th>Ejecutado</th><th>Estado</th><th>Modelo</th><th>Version</th><th>Rango</th><th>Media</th><th>Accion</th></tr></thead>
           <tbody>
-            {runs.map((run) => (
-              <tr key={run.id}>
-                <td>{formatDateTime(run.fechaEjecucion)}</td>
-                <td><span className={`ops-status-badge ${predictionStatusTone(run)}`}>{predictionStatusLabel(run)}</span></td>
-                <td>{run.modeloId.slice(0, 8)}</td>
-                <td>{run.fechaDesde} / {run.fechaHasta}</td>
-                <td>{fmt(readRunAverage(run))}</td>
-                <td>
-                  <div className="forecast-history-actions">
-                    <button className="secondary-button" onClick={() => onView(run)} type="button"><Eye size={15} />Resultado</button>
-                    <button
-                      className="secondary-button"
-                      disabled={run.isOfficial || validatingId === run.id}
-                      onClick={() => onValidate(run.id, { modeloId: modeloId || undefined, fechaDesde: fechaDesde || undefined, fechaHasta: fechaHasta || undefined })}
-                      type="button"
-                    >
-                      <CheckCircle2 size={15} />
-                      {validatingId === run.id ? "Validando" : "Validar"}
-                    </button>
-                    <button
-                      className="secondary-button"
-                      disabled={run.status === "RECHAZADA" || validatingId === run.id}
-                      onClick={() => onReject(run.id, { modeloId: modeloId || undefined, fechaDesde: fechaDesde || undefined, fechaHasta: fechaHasta || undefined })}
-                      type="button"
-                    >
-                      <AlertTriangle size={15} />
-                      Rechazar
-                    </button>
-                    <button
-                      className="secondary-button danger"
-                      disabled={deletingId === run.id}
-                      onClick={() => onDelete(run.id, { modeloId: modeloId || undefined, fechaDesde: fechaDesde || undefined, fechaHasta: fechaHasta || undefined })}
-                      type="button"
-                    >
-                      <Trash2 size={15} />
-                      {deletingId === run.id ? "Eliminando" : "Eliminar"}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {runs.map((run) => {
+              const model = models.find((item) => item.id === run.modeloId);
+              return (
+                <tr key={run.id}>
+                  <td>{formatDateTime(run.fechaEjecucion)}</td>
+                  <td><span className={`ops-status-badge ${predictionStatusTone(run)}`}>{predictionStatusLabel(run)}</span></td>
+                  <td>{model ? model.tipo : run.modeloId.slice(0, 8)}</td>
+                  <td>{model ? `v${model.version}` : "-"}</td>
+                  <td>{run.fechaDesde} / {run.fechaHasta}</td>
+                  <td>{fmt(readRunAverage(run))}</td>
+                  <td>
+                    <div className="forecast-history-actions">
+                      <button className="secondary-button" onClick={() => onView(run)} type="button"><Eye size={15} />Resultado</button>
+                      <button
+                        className="secondary-button"
+                        disabled={run.isOfficial || validatingId === run.id}
+                        onClick={() => onValidate(run.id, { modeloId: modeloId || undefined, fechaDesde: fechaDesde || undefined, fechaHasta: fechaHasta || undefined })}
+                        type="button"
+                      >
+                        <CheckCircle2 size={15} />
+                        {validatingId === run.id ? "Validando" : "Validar"}
+                      </button>
+                      <button
+                        className="secondary-button"
+                        disabled={run.status === "RECHAZADA" || validatingId === run.id}
+                        onClick={() => onReject(run.id, { modeloId: modeloId || undefined, fechaDesde: fechaDesde || undefined, fechaHasta: fechaHasta || undefined })}
+                        type="button"
+                      >
+                        <AlertTriangle size={15} />
+                        Rechazar
+                      </button>
+                      <button
+                        className="secondary-button danger"
+                        disabled={deletingId === run.id}
+                        onClick={() => onDelete(run.id, { modeloId: modeloId || undefined, fechaDesde: fechaDesde || undefined, fechaHasta: fechaHasta || undefined })}
+                        type="button"
+                      >
+                        <Trash2 size={15} />
+                        {deletingId === run.id ? "Eliminando" : "Eliminar"}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      {selectedRun && <pre className="forecast-history-result">{JSON.stringify(selectedRun.output, null, 2)}</pre>}
     </section>
   );
 }
 
-type ForecastActualComparisonRow = {
+type ForecastPredictionDetailRow = {
   datetimeLocal: string;
   precioPrevisto: number;
-  precioReal: number;
-  error: number;
-  absError: number;
+  precioReal: number | null;
+  error: number | null;
+  demandaPrevista: number | null;
+  eolica: number | null;
+  solarPrevista: number | null;
+  nuclearDisponibleMw: number | null;
+  hidraulicaStorageIndex: number | null;
 };
 
 type ForecastOfficialHistoryRow = {
@@ -725,132 +710,111 @@ type ForecastOfficialHistoryRow = {
   validatedAt: string | null;
 };
 
-function ForecastActualComparisonPanel({
-  forecastDate,
-  onReject,
-  onValidate,
-  runs,
-  validatingId
+function ForecastPredictionResultModal({
+  model,
+  onClose,
+  run
 }: {
-  forecastDate: string;
-  onReject: (id: string) => void;
-  onValidate: (id: string) => void;
-  runs: ForecastPredictionRun[];
-  validatingId?: string;
+  model?: ForecastModelListItem;
+  onClose: () => void;
+  run: ForecastPredictionRun;
 }) {
-  const [selectedRunId, setSelectedRunId] = useState("");
   const [datasetRows, setDatasetRows] = useState<MercadoDatasetRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
 
-  const selectedRun = runs.find((run) => run.id === selectedRunId) ?? runs[0];
-  const comparisonRows = useMemo(() => buildActualComparisonRows(selectedRun, datasetRows), [datasetRows, selectedRun]);
-  const metrics = useMemo(() => buildActualComparisonMetrics(comparisonRows), [comparisonRows]);
-
-  useEffect(() => {
-    setSelectedRunId(runs[0]?.id ?? "");
-  }, [forecastDate, runs]);
+  const detailRows = useMemo(() => buildPredictionDetailRows(run, datasetRows), [datasetRows, run]);
+  const metrics = useMemo(() => buildPredictionDetailMetrics(detailRows), [detailRows]);
 
   const loadReal = useCallback(async () => {
     setLoading(true);
     setError(undefined);
     try {
-      const response = await getMercadoDataset({ fechaDesde: addDays(forecastDate, -1), fechaHasta: forecastDate, take: 200 });
+      const response = await getMercadoDataset({ fechaDesde: run.fechaDesde, fechaHasta: run.fechaHasta, take: 5000 });
       setDatasetRows(response.rows);
     } catch (caught) {
       setError(readError(caught));
     } finally {
       setLoading(false);
     }
-  }, [forecastDate]);
+  }, [run.fechaDesde, run.fechaHasta]);
 
   useEffect(() => {
     void loadReal();
   }, [loadReal]);
 
   return (
-    <section className="panel wide mercado-panel forecast-actual-panel">
-      <div className="mercado-panel-head">
-        <PanelTitle icon={<BarChart3 size={18} />} title="Real vs previsto" subtitle="comparacion con OMIE real cuando ya esta cargado" />
-        <div className="forecast-date-control">
-          <label className="filter-field">
-            <span>Run guardado</span>
-            <select value={selectedRun?.id ?? ""} onChange={(event) => setSelectedRunId(event.target.value)}>
-              {runs.length === 0 && <option value="">Sin runs</option>}
-              {runs.map((run) => (
-                <option key={run.id} value={run.id}>
-                  {formatDateTime(run.fechaEjecucion)} - {run.modeloId.slice(0, 8)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="secondary-button" disabled={loading} onClick={loadReal} type="button">
-            <RefreshCw size={16} />
-            OMIE real
-          </button>
-          <button className="primary-button" disabled={!selectedRun || selectedRun.isOfficial || validatingId === selectedRun?.id} onClick={() => selectedRun && onValidate(selectedRun.id)} type="button">
-            <CheckCircle2 size={16} />
-            {validatingId === selectedRun?.id ? "Validando" : "Marcar valida"}
-          </button>
-          <button className="secondary-button" disabled={!selectedRun || selectedRun.status === "RECHAZADA" || validatingId === selectedRun?.id} onClick={() => selectedRun && onReject(selectedRun.id)} type="button">
-            <AlertTriangle size={16} />
-            Rechazar
+    <div className="ops-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <div className="ops-modal forecast-result-modal" role="dialog" aria-modal="true" aria-label="Resultado de prevision" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="ops-modal-head">
+          <div>
+            <strong>Resultado de prevision</strong>
+            <span>
+              {run.fechaDesde} / {run.fechaHasta} - {model ? `${model.tipo} v${model.version}` : run.modeloId.slice(0, 8)}
+            </span>
+          </div>
+          <button aria-label="Cerrar" type="button" onClick={onClose}>
+            <X size={18} />
           </button>
         </div>
-      </div>
-      {error && <div className="status-message error">{error}</div>}
-      {selectedRun && (
-        <div className="forecast-detail-strip">
-          <strong>{predictionStatusLabel(selectedRun)}</strong>
-          <span>Ejecutada {formatDateTime(selectedRun.fechaEjecucion)}</span>
-          {selectedRun.validatedAt && <span>Validada {formatDateTime(selectedRun.validatedAt)}</span>}
-          {selectedRun.validatedBy && <span>{selectedRun.validatedBy}</span>}
-        </div>
-      )}
-      {!selectedRun && <div className="empty-state">No hay prevision guardada para esta fecha.</div>}
-      {selectedRun && comparisonRows.length === 0 && !loading && (
-        <div className="empty-state">Sin cruce con OMIE real. Revisa que el precio real este cargado para {forecastDate}.</div>
-      )}
-      {selectedRun && comparisonRows.length > 0 && (
-        <>
+        <div className="ops-modal-body">
+          {error && <div className="status-message error">{error}</div>}
+          <div className="forecast-detail-strip">
+            <strong>{predictionStatusLabel(run)}</strong>
+            <span>Ejecutada {formatDateTime(run.fechaEjecucion)}</span>
+            {run.validatedAt && <span>Validada {formatDateTime(run.validatedAt)}</span>}
+            {run.validatedBy && <span>{run.validatedBy}</span>}
+            <button className="secondary-button" disabled={loading} onClick={loadReal} type="button">
+              <RefreshCw size={16} />
+              Actualizar real
+            </button>
+          </div>
           <div className="forecast-result-grid">
-            <ForecastMiniMetric label="Horas comparadas" value={formatNumber(comparisonRows.length)} />
+            <ForecastMiniMetric label="Horas" value={formatNumber(detailRows.length)} />
             <ForecastMiniMetric label="Previsto medio" value={fmt(metrics.meanForecast)} />
             <ForecastMiniMetric label="Real medio" value={fmt(metrics.meanActual)} />
             <ForecastMiniMetric label="MAE" value={fmt(metrics.mae)} />
-            <ForecastMiniMetric label="RMSE" value={fmt(metrics.rmse)} />
             <ForecastMiniMetric label="Bias" value={fmt(metrics.bias)} />
           </div>
-          <div className="mercado-dashboard-grid two">
-            <EChart height={300} option={buildActualComparisonChart(comparisonRows)} />
-            <div className="mercado-table-shell forecast-actual-table">
-              <table className="mercado-table forecast-table compact">
-                <thead>
-                  <tr>
-                    <th>Hora</th>
-                    <th>Previsto</th>
-                    <th>Real OMIE</th>
-                    <th>Error</th>
-                    <th>Abs</th>
+          <EChart height={320} option={buildPredictionDetailChart(detailRows)} />
+          <div className="mercado-table-shell forecast-result-detail-table">
+            <table className="mercado-table forecast-table compact">
+              <thead>
+                <tr>
+                  <th>Fecha</th>
+                  <th>Hora</th>
+                  <th>Previsto</th>
+                  <th>Real OMIE</th>
+                  <th>Error</th>
+                  <th>Demanda</th>
+                  <th>Eolica</th>
+                  <th>Solar</th>
+                  <th>Nuclear disp.</th>
+                  <th>Llenado hidr.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detailRows.map((row) => (
+                  <tr key={row.datetimeLocal}>
+                    <td>{row.datetimeLocal.slice(0, 10)}</td>
+                    <td>{row.datetimeLocal.slice(11, 16)}</td>
+                    <td>{fmt(row.precioPrevisto)}</td>
+                    <td>{fmt(row.precioReal)}</td>
+                    <td>{fmt(row.error)}</td>
+                    <td>{fmt(row.demandaPrevista, 0)}</td>
+                    <td>{fmt(row.eolica, 0)}</td>
+                    <td>{fmt(row.solarPrevista, 0)}</td>
+                    <td>{fmt(row.nuclearDisponibleMw, 0)}</td>
+                    <td>{fmt(row.hidraulicaStorageIndex, 0)}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {comparisonRows.map((row) => (
-                    <tr key={row.datetimeLocal}>
-                      <td>{row.datetimeLocal.slice(11, 16)}</td>
-                      <td>{fmt(row.precioPrevisto)}</td>
-                      <td>{fmt(row.precioReal)}</td>
-                      <td>{fmt(row.error)}</td>
-                      <td>{fmt(row.absError)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
-        </>
-      )}
-    </section>
+          {detailRows.length === 0 && !loading && <div className="empty-state">Sin datos horarios para este resultado.</div>}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -964,7 +928,7 @@ function buildPredictionChart(result: ForecastPredictionRangeResponse): EChartsO
   };
 }
 
-function buildActualComparisonChart(rows: ForecastActualComparisonRow[]): EChartsOption {
+function buildPredictionDetailChart(rows: ForecastPredictionDetailRow[]): EChartsOption {
   return {
     tooltip: { trigger: "axis" },
     legend: { top: 0 },
@@ -1036,46 +1000,45 @@ function predictionStatusTone(run: ForecastPredictionRun) {
   return "partial";
 }
 
-function buildActualComparisonRows(run: ForecastPredictionRun | undefined, datasetRows: MercadoDatasetRow[]): ForecastActualComparisonRow[] {
+function buildPredictionDetailRows(run: ForecastPredictionRun, datasetRows: MercadoDatasetRow[]): ForecastPredictionDetailRow[] {
   const output = run?.output as Partial<ForecastPredictionRangeResponse> | null | undefined;
   const forecastRows = output?.predicciones?.flatMap((day) => day.prediccionesHorarias) ?? [];
-  const forecastDates = new Set(forecastRows.map((row) => row.datetimeLocal?.slice(0, 10)).filter(Boolean));
   const realByLocalTime = new Map(
     datasetRows
-      .filter((row) => forecastDates.has(row.datetimeLocal.slice(0, 10)))
-      .filter((row) => isFiniteNumber(row.precioOmie))
-      .map((row) => [row.datetimeLocal, row.precioOmie as number])
+      .map((row) => [row.datetimeLocal, row])
   );
   return forecastRows.flatMap((row) => {
     const datetimeLocal = row.datetimeLocal;
     if (!datetimeLocal || !isFiniteNumber(row.precioPrevisto)) {
       return [];
     }
-    const precioReal = realByLocalTime.get(datetimeLocal);
-    if (!isFiniteNumber(precioReal)) {
-      return [];
-    }
-    const error = row.precioPrevisto - precioReal;
+    const datasetRow = realByLocalTime.get(datetimeLocal);
+    const precioReal = isFiniteNumber(datasetRow?.precioOmie) ? datasetRow.precioOmie : null;
+    const error = isFiniteNumber(precioReal) ? row.precioPrevisto - precioReal : null;
     return [{
       datetimeLocal,
       precioPrevisto: row.precioPrevisto,
       precioReal,
       error,
-      absError: Math.abs(error)
+      demandaPrevista: finiteOrNull(datasetRow?.demandaPrevista),
+      eolica: finiteOrNull(datasetRow?.eolica),
+      solarPrevista: finiteOrNull(datasetRow?.solarPrevista),
+      nuclearDisponibleMw: finiteOrNull(datasetRow?.nuclearDisponibleMw),
+      hidraulicaStorageIndex: finiteOrNull(datasetRow?.hidraulicaStorageIndex)
     }];
   });
 }
 
-function buildActualComparisonMetrics(rows: ForecastActualComparisonRow[]) {
+function buildPredictionDetailMetrics(rows: ForecastPredictionDetailRow[]) {
   if (rows.length === 0) {
-    return { meanForecast: null, meanActual: null, mae: null, rmse: null, bias: null };
+    return { meanForecast: null, meanActual: null, mae: null, bias: null };
   }
   const meanForecast = average(rows.map((row) => row.precioPrevisto));
-  const meanActual = average(rows.map((row) => row.precioReal));
-  const mae = average(rows.map((row) => row.absError));
-  const rmse = Math.sqrt(average(rows.map((row) => row.error * row.error)));
-  const bias = average(rows.map((row) => row.error));
-  return { meanForecast, meanActual, mae, rmse, bias };
+  const rowsWithReal = rows.filter((row): row is ForecastPredictionDetailRow & { precioReal: number; error: number } => isFiniteNumber(row.precioReal) && isFiniteNumber(row.error));
+  const meanActual = rowsWithReal.length ? average(rowsWithReal.map((row) => row.precioReal)) : null;
+  const mae = rowsWithReal.length ? average(rowsWithReal.map((row) => Math.abs(row.error))) : null;
+  const bias = rowsWithReal.length ? average(rowsWithReal.map((row) => row.error)) : null;
+  return { meanForecast, meanActual, mae, bias };
 }
 
 function buildOfficialHistoryRows(runs: ForecastPredictionRun[], datasetRows: MercadoDatasetRow[]): ForecastOfficialHistoryRow[] {
@@ -1242,6 +1205,10 @@ function average(values: number[]) {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function finiteOrNull(value: unknown) {
+  return isFiniteNumber(value) ? value : null;
 }
 
 function fmt(value: number | null | undefined, decimals = 2) {
