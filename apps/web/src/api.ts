@@ -2078,6 +2078,7 @@ export type MercadoCoverageDiagnosticsResponse = {
   };
   expectedHours: number;
   variables: MercadoCoverageDiagnosticVariable[];
+  forecastD1Variables?: MercadoCoverageDiagnosticVariable[];
 };
 
 export type MercadoAnalyticsQuality = {

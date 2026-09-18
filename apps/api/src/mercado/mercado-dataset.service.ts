@@ -7,6 +7,17 @@ const DATASET_VARIABLES = MERCADO_ESIOS_VARIABLES;
 const NUCLEAR_AVAILABLE_POWER_INDICATOR_ID = 474;
 const HYDRAULIC_STORAGE_INDEX_INDICATOR_ID = 623;
 const HYDRAULIC_STORAGE_INDEX_GEO_ID = 8741;
+const FORECAST_D1_ESIOS_VARIABLES = [
+  { variable: "ntcFranceImportD1", indicatorId: 1844, label: "Capacidad de intercambio prevista Francia importacion D+1" },
+  { variable: "ntcFranceExportD1", indicatorId: 1848, label: "Capacidad de intercambio prevista Francia exportacion D+1" },
+  { variable: "ntcPortugalImportD1", indicatorId: 1845, label: "Capacidad de intercambio prevista Portugal importacion D+1" },
+  { variable: "ntcPortugalExportD1", indicatorId: 1849, label: "Capacidad de intercambio prevista Portugal exportacion D+1" },
+  { variable: "ntcMoroccoImportD1", indicatorId: 1846, label: "Capacidad de intercambio prevista Marruecos importacion D+1" },
+  { variable: "ntcMoroccoExportD1", indicatorId: 1850, label: "Capacidad de intercambio prevista Marruecos exportacion D+1" },
+  { variable: "ccgtDisponibleMw", indicatorId: 477, label: "Potencia disponible ciclo combinado D+1" },
+  { variable: "hydroDisponibleMw", indicatorId: 472, label: "Potencia disponible hidraulica UGH D+1" },
+  { variable: "pumpingDisponibleMw", indicatorId: 473, label: "Potencia disponible turbinacion bombeo D+1" }
+] as const;
 
 type MercadoDatasetVariable = MercadoEsiosVariable;
 
@@ -136,66 +147,35 @@ export class MercadoDatasetService {
           };
         }
 
-        const indicator = await this.prisma.esiosIndicator.findUnique({
-          where: { indicatorId: config.indicatorId },
-          select: { indicatorId: true, name: true, shortName: true }
-        });
-        const rows = await this.prisma.esiosIndicatorValue.findMany({
-          where: {
-            indicatorId: config.indicatorId,
-            datetimeUtc: {
-              gte: range.startDate,
-              lt: range.endExclusive
-            }
-          },
-          select: {
-            datetimeUtc: true,
-            geoId: true,
-            geoKey: true,
-            geoName: true,
-            value: true
-          },
-          orderBy: [{ datetimeUtc: "asc" }, { geoKey: "asc" }]
-        });
         const expectedGeoId = options.geoId ?? config.geoId ?? undefined;
         const expectedGeoKey = config.geoKey ?? undefined;
-        const matchedRows = rows.filter((row) => {
-          if (row.value === null || !row.datetimeUtc) {
-            return false;
-          }
-          if (expectedGeoId !== undefined && row.geoId !== expectedGeoId) {
-            return false;
-          }
-          if (expectedGeoKey !== undefined && row.geoKey !== expectedGeoKey) {
-            return false;
-          }
-          return true;
-        });
-        const matchedHours = new Set(matchedRows.map((row) => truncateToUtcHour(row.datetimeUtc as Date).toISOString()).filter((timestamp) => expectedSet.has(timestamp)));
-        const missingHours = expectedHours.filter((timestamp) => !matchedHours.has(timestamp));
-        return {
+        return this.diagnoseEsiosIndicatorCoverage({
           variable,
-          source: "EsiosIndicatorValue",
-          status: coverageStatus(expectedHours.length, matchedHours.size, rows.length, matchedRows.length),
           indicatorId: config.indicatorId,
-          indicatorName: indicator?.name ?? indicator?.shortName ?? config.nombre ?? null,
+          fallbackIndicatorName: config.nombre ?? null,
           mappingStatus: config.status,
           mappingConfidence: config.confidence,
-          expectedGeoId: expectedGeoId ?? null,
-          expectedGeoKey: expectedGeoKey ?? null,
-          expectedHours: expectedHours.length,
-          sourceRecords: rows.length,
-          matchedRecords: matchedRows.length,
-          distinctHours: matchedHours.size,
-          firstAvailable: matchedRows[0]?.datetimeUtc?.toISOString() ?? null,
-          lastAvailable: matchedRows.at(-1)?.datetimeUtc?.toISOString() ?? null,
-          coveragePct: expectedHours.length === 0 ? 100 : round((matchedHours.size / expectedHours.length) * 100),
-          missingHours: missingHours.slice(0, 100),
-          missingHoursCount: missingHours.length,
-          probableReason: coverageReason(expectedHours.length, matchedHours.size, rows.length, matchedRows.length, expectedGeoId, expectedGeoKey),
-          recommendedAction: coverageRecommendedAction(config.indicatorId, range.fechaDesde, range.fechaHasta, matchedHours.size, rows.length, matchedRows.length)
-        };
+          expectedGeoId,
+          expectedGeoKey,
+          range,
+          expectedHours,
+          expectedSet,
+          source: "EsiosIndicatorValue"
+        });
       })
+    );
+    const forecastD1Variables = await Promise.all(
+      FORECAST_D1_ESIOS_VARIABLES.map((config) =>
+        this.diagnoseEsiosIndicatorCoverage({
+          variable: config.variable,
+          indicatorId: config.indicatorId,
+          fallbackIndicatorName: config.label,
+          range,
+          expectedHours,
+          expectedSet,
+          source: "ForecastD1EsiosIndicatorValue"
+        })
+      )
     );
 
     return {
@@ -205,7 +185,92 @@ export class MercadoDatasetService {
         geoId: options.geoId ?? null
       },
       expectedHours: expectedHours.length,
-      variables
+      variables,
+      forecastD1Variables
+    };
+  }
+
+  private async diagnoseEsiosIndicatorCoverage({
+    expectedGeoId,
+    expectedGeoKey,
+    expectedHours,
+    expectedSet,
+    fallbackIndicatorName,
+    indicatorId,
+    mappingConfidence,
+    mappingStatus,
+    range,
+    source,
+    variable
+  }: {
+    variable: string;
+    indicatorId: number;
+    fallbackIndicatorName?: string | null;
+    mappingStatus?: string;
+    mappingConfidence?: number;
+    expectedGeoId?: number;
+    expectedGeoKey?: number;
+    range: ResolvedDateRange;
+    expectedHours: string[];
+    expectedSet: Set<string>;
+    source: string;
+  }) {
+    const indicator = await this.prisma.esiosIndicator.findUnique({
+      where: { indicatorId },
+      select: { indicatorId: true, name: true, shortName: true }
+    });
+    const rows = await this.prisma.esiosIndicatorValue.findMany({
+      where: {
+        indicatorId,
+        datetimeUtc: {
+          gte: range.startDate,
+          lt: range.endExclusive
+        }
+      },
+      select: {
+        datetimeUtc: true,
+        geoId: true,
+        geoKey: true,
+        geoName: true,
+        value: true
+      },
+      orderBy: [{ datetimeUtc: "asc" }, { geoKey: "asc" }]
+    });
+    const matchedRows = rows.filter((row) => {
+      if (row.value === null || !row.datetimeUtc) {
+        return false;
+      }
+      if (expectedGeoId !== undefined && row.geoId !== expectedGeoId) {
+        return false;
+      }
+      if (expectedGeoKey !== undefined && row.geoKey !== expectedGeoKey) {
+        return false;
+      }
+      return true;
+    });
+    const matchedHours = new Set(matchedRows.map((row) => truncateToUtcHour(row.datetimeUtc as Date).toISOString()).filter((timestamp) => expectedSet.has(timestamp)));
+    const missingHours = expectedHours.filter((timestamp) => !matchedHours.has(timestamp));
+    return {
+      variable,
+      source,
+      status: coverageStatus(expectedHours.length, matchedHours.size, rows.length, matchedRows.length),
+      indicatorId,
+      indicatorName: indicator?.name ?? indicator?.shortName ?? fallbackIndicatorName ?? null,
+      mappingStatus,
+      mappingConfidence,
+      expectedGeoId: expectedGeoId ?? null,
+      expectedGeoKey: expectedGeoKey ?? null,
+      expectedHours: expectedHours.length,
+      sourceRecords: rows.length,
+      matchedRecords: matchedRows.length,
+      distinctHours: matchedHours.size,
+      firstAvailable: matchedRows[0]?.datetimeUtc?.toISOString() ?? null,
+      lastAvailable: matchedRows.at(-1)?.datetimeUtc?.toISOString() ?? null,
+      coveragePct: expectedHours.length === 0 ? 100 : round((matchedHours.size / expectedHours.length) * 100),
+      missingHours: missingHours.slice(0, 100),
+      missingHoursCount: missingHours.length,
+      probableReason: coverageReason(expectedHours.length, matchedHours.size, rows.length, matchedRows.length, expectedGeoId, expectedGeoKey),
+      recommendedAction: coverageRecommendedAction(indicatorId, range.fechaDesde, range.fechaHasta, matchedHours.size, rows.length, matchedRows.length)
     };
   }
 

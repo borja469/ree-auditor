@@ -30,8 +30,111 @@ import {
 const D1_QUICK_DOWNLOADS: Record<string, number> = {
   demandaPrevista: 460,
   eolica: 541,
-  solarPrevista: 10034
+  solarPrevista: 10034,
+  nuclearDisponibleMw: 474,
+  hidraulicaStorageIndex: 623,
+  ntcFranceImportD1: 1844,
+  ntcFranceExportD1: 1848,
+  ntcPortugalImportD1: 1845,
+  ntcPortugalExportD1: 1849,
+  ntcMoroccoImportD1: 1846,
+  ntcMoroccoExportD1: 1850,
+  ccgtDisponibleMw: 477,
+  hydroDisponibleMw: 472,
+  pumpingDisponibleMw: 473
 };
+
+const DEMAND_DEPENDENT_FEATURES = [
+  "demandaPrevista",
+  "demandaResidual",
+  "rampaDemanda",
+  "huecoTermicoD1",
+  "rampaHuecoTermicoD1",
+  "huecoTermicoSobreDemandaPct",
+  "huecoSobreCcgtDisponible",
+  "huecoSobreDespachableDisponible",
+  "margenDespachableMw",
+  "ntcNetSobreDemandaPct",
+  "exportPressure",
+  "importSupport",
+  "huecoAjustadoInterconexion",
+  "hydroScarcityThermalPressure",
+  "hydroSupportRatio",
+  "lowStorageHighGap",
+  "thermalGapRampPressure",
+  "demandRampThermalPressure"
+];
+
+const EOLICA_DEPENDENT_FEATURES = [
+  "eolica",
+  "eolicaSobreDemandaPct",
+  "windPressurePct",
+  "rampaEolica",
+  "demandaResidual",
+  "huecoTermicoD1",
+  "rampaHuecoTermicoD1",
+  "huecoTermicoSobreDemandaPct",
+  "huecoSobreCcgtDisponible",
+  "huecoSobreDespachableDisponible",
+  "margenDespachableMw",
+  "hydroScarcityThermalPressure",
+  "hydroSupportRatio",
+  "lowStorageHighGap",
+  "thermalGapRampPressure",
+  "demandRampThermalPressure"
+];
+
+const SOLAR_DEPENDENT_FEATURES = [
+  "solarPrevista",
+  "solarSobreDemandaPct",
+  "solarPctOfDailyMax",
+  "solarDropFromDailyMax",
+  "solarResidualDemandLow",
+  "solarPressureHigh",
+  "rampaSolar",
+  "demandaResidual",
+  "huecoTermicoD1",
+  "rampaHuecoTermicoD1",
+  "huecoTermicoSobreDemandaPct",
+  "huecoSobreCcgtDisponible",
+  "huecoSobreDespachableDisponible",
+  "margenDespachableMw",
+  "hydroScarcityThermalPressure",
+  "hydroSupportRatio",
+  "lowStorageHighGap",
+  "thermalGapRampPressure",
+  "demandRampThermalPressure",
+  "eveningSolarExitThermalGap"
+];
+
+const NUCLEAR_DEPENDENT_FEATURES = [
+  "nuclearDisponibleMw",
+  "nuclearDisponibleSobreDemandaPct",
+  "nuclearPressureLow",
+  "huecoTermicoD1",
+  "huecoSobreDespachableDisponible",
+  "margenDespachableMw",
+  "hydroScarcityThermalPressure",
+  "hydroSupportRatio",
+  "lowStorageHighGap",
+  "huecoAjustadoInterconexion",
+  "thermalGapRampPressure"
+];
+
+const STORAGE_DEPENDENT_FEATURES = [
+  "hidraulicaStorageIndex",
+  "hidraulicaStoragePctOfMax",
+  "hidraulicaStorageLow",
+  "hydroScarcityThermalPressure",
+  "lowStorageHighGap"
+];
+
+const NTC_DEPENDENT_FEATURES = [
+  "ntcNetSobreDemandaPct",
+  "exportPressure",
+  "importSupport",
+  "huecoAjustadoInterconexion"
+];
 
 type ForecastDerivedSignalCoverage = {
   variable: string;
@@ -256,18 +359,13 @@ function ForecastOperationsPanel({
   predictionResult?: ForecastPredictionRangeResponse;
 }) {
   const [modeloId, setModeloId] = useState(activeModelId);
-  const relevantCoverage = useMemo(() => {
-    const preferred = ["demandaPrevista", "eolica", "solarPrevista"];
-    const byVariable = new Map((coverage?.variables ?? []).map((item) => [item.variable, item]));
-    return preferred.map((variable) => byVariable.get(variable)).filter(Boolean) as MercadoCoverageDiagnosticVariable[];
-  }, [coverage]);
-  const operationalCoverage = [...relevantCoverage, ...derivedCoverage];
-  const completeCount = operationalCoverage.filter((item) => item.status === "complete").length;
-  const missingCoverage = operationalCoverage.filter((item) => item.status !== "complete");
   const activeSources = useMemo(
     () => buildActiveModelSources(activeModelDetail, coverage, derivedCoverage),
     [activeModelDetail, coverage, derivedCoverage]
   );
+  const operationalCoverage = activeSources.filter((item) => item.status);
+  const completeCount = operationalCoverage.filter((item) => item.status === "complete").length;
+  const missingCoverage = operationalCoverage.filter((item) => item.status !== "complete");
   const latestRun = historyRuns[0];
   const latestMean = latestRun ? readRunAverage(latestRun) : null;
   const effectiveModelId = modeloId || activeModelId;
@@ -330,7 +428,7 @@ function ForecastOperationsPanel({
       {missingCoverage.length > 0 && (
         <div className="status-message info">
           <AlertTriangle size={16} />
-          Faltan senales D+1 para {missingCoverage.map((item) => coverageLabel(item.variable)).join(", ")}.
+          Faltan senales D+1 para {missingCoverage.map((item) => item.label).join(", ")}.
         </div>
       )}
       <div className="forecast-ops-grid">
@@ -466,7 +564,7 @@ function ForecastActiveSources({
   return (
     <div className="forecast-source-grid">
       {sources.map((source) => (
-        <div className={`forecast-source-card ${source.status ? coverageTone(source.status) : "complete"}`} key={source.key}>
+        <div className={`forecast-source-card ${source.status ? coverageTone(source.status) : "unknown"}`} key={source.key}>
           <div>
             <strong>{source.label}</strong>
             <span>{source.source}</span>
@@ -1419,28 +1517,56 @@ function buildActiveModelSources(
   const features = new Set(detail?.variablesUtilizadas ?? []);
   const showAll = features.size === 0;
   const baseByVariable = new Map((coverage?.variables ?? []).map((item) => [item.variable, item]));
+  const forecastD1ByVariable = new Map((coverage?.forecastD1Variables ?? []).map((item) => [item.variable, item]));
   const derivedByVariable = new Map(derivedCoverage.map((item) => [item.variable, item]));
   const items: ForecastModelSourceItem[] = [];
 
-  if (showAll || usesAny(features, ["demandaPrevista", "demandaResidual", "rampaDemanda", "huecoTermicoD1", "rampaHuecoTermicoD1"])) {
+  if (showAll || usesAny(features, DEMAND_DEPENDENT_FEATURES)) {
     const item = baseByVariable.get("demandaPrevista");
     items.push(sourceFromCoverage("demandaPrevista", "Demanda prevista", item, "Base del modelo activo"));
   }
-  if (showAll || usesAny(features, ["eolica", "eolicaSobreDemandaPct", "windPressurePct", "rampaEolica", "demandaResidual", "huecoTermicoD1"])) {
+  if (showAll || usesAny(features, EOLICA_DEPENDENT_FEATURES)) {
     const item = baseByVariable.get("eolica");
     items.push(sourceFromCoverage("eolica", "Eolica", item, "Prevision D+1 usada por el activo"));
   }
-  if (showAll || usesAny(features, ["solarPrevista", "solarSobreDemandaPct", "solarPctOfDailyMax", "solarDropFromDailyMax", "solarResidualDemandLow", "solarPressureHigh", "rampaSolar", "eveningSolarExitThermalGap"])) {
+  if (showAll || usesAny(features, SOLAR_DEPENDENT_FEATURES)) {
     const item = baseByVariable.get("solarPrevista");
     items.push(sourceFromCoverage("solarPrevista", "Solar prevista", item, "Solar total; no exige termosolar separada"));
   }
-  if (showAll || usesAny(features, ["nuclearDisponibleMw", "nuclearDisponibleSobreDemandaPct", "nuclearPressureLow", "huecoTermicoD1"])) {
+  if (showAll || usesAny(features, NUCLEAR_DEPENDENT_FEATURES)) {
     const item = derivedByVariable.get("nuclearDisponibleMw");
     items.push(sourceFromDerived("nuclearDisponibleMw", "Nuclear disponible", item, "Suma horaria de centrales"));
   }
-  if (showAll || usesAny(features, ["hidraulicaStorageIndex", "hidraulicaStoragePctOfMax", "hidraulicaStorageLow"])) {
+  if (showAll || usesAny(features, STORAGE_DEPENDENT_FEATURES)) {
     const item = derivedByVariable.get("hidraulicaStorageIndex");
     items.push(sourceFromDerived("hidraulicaStorageIndex", "Llenado hidraulico", item, "Ultimo dato disponible hasta D+1"));
+  }
+  if (showAll || usesAny(features, ["ccgtDisponibleMw", "ccgtDisponibleSobreDemandaPct", "thermalAvailabilityPressure", "huecoSobreCcgtDisponible", "huecoSobreDespachableDisponible", "margenDespachableMw"])) {
+    items.push(sourceFromForecastD1("ccgtDisponibleMw", "CCGT disponible", forecastD1ByVariable.get("ccgtDisponibleMw"), "Ciclos combinados disponibles D+1"));
+  }
+  if (showAll || usesAny(features, ["hydroDisponibleMw", "hydroDisponibleSobreDemandaPct", "hydroSupportRatio", "huecoSobreDespachableDisponible", "margenDespachableMw"])) {
+    items.push(sourceFromForecastD1("hydroDisponibleMw", "Hidraulica disponible", forecastD1ByVariable.get("hydroDisponibleMw"), "UGH disponible D+1"));
+  }
+  if (showAll || usesAny(features, ["pumpingDisponibleMw", "pumpingDisponibleSobreDemandaPct"])) {
+    items.push(sourceFromForecastD1("pumpingDisponibleMw", "Bombeo disponible", forecastD1ByVariable.get("pumpingDisponibleMw"), "Turbinacion bombeo disponible D+1"));
+  }
+  if (showAll || usesAny(features, ["ntcFranceImportD1", "ntcFranceNetD1", "ntcImportTotalD1", "ntcNetImportD1", ...NTC_DEPENDENT_FEATURES])) {
+    items.push(sourceFromForecastD1("ntcFranceImportD1", "NTC Francia importacion", forecastD1ByVariable.get("ntcFranceImportD1"), "Interconexion D+1 para netos y soporte importador"));
+  }
+  if (showAll || usesAny(features, ["ntcFranceExportD1", "ntcFranceNetD1", "ntcExportTotalD1", "ntcNetImportD1", ...NTC_DEPENDENT_FEATURES])) {
+    items.push(sourceFromForecastD1("ntcFranceExportD1", "NTC Francia exportacion", forecastD1ByVariable.get("ntcFranceExportD1"), "Interconexion D+1 para netos y presion exportadora"));
+  }
+  if (showAll || usesAny(features, ["ntcPortugalImportD1", "ntcPortugalNetD1", "ntcImportTotalD1", "ntcNetImportD1", ...NTC_DEPENDENT_FEATURES])) {
+    items.push(sourceFromForecastD1("ntcPortugalImportD1", "NTC Portugal importacion", forecastD1ByVariable.get("ntcPortugalImportD1"), "Interconexion D+1 para netos y soporte importador"));
+  }
+  if (showAll || usesAny(features, ["ntcPortugalExportD1", "ntcPortugalNetD1", "ntcExportTotalD1", "ntcNetImportD1", ...NTC_DEPENDENT_FEATURES])) {
+    items.push(sourceFromForecastD1("ntcPortugalExportD1", "NTC Portugal exportacion", forecastD1ByVariable.get("ntcPortugalExportD1"), "Interconexion D+1 para netos y presion exportadora"));
+  }
+  if (showAll || usesAny(features, ["ntcMoroccoImportD1", "ntcMoroccoNetD1", "ntcImportTotalD1", "ntcNetImportD1", ...NTC_DEPENDENT_FEATURES])) {
+    items.push(sourceFromForecastD1("ntcMoroccoImportD1", "NTC Marruecos importacion", forecastD1ByVariable.get("ntcMoroccoImportD1"), "Interconexion D+1 para netos y soporte importador"));
+  }
+  if (showAll || usesAny(features, ["ntcMoroccoExportD1", "ntcMoroccoNetD1", "ntcExportTotalD1", "ntcNetImportD1", ...NTC_DEPENDENT_FEATURES])) {
+    items.push(sourceFromForecastD1("ntcMoroccoExportD1", "NTC Marruecos exportacion", forecastD1ByVariable.get("ntcMoroccoExportD1"), "Interconexion D+1 para netos y presion exportadora"));
   }
   if (showAll || features.has("precioGasMibgas")) {
     items.push({
@@ -1470,16 +1596,32 @@ function sourceFromCoverage(key: string, label: string, item: MercadoCoverageDia
 }
 
 function sourceFromDerived(key: string, label: string, item: ForecastDerivedSignalCoverage | undefined, note: string): ForecastModelSourceItem {
+  const indicatorId = item?.indicatorId ?? D1_QUICK_DOWNLOADS[key];
   return {
     key,
     label,
-    source: item ? `Indicador ${item.indicatorId}` : "Sin cobertura calculada",
-    indicatorId: item?.indicatorId,
+    source: indicatorId ? `Indicador ${indicatorId}` : "Sin indicador resuelto",
+    indicatorId,
     status: item?.status,
     coveragePct: item?.coveragePct,
     expectedHours: item?.expectedHours,
     distinctHours: item?.distinctHours,
     note
+  };
+}
+
+function sourceFromForecastD1(key: string, label: string, item: MercadoCoverageDiagnosticVariable | undefined, note: string): ForecastModelSourceItem {
+  const indicatorId = item?.indicatorId ?? D1_QUICK_DOWNLOADS[key];
+  return {
+    key,
+    label,
+    source: indicatorId ? `Indicador ${indicatorId}${item?.indicatorName ? ` - ${item.indicatorName}` : ""}` : "Sin indicador resuelto",
+    indicatorId,
+    status: item?.status,
+    coveragePct: item?.coveragePct,
+    expectedHours: item?.expectedHours,
+    distinctHours: item?.distinctHours,
+    note: item ? note : `${note}. Descarga directa; cobertura no medida aqui`
   };
 }
 
@@ -1530,24 +1672,6 @@ function readError(error: unknown) {
 function parseUserNumber(value: string) {
   const parsed = Number(value.trim().replace(",", "."));
   return Number.isFinite(parsed) ? parsed : null;
-}
-
-function coverageLabel(variable: string) {
-  const labels: Record<string, string> = {
-    demandaPrevista: "Demanda",
-    eolica: "Eolica",
-    solarPrevista: "Solar total",
-    fotovoltaica: "Fotovoltaica",
-    termosolar: "Termosolar",
-    nuclear: "Nuclear",
-    nuclearDisponibleMw: "Nuclear disponible",
-    hidraulicaStorageIndex: "Almacenamiento hidraulico",
-    hidraulicaUGH: "Hidraulica UGH",
-    hidraulicaNoUGH: "Hidraulica no UGH",
-    bombeo: "Bombeo",
-    intercambios: "Intercambios"
-  };
-  return labels[variable] ?? variable;
 }
 
 function coverageStatusLabel(status: MercadoCoverageDiagnosticVariable["status"]) {

@@ -8532,6 +8532,11 @@ select:disabled {
   border-color: #f0c9c5;
 }
 
+.forecast-source-card.unknown {
+  background: #f8fbfc;
+  border-color: var(--color-border-soft);
+}
+
 .forecast-source-card div {
   display: grid;
   gap: 2px;

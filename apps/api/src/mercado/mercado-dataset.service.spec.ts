@@ -78,6 +78,19 @@ void describe("MercadoDatasetService", () => {
     assert.equal(nuclear.status, "partial");
     assert.equal(nuclear.missingHoursCount, 12);
   });
+
+  void it("diagnostica cobertura de variables D+1 usadas por forecast", async () => {
+    const service = new MercadoDatasetService(mockPrisma(), mockMappingService() as never);
+
+    const result = await service.diagnoseCoverage({ fechaDesde: "2026-01-01", fechaHasta: "2026-01-01" });
+    const ccgt = result.forecastD1Variables.find((item) => item.variable === "ccgtDisponibleMw");
+    const ntcFranceImport = result.forecastD1Variables.find((item) => item.variable === "ntcFranceImportD1");
+
+    assert.equal(ccgt.status, "complete");
+    assert.equal(ccgt.distinctHours, 24);
+    assert.equal(ntcFranceImport.status, "complete");
+    assert.equal(ntcFranceImport.indicatorId, 1844);
+  });
 });
 
 function mockMappingService() {
@@ -123,6 +136,15 @@ function mockPrisma(options: { partialNuclear?: boolean; omieProgramDate?: strin
     ...indicatorRows(549, 100, options.partialNuclear ? 12 : 24, esiosStart),
     ...nuclearAvailabilityRows(24, esiosStart),
     ...hydraulicStorageRows(),
+    ...indicatorRows(1844, 1200, 24, esiosStart),
+    ...indicatorRows(1848, 900, 24, esiosStart),
+    ...indicatorRows(1845, 1000, 24, esiosStart),
+    ...indicatorRows(1849, 800, 24, esiosStart),
+    ...indicatorRows(1846, 600, 24, esiosStart),
+    ...indicatorRows(1850, 900, 24, esiosStart),
+    ...indicatorRows(477, 2500, 24, esiosStart),
+    ...indicatorRows(472, 12000, 24, esiosStart),
+    ...indicatorRows(473, 180, 24, esiosStart),
     ...indicatorRows(1, 20, 24, esiosStart),
     ...indicatorRows(2, 10, 24, esiosStart),
     ...indicatorRows(25, 3, 24, esiosStart),
