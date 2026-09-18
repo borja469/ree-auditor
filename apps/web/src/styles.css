@@ -8792,6 +8792,56 @@ select:disabled {
   gap: 8px;
 }
 
+.forecast-result-sources {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.forecast-result-sources-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--color-primary);
+  font-size: 0.82rem;
+}
+
+.forecast-result-sources-head span {
+  color: var(--color-muted);
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.forecast-source-table-shell {
+  max-height: 220px;
+}
+
+.forecast-source-table-shell .forecast-table.compact {
+  min-width: 1080px;
+}
+
+.forecast-variable-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 92px;
+  overflow: auto;
+}
+
+.forecast-variable-chip-list span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  color: #31505d;
+  background: #f8fbfc;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+  font-size: 0.7rem;
+  font-weight: 820;
+}
+
 .forecast-variable-list {
   display: grid;
   grid-column: span 2;

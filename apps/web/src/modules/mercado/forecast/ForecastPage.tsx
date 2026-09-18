@@ -1016,18 +1016,30 @@ function ForecastPredictionResultModal({
   run: ForecastPredictionRun;
 }) {
   const [datasetRows, setDatasetRows] = useState<MercadoDatasetRow[]>([]);
+  const [coverage, setCoverage] = useState<MercadoCoverageDiagnosticsResponse>();
+  const [derivedCoverage, setDerivedCoverage] = useState<ForecastDerivedSignalCoverage[]>([]);
+  const [modelDetail, setModelDetail] = useState<ForecastModelDetail>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
 
   const detailRows = useMemo(() => buildPredictionDetailRows(run, datasetRows), [datasetRows, run]);
   const metrics = useMemo(() => buildPredictionDetailMetrics(detailRows), [detailRows]);
+  const modelSources = useMemo(() => buildActiveModelSources(modelDetail, coverage, derivedCoverage), [coverage, derivedCoverage, modelDetail]);
+  const usedVariables = modelDetail?.variablesUtilizadas ?? [];
 
   const loadReal = useCallback(async () => {
     setLoading(true);
     setError(undefined);
     try {
-      const response = await getMercadoDataset({ fechaDesde: run.fechaDesde, fechaHasta: run.fechaHasta, take: 5000 });
+      const [response, nextCoverage, nextModelDetail] = await Promise.all([
+        getMercadoDataset({ fechaDesde: run.fechaDesde, fechaHasta: run.fechaHasta, take: 5000 }),
+        getMercadoCoverageDiagnostics({ fechaDesde: run.fechaDesde, fechaHasta: run.fechaHasta }),
+        getForecastModelDetail(run.modeloId)
+      ]);
       setDatasetRows(response.rows);
+      setCoverage(nextCoverage);
+      setDerivedCoverage(buildDerivedSignalCoverage(response.rows, nextCoverage.expectedHours));
+      setModelDetail(nextModelDetail);
     } catch (caught) {
       setError(readError(caught));
     } finally {
@@ -1072,6 +1084,7 @@ function ForecastPredictionResultModal({
             <ForecastMiniMetric label="MAE" value={fmt(metrics.mae)} />
             <ForecastMiniMetric label="Bias" value={fmt(metrics.bias)} />
           </div>
+          <ForecastModelSourcesTable sources={modelSources} variables={usedVariables} />
           <EChart height={320} option={buildPredictionDetailChart(detailRows)} />
           <div className="mercado-table-shell forecast-result-detail-table">
             <table className="mercado-table forecast-table compact">
@@ -1110,6 +1123,51 @@ function ForecastPredictionResultModal({
           {detailRows.length === 0 && !loading && <div className="empty-state">Sin datos horarios para este resultado.</div>}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ForecastModelSourcesTable({ sources, variables }: { sources: ForecastModelSourceItem[]; variables: string[] }) {
+  if (sources.length === 0 && variables.length === 0) {
+    return null;
+  }
+  return (
+    <div className="forecast-result-sources">
+      <div className="forecast-result-sources-head">
+        <strong>Variables utilizadas por el modelo</strong>
+        {variables.length > 0 && <span>{formatNumber(variables.length)} features</span>}
+      </div>
+      {sources.length > 0 && (
+        <div className="mercado-table-shell forecast-source-table-shell">
+          <table className="mercado-table forecast-table compact">
+            <thead>
+              <tr>
+                <th>Senal</th>
+                <th>Fuente</th>
+                <th>Cobertura</th>
+                <th>Horas</th>
+                <th>Uso</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sources.map((source) => (
+                <tr key={source.key}>
+                  <td><strong>{source.label}</strong></td>
+                  <td>{source.source}</td>
+                  <td>{source.status ? coverageStatusLabel(source.status) : "Manual / calculada"}</td>
+                  <td>{source.expectedHours ? `${formatNumber(source.distinctHours ?? 0)}/${formatNumber(source.expectedHours)} h (${fmt(source.coveragePct, 0)}%)` : "-"}</td>
+                  <td>{source.note}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {variables.length > 0 && (
+        <div className="forecast-variable-chip-list">
+          {variables.map((variable) => <span key={variable}>{variable}</span>)}
+        </div>
+      )}
     </div>
   );
 }
