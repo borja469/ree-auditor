@@ -19,6 +19,15 @@ export class ForecastController {
     return this.forecastService.compareModels((ids ?? "").split(","));
   }
 
+  @Get("models/:id/features")
+  getModelFeatureDataset(@Param("id") id: string, @Query("fechaDesde") fechaDesde?: string, @Query("fechaHasta") fechaHasta?: string, @Query("geoId") geoId?: string) {
+    return this.forecastService.getModelFeatureDataset(id, {
+      fechaDesde: fechaDesde ?? "",
+      fechaHasta: fechaHasta ?? fechaDesde ?? "",
+      geoId: parseOptionalInteger(geoId)
+    });
+  }
+
   @Get("models/:id")
   getModel(@Param("id") id: string) {
     return this.forecastService.getModel(id);
@@ -98,4 +107,12 @@ export class ForecastController {
   train(@Body() body: TrainForecastDto, @Headers("x-user") usuario?: string) {
     return this.forecastService.train(body, usuario);
   }
+}
+
+function parseOptionalInteger(value: string | undefined) {
+  if (value === undefined || value === "") {
+    return undefined;
+  }
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : undefined;
 }

@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, CheckCircle2, Download, Eye, LineChart, Play, 
 import type {
   EsiosDownloadSummary,
   ForecastModelDetail,
+  ForecastModelFeatureDatasetResponse,
   ForecastModelListItem,
   ForecastPredictionRangeResponse,
   ForecastPredictionRun,
@@ -15,7 +16,7 @@ import type {
   MercadoCoverageDiagnosticsResponse,
   MercadoCoverageDiagnosticVariable
 } from "../../../api";
-import { downloadEsiosIndicator, getForecastModelDetail, getGasMibgasManualPrices, getMercadoCoverageDiagnostics, getMercadoDataset, getOfficialForecastPredictions, saveGasMibgasManualPrice } from "../../../api";
+import { downloadEsiosIndicator, getForecastModelDetail, getForecastModelFeatureDataset, getGasMibgasManualPrices, getMercadoCoverageDiagnostics, getMercadoDataset, getOfficialForecastPredictions, saveGasMibgasManualPrice } from "../../../api";
 import { getTodayInputValue } from "../../../app-shell/AppState";
 import { downloadBlob } from "../../../components/technical-data-table/TechnicalDataTableHelpers";
 import { EChart, PanelTitle, formatDecimalNumber, formatNumber } from "../../shared/RestoredModuleCommon";
@@ -989,11 +990,7 @@ type ForecastPredictionDetailRow = {
   precioPrevisto: number;
   precioReal: number | null;
   error: number | null;
-  demandaPrevista: number | null;
-  eolica: number | null;
-  solarPrevista: number | null;
-  nuclearDisponibleMw: number | null;
-  hidraulicaStorageIndex: number | null;
+  features: Record<string, number | null>;
 };
 
 type ForecastOfficialHistoryRow = {
@@ -1016,36 +1013,40 @@ function ForecastPredictionResultModal({
   run: ForecastPredictionRun;
 }) {
   const [datasetRows, setDatasetRows] = useState<MercadoDatasetRow[]>([]);
+  const [featureDataset, setFeatureDataset] = useState<ForecastModelFeatureDatasetResponse>();
   const [coverage, setCoverage] = useState<MercadoCoverageDiagnosticsResponse>();
   const [derivedCoverage, setDerivedCoverage] = useState<ForecastDerivedSignalCoverage[]>([]);
   const [modelDetail, setModelDetail] = useState<ForecastModelDetail>();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>();
 
-  const detailRows = useMemo(() => buildPredictionDetailRows(run, datasetRows), [datasetRows, run]);
+  const detailRows = useMemo(() => buildPredictionDetailRows(run, datasetRows, featureDataset), [datasetRows, featureDataset, run]);
   const metrics = useMemo(() => buildPredictionDetailMetrics(detailRows), [detailRows]);
   const modelSources = useMemo(() => buildActiveModelSources(modelDetail, coverage, derivedCoverage), [coverage, derivedCoverage, modelDetail]);
-  const usedVariables = modelDetail?.variablesUtilizadas ?? [];
+  const usedVariables = modelDetail?.variablesUtilizadas ?? featureDataset?.featureNames ?? [];
+  const featureColumns = featureDataset?.featureNames ?? usedVariables;
 
   const loadReal = useCallback(async () => {
     setLoading(true);
     setError(undefined);
     try {
-      const [response, nextCoverage, nextModelDetail] = await Promise.all([
+      const [response, nextCoverage, nextModelDetail, nextFeatureDataset] = await Promise.all([
         getMercadoDataset({ fechaDesde: run.fechaDesde, fechaHasta: run.fechaHasta, take: 5000 }),
         getMercadoCoverageDiagnostics({ fechaDesde: run.fechaDesde, fechaHasta: run.fechaHasta }),
-        getForecastModelDetail(run.modeloId)
+        getForecastModelDetail(run.modeloId),
+        getForecastModelFeatureDataset(run.modeloId, { fechaDesde: run.fechaDesde, fechaHasta: run.fechaHasta })
       ]);
       setDatasetRows(response.rows);
       setCoverage(nextCoverage);
       setDerivedCoverage(buildDerivedSignalCoverage(response.rows, nextCoverage.expectedHours));
       setModelDetail(nextModelDetail);
+      setFeatureDataset(nextFeatureDataset);
     } catch (caught) {
       setError(readError(caught));
     } finally {
       setLoading(false);
     }
-  }, [run.fechaDesde, run.fechaHasta]);
+  }, [run.fechaDesde, run.fechaHasta, run.modeloId]);
 
   useEffect(() => {
     void loadReal();
@@ -1095,11 +1096,7 @@ function ForecastPredictionResultModal({
                   <th>Previsto</th>
                   <th>Real OMIE</th>
                   <th>Error</th>
-                  <th>Demanda</th>
-                  <th>Eolica</th>
-                  <th>Solar</th>
-                  <th>Nuclear disp.</th>
-                  <th>Llenado hidr.</th>
+                  {featureColumns.map((feature) => <th key={feature}>{feature}</th>)}
                 </tr>
               </thead>
               <tbody>
@@ -1110,11 +1107,7 @@ function ForecastPredictionResultModal({
                     <td>{fmt(row.precioPrevisto)}</td>
                     <td>{fmt(row.precioReal)}</td>
                     <td>{fmt(row.error)}</td>
-                    <td>{fmt(row.demandaPrevista, 0)}</td>
-                    <td>{fmt(row.eolica, 0)}</td>
-                    <td>{fmt(row.solarPrevista, 0)}</td>
-                    <td>{fmt(row.nuclearDisponibleMw, 0)}</td>
-                    <td>{fmt(row.hidraulicaStorageIndex, 0)}</td>
+                    {featureColumns.map((feature) => <td key={feature}>{fmt(row.features[feature])}</td>)}
                   </tr>
                 ))}
               </tbody>
@@ -1454,12 +1447,17 @@ function formatTrainingDuration(job: ForecastTrainingJob) {
   return "-";
 }
 
-function buildPredictionDetailRows(run: ForecastPredictionRun, datasetRows: MercadoDatasetRow[]): ForecastPredictionDetailRow[] {
+function buildPredictionDetailRows(run: ForecastPredictionRun, datasetRows: MercadoDatasetRow[], featureDataset?: ForecastModelFeatureDatasetResponse): ForecastPredictionDetailRow[] {
   const output = run?.output as Partial<ForecastPredictionRangeResponse> | null | undefined;
   const forecastRows = output?.predicciones?.flatMap((day) => day.prediccionesHorarias) ?? [];
   const realByLocalTime = new Map(
     datasetRows
       .map((row) => [row.datetimeLocal, row])
+  );
+  const featuresByLocalTime = new Map(
+    (featureDataset?.rows ?? [])
+      .filter((row) => row.datetimeLocal)
+      .map((row) => [row.datetimeLocal!, row.features])
   );
   return forecastRows.flatMap((row) => {
     const datetimeLocal = row.datetimeLocal;
@@ -1467,6 +1465,7 @@ function buildPredictionDetailRows(run: ForecastPredictionRun, datasetRows: Merc
       return [];
     }
     const datasetRow = realByLocalTime.get(datetimeLocal);
+    const features = featuresByLocalTime.get(datetimeLocal) ?? {};
     const precioReal = isFiniteNumber(datasetRow?.precioOmie) ? datasetRow.precioOmie : null;
     const error = isFiniteNumber(precioReal) ? row.precioPrevisto - precioReal : null;
     return [{
@@ -1474,11 +1473,7 @@ function buildPredictionDetailRows(run: ForecastPredictionRun, datasetRows: Merc
       precioPrevisto: row.precioPrevisto,
       precioReal,
       error,
-      demandaPrevista: finiteOrNull(datasetRow?.demandaPrevista),
-      eolica: finiteOrNull(datasetRow?.eolica),
-      solarPrevista: finiteOrNull(datasetRow?.solarPrevista),
-      nuclearDisponibleMw: finiteOrNull(datasetRow?.nuclearDisponibleMw),
-      hidraulicaStorageIndex: finiteOrNull(datasetRow?.hidraulicaStorageIndex)
+      features: Object.fromEntries(Object.entries(features).map(([feature, value]) => [feature, finiteOrNull(value)]))
     }];
   });
 }

@@ -108,6 +108,36 @@ export class ForecastPredictionService {
     return output;
   }
 
+  async getFeatureDataset(modeloId: string, input: { fechaDesde: string; fechaHasta: string; geoId?: number }) {
+    if (input.fechaDesde > input.fechaHasta) {
+      throw new BadRequestException("fechaDesde no puede ser posterior a fechaHasta.");
+    }
+    const storedModel = await this.modelStore.getModel(modeloId);
+    validatePredictableModel(storedModel.variablesUtilizadas);
+    const dataset = await this.datasetBuilder.buildPredictionRangeDataset({
+      fechaDesde: input.fechaDesde,
+      fechaHasta: input.fechaHasta,
+      geoId: input.geoId,
+      featureNames: storedModel.variablesUtilizadas
+    });
+    return {
+      modeloId: storedModel.id,
+      modelo: storedModel.tipo,
+      version: storedModel.version,
+      fechaDesde: input.fechaDesde,
+      fechaHasta: input.fechaHasta,
+      featureNames: dataset.featureNames,
+      metadata: dataset.metadata,
+      rows: dataset.rows.map((row) => ({
+        timestampUtc: row.timestampUtc,
+        date: row.date,
+        datetimeLocal: row.datetimeLocal,
+        precioOmie: row.target,
+        features: row.features
+      }))
+    };
+  }
+
   private async loadModel(modeloId: string) {
     const storedModel = await this.modelStore.getModel(modeloId);
     const model = this.modelFactory.create(storedModel.tipo);

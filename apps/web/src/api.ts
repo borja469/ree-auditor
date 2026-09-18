@@ -2312,6 +2312,30 @@ export type ForecastPredictionRangeResponse = {
   predicciones: ForecastRangePredictionDay[];
 };
 
+export type ForecastModelFeatureDatasetResponse = {
+  modeloId: string;
+  modelo: string;
+  version: number;
+  fechaDesde: string;
+  fechaHasta: string;
+  featureNames: string[];
+  metadata: {
+    fechaDesde: string;
+    fechaHasta: string;
+    totalRows: number;
+    targetRows: number;
+    trainingRows: number;
+    mappingVariables: number;
+  };
+  rows: Array<{
+    timestampUtc: string;
+    date?: string;
+    datetimeLocal?: string;
+    precioOmie: number | null;
+    features: Record<string, number>;
+  }>;
+};
+
 export type ForecastPredictionRun = {
   id: string;
   modeloId: string;
@@ -3939,6 +3963,10 @@ export async function getForecastModels(): Promise<ForecastModelsResponse> {
 
 export async function getForecastModelDetail(id: string): Promise<ForecastModelDetail> {
   return getJson(`/mercado/forecast/models/${encodeURIComponent(id)}`);
+}
+
+export async function getForecastModelFeatureDataset(id: string, filters: { fechaDesde: string; fechaHasta: string; geoId?: number | string }): Promise<ForecastModelFeatureDatasetResponse> {
+  return getJson(`/mercado/forecast/models/${encodeURIComponent(id)}/features${toQuery(filters)}`);
 }
 
 export async function activateForecastModel(id: string): Promise<ForecastModelDetail> {

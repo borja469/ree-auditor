@@ -52,6 +52,10 @@ export class ForecastService {
     return this.predictionService.predictRange(dto, usuario);
   }
 
+  getModelFeatureDataset(id: string, input: { fechaDesde: string; fechaHasta: string; geoId?: number }) {
+    return this.predictionService.getFeatureDataset(id, input);
+  }
+
   listPredictions(filters: ForecastPredictionsQueryDto) {
     return this.predictionRunStore.list({
       modeloId: filters.modeloId,
