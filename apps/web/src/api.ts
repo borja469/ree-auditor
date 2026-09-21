@@ -183,6 +183,45 @@ export type ReeDownloadCenterSummaryRow = {
   latestLoad: string | null;
 };
 
+export type ReeLqDownloadResult = {
+  source: "REE_ESIOS";
+  service: "ServicioLQ";
+  family: "liquicomun" | "liqui-empresa";
+  requestedPublicationDate: string;
+  owner: string | null;
+  selectedMessage: {
+    code: string;
+    messageId: string;
+    version: number | null;
+    status: string | null;
+    messageType: string | null;
+    owner: string | null;
+    applicationStart: string | null;
+    applicationEnd: string | null;
+    messageDate: string | null;
+    applicationDate: string | null;
+    filename: string | null;
+  };
+  downloaded: {
+    code: string;
+    messageId: string;
+    messageVersion: number | null;
+    zipName: string;
+    payloadBytes: number;
+    sha256: string;
+    totalFiles: number;
+  };
+  selectedFiles: Array<{
+    name: string;
+    hash: string;
+    size: number;
+    status: "IMPORTED" | "SKIPPED" | "FAILED";
+    reason?: string;
+    validRecords?: number;
+  }>;
+  importResponse: unknown;
+};
+
 export type ImportHistoryKind = "reganecu" | "medper";
 export type ImportHistoryIssue = {
   sourceFileName: string;
@@ -3177,6 +3216,14 @@ export async function getReeDownloadCenterSummary(): Promise<ReeDownloadCenterSu
     getJson<ReeDownloadCenterSummaryRow[]>(`/ree-seie/download-center-summary`)
   ]);
   return [...base, ...seie];
+}
+
+export async function downloadReeLqLiquicomun(date: string): Promise<ReeLqDownloadResult> {
+  return sendJson(`/ree-esios-private/lq/liquicomun/download${toQuery({ date })}`, "POST", "Descargando liquicomun REE/eSIOS", REQUEST_TIMEOUT_MS * 6);
+}
+
+export async function downloadReeLqLiquiEmpresa(date: string, owner = "STROM"): Promise<ReeLqDownloadResult> {
+  return sendJson(`/ree-esios-private/lq/liqui-empresa/download${toQuery({ date, owner })}`, "POST", "Descargando liquidacion empresa REE/eSIOS", REQUEST_TIMEOUT_MS * 6);
 }
 
 export async function login(username: string, password: string): Promise<AuthSession> {

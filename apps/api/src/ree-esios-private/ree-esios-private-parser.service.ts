@@ -54,7 +54,12 @@ export class ReeEsiosPrivateParserService {
     this.throwIfSoapFault(soapXml);
     const compressed = text(soapXml, "Compressed");
     if (compressed) {
-      return Buffer.from(compressed.replace(/\s+/g, ""), "base64");
+      const payload = Buffer.from(compressed.replace(/\s+/g, ""), "base64");
+      try {
+        return gunzipSync(payload);
+      } catch {
+        return payload;
+      }
     }
 
     const payload = extractBlock(soapXml, "Payload");

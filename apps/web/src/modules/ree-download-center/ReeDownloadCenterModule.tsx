@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import {
   deleteImportFile,
+  downloadReeLqLiquicomun,
+  downloadReeLqLiquiEmpresa,
   getImportFileDetail,
   getImportFileErrorsCsv,
   getImportFileLogs,
@@ -24,6 +26,7 @@ import {
   type MedperMonthlyConsumptionRow,
   type ReeFile,
   type ReeDownloadCenterSummaryRow,
+  type ReeLqDownloadResult,
   type ReeLossesImportFile,
   type ReeSeieFile
 } from "../../api";
@@ -137,6 +140,10 @@ export function ReeDownloadCenterModule({
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ tone: "success" | "error" | "info"; text: string }>();
   const [actionModal, setActionModal] = useState<ActionModal>();
+  const [reeLqDate, setReeLqDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reeLqOwner, setReeLqOwner] = useState("STROM");
+  const [reeLqBusy, setReeLqBusy] = useState<"liquicomun" | "liqui-empresa" | null>(null);
+  const [reeLqResult, setReeLqResult] = useState<ReeLqDownloadResult>();
 
   const rows = useMemo(
     () => buildUnifiedRows(reganecuFiles, seieFiles, medperFiles, medperMonthlyConsumption, reeLossesImports),
@@ -308,6 +315,23 @@ export function ReeDownloadCenterModule({
     });
   }
 
+  async function runReeLqDownload(family: "liquicomun" | "liqui-empresa") {
+    setReeLqBusy(family);
+    setActionMessage(undefined);
+    try {
+      const result = family === "liquicomun"
+        ? await downloadReeLqLiquicomun(reeLqDate)
+        : await downloadReeLqLiquiEmpresa(reeLqDate, reeLqOwner);
+      setReeLqResult(result);
+      await onRefresh();
+      setActionMessage({ tone: "success", text: summarizeReeLqResult(result) });
+    } catch (error) {
+      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo completar la descarga REE/eSIOS." });
+    } finally {
+      setReeLqBusy(null);
+    }
+  }
+
   return (
     <section className="ree-download-center">
       <div className="ops-hero">
@@ -390,6 +414,42 @@ export function ReeDownloadCenterModule({
           ))}
         </div>
       )}
+
+      <div className="ree-lq-download-panel">
+        <div>
+          <span className="ops-eyebrow">REE/eSIOS ServicioLQ</span>
+          <strong>Descarga automatica</strong>
+          <small>Usa la fecha de publicacion del repositorio y reutiliza los parsers actuales. La carga manual queda disponible como respaldo.</small>
+        </div>
+        <label>
+          Fecha publicacion
+          <input type="date" value={reeLqDate} onChange={(event) => setReeLqDate(event.target.value)} />
+        </label>
+        <label>
+          Sujeto
+          <input value={reeLqOwner} onChange={(event) => setReeLqOwner(event.target.value.toUpperCase())} />
+        </label>
+        <button disabled={disabled || Boolean(reeLqBusy)} onClick={() => void runReeLqDownload("liquicomun")} type="button">
+          <Download size={16} />
+          {reeLqBusy === "liquicomun" ? "Descargando" : "REE/eSIOS Liquicomun"}
+        </button>
+        <button disabled={disabled || Boolean(reeLqBusy)} onClick={() => void runReeLqDownload("liqui-empresa")} type="button">
+          <Download size={16} />
+          {reeLqBusy === "liqui-empresa" ? "Descargando" : "REE/eSIOS Liqui empresa"}
+        </button>
+        {reeLqResult && (
+          <div className="ree-lq-result">
+            <span>{reeLqResult.selectedMessage.messageId}.{reeLqResult.selectedMessage.version ?? "-"}</span>
+            <small>
+              {reeLqResult.selectedFiles.filter((file) => file.status === "IMPORTED").length} importables / {reeLqResult.selectedFiles.length} seleccionados
+              {" · "}
+              publicacion {formatDateTime(reeLqResult.selectedMessage.messageDate)}
+              {" · "}
+              aplicacion {formatDate(reeLqResult.selectedMessage.applicationDate)}
+            </small>
+          </div>
+        )}
+      </div>
 
       <div className="ree-command-summary">
         <div className="ree-summary-group">
@@ -652,7 +712,17 @@ function fileObservation(file: ReeFile | MedperFile | ReeSeieFile | ReeLossesImp
   if (file.invalidRecords > 0 || file.duplicatedRecords > 0) {
     return `${formatNumber(file.invalidRecords)} invalidos / ${formatNumber(file.duplicatedRecords)} duplicados`;
   }
+  if (file.containerFileName?.startsWith("REE_ESIOS_")) {
+    return `Origen REE/eSIOS: ${file.containerFileName.replace(/^REE_ESIOS_/, "")}`;
+  }
   return file.containerFileName ? `Origen: ${file.containerFileName}` : "Carga importada";
+}
+
+function summarizeReeLqResult(result: ReeLqDownloadResult) {
+  const imported = result.selectedFiles.filter((file) => file.status === "IMPORTED").length;
+  const skipped = result.selectedFiles.filter((file) => file.status === "SKIPPED").length;
+  const family = result.family === "liquicomun" ? "Liquicomun" : "Liqui empresa";
+  return `${family} REE/eSIOS ${result.selectedMessage.messageId}.${result.selectedMessage.version ?? "-"}: ${imported} fichero(s) importados, ${skipped} omitidos.`;
 }
 
 function buildGlobalKpis(rows: UnifiedRow[]) {
