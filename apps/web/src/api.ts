@@ -222,6 +222,24 @@ export type ReeLqDownloadResult = {
   importResponse: unknown;
 };
 
+export type ReeLqSyncRangeResult = {
+  source: "REE_ESIOS";
+  service: "ServicioLQ";
+  from: string;
+  to: string;
+  count: number;
+  results: Array<
+    | ReeLqDownloadResult
+    | {
+        source: "REE_ESIOS";
+        service: "ServicioLQ";
+        requestedPublicationDate: string;
+        status: "FAILED" | "SKIPPED";
+        errorMessage: string;
+      }
+  >;
+};
+
 export type ImportHistoryKind = "reganecu" | "medper";
 export type ImportHistoryIssue = {
   sourceFileName: string;
@@ -3224,6 +3242,14 @@ export async function downloadReeLqLiquicomun(date: string): Promise<ReeLqDownlo
 
 export async function downloadReeLqLiquiEmpresa(date: string, owner = "STROM"): Promise<ReeLqDownloadResult> {
   return sendJson(`/ree-esios-private/lq/liqui-empresa/download${toQuery({ date, owner })}`, "POST", "Descargando liquidacion empresa REE/eSIOS", REQUEST_TIMEOUT_MS * 6);
+}
+
+export async function syncReeLqLiquicomunRange(from: string, to: string): Promise<ReeLqSyncRangeResult> {
+  return sendJson(`/ree-esios-private/lq/liquicomun/sync-range`, "POST", "Sincronizando liquicomun REE/eSIOS", REQUEST_TIMEOUT_MS * 30, { from, to });
+}
+
+export async function syncReeLqLiquiEmpresaRange(from: string, to: string, owner = "STROM"): Promise<ReeLqSyncRangeResult> {
+  return sendJson(`/ree-esios-private/lq/liqui-empresa/sync-range`, "POST", "Sincronizando liquidacion empresa REE/eSIOS", REQUEST_TIMEOUT_MS * 30, { from, to, owner });
 }
 
 export async function login(username: string, password: string): Promise<AuthSession> {

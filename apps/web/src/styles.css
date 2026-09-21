@@ -732,7 +732,7 @@ body {
 
 .ree-download-center .ree-lq-download-panel {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) 170px 120px auto auto;
+  grid-template-columns: minmax(260px, 1fr) 150px 150px 120px auto auto;
   gap: 10px;
   align-items: end;
   padding: 14px;
@@ -793,6 +793,11 @@ body {
   grid-column: 1 / -1;
   padding-top: 8px;
   border-top: 1px solid var(--color-border-soft);
+}
+
+.ree-download-center .ree-lq-result-list {
+  display: grid;
+  gap: 2px;
 }
 
 .ree-download-center .ops-filter-bar {

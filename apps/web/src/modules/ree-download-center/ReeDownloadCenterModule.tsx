@@ -14,19 +14,19 @@ import {
 } from "lucide-react";
 import {
   deleteImportFile,
-  downloadReeLqLiquicomun,
-  downloadReeLqLiquiEmpresa,
   getImportFileDetail,
   getImportFileErrorsCsv,
   getImportFileLogs,
   reprocessImportFile,
+  syncReeLqLiquicomunRange,
+  syncReeLqLiquiEmpresaRange,
   type ImportHistoryDetail,
   type ImportHistoryLogs,
   type MedperFile,
   type MedperMonthlyConsumptionRow,
   type ReeFile,
   type ReeDownloadCenterSummaryRow,
-  type ReeLqDownloadResult,
+  type ReeLqSyncRangeResult,
   type ReeLossesImportFile,
   type ReeSeieFile
 } from "../../api";
@@ -73,6 +73,7 @@ type ActionModal = {
   title: string;
   content: ReactNode;
 };
+type ReeLqProcessedResult = Extract<ReeLqSyncRangeResult["results"][number], { family: "liquicomun" | "liqui-empresa" }>;
 
 type ReeDownloadCenterProps = {
   reganecuFiles: ReeFile[];
@@ -140,10 +141,11 @@ export function ReeDownloadCenterModule({
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<{ tone: "success" | "error" | "info"; text: string }>();
   const [actionModal, setActionModal] = useState<ActionModal>();
-  const [reeLqDate, setReeLqDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reeLqFrom, setReeLqFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reeLqTo, setReeLqTo] = useState(() => new Date().toISOString().slice(0, 10));
   const [reeLqOwner, setReeLqOwner] = useState("STROM");
   const [reeLqBusy, setReeLqBusy] = useState<"liquicomun" | "liqui-empresa" | null>(null);
-  const [reeLqResult, setReeLqResult] = useState<ReeLqDownloadResult>();
+  const [reeLqResult, setReeLqResult] = useState<ReeLqSyncRangeResult>();
 
   const rows = useMemo(
     () => buildUnifiedRows(reganecuFiles, seieFiles, medperFiles, medperMonthlyConsumption, reeLossesImports),
@@ -315,18 +317,18 @@ export function ReeDownloadCenterModule({
     });
   }
 
-  async function runReeLqDownload(family: "liquicomun" | "liqui-empresa") {
+  async function runReeLqSync(family: "liquicomun" | "liqui-empresa") {
     setReeLqBusy(family);
     setActionMessage(undefined);
     try {
       const result = family === "liquicomun"
-        ? await downloadReeLqLiquicomun(reeLqDate)
-        : await downloadReeLqLiquiEmpresa(reeLqDate, reeLqOwner);
+        ? await syncReeLqLiquicomunRange(reeLqFrom, reeLqTo)
+        : await syncReeLqLiquiEmpresaRange(reeLqFrom, reeLqTo, reeLqOwner);
       setReeLqResult(result);
       await onRefresh();
-      setActionMessage({ tone: "success", text: summarizeReeLqResult(result) });
+      setActionMessage({ tone: "success", text: summarizeReeLqSyncResult(result) });
     } catch (error) {
-      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo completar la descarga REE/eSIOS." });
+      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo completar la sincronizacion REE/eSIOS." });
     } finally {
       setReeLqBusy(null);
     }
@@ -418,35 +420,40 @@ export function ReeDownloadCenterModule({
       <div className="ree-lq-download-panel">
         <div>
           <span className="ops-eyebrow">REE/eSIOS ServicioLQ</span>
-          <strong>Descarga automatica</strong>
-          <small>Usa la fecha de publicacion del repositorio y reutiliza los parsers actuales. La carga manual queda disponible como respaldo.</small>
+          <strong>Sincronizacion por publicaciones</strong>
+          <small>Barre publicaciones REE y actualiza todos los meses/versiones publicados en el rango. Empresa procesa C1-C5; K REE procesa A1 y C1-C5.</small>
         </div>
         <label>
-          Fecha publicacion
-          <input type="date" value={reeLqDate} onChange={(event) => setReeLqDate(event.target.value)} />
+          Publicacion desde
+          <input type="date" value={reeLqFrom} onChange={(event) => setReeLqFrom(event.target.value)} />
+        </label>
+        <label>
+          Publicacion hasta
+          <input type="date" value={reeLqTo} onChange={(event) => setReeLqTo(event.target.value)} />
         </label>
         <label>
           Sujeto
           <input value={reeLqOwner} onChange={(event) => setReeLqOwner(event.target.value.toUpperCase())} />
         </label>
-        <button disabled={disabled || Boolean(reeLqBusy)} onClick={() => void runReeLqDownload("liquicomun")} type="button">
+        <button disabled={disabled || Boolean(reeLqBusy)} onClick={() => void runReeLqSync("liquicomun")} type="button">
           <Download size={16} />
-          {reeLqBusy === "liquicomun" ? "Descargando" : "REE/eSIOS Liquicomun"}
+          {reeLqBusy === "liquicomun" ? "Sincronizando" : "Sincronizar K REE"}
         </button>
-        <button disabled={disabled || Boolean(reeLqBusy)} onClick={() => void runReeLqDownload("liqui-empresa")} type="button">
+        <button disabled={disabled || Boolean(reeLqBusy)} onClick={() => void runReeLqSync("liqui-empresa")} type="button">
           <Download size={16} />
-          {reeLqBusy === "liqui-empresa" ? "Descargando" : "REE/eSIOS Liqui empresa"}
+          {reeLqBusy === "liqui-empresa" ? "Sincronizando" : "Sincronizar liquidacion empresa"}
         </button>
         {reeLqResult && (
           <div className="ree-lq-result">
-            <span>{reeLqResult.selectedMessage.messageId}.{reeLqResult.selectedMessage.version ?? "-"}</span>
-            <small>
-              {reeLqResult.selectedFiles.filter((file) => file.status === "IMPORTED").length} importables / {reeLqResult.selectedFiles.length} seleccionados
-              {" · "}
-              publicacion {formatDateTime(reeLqResult.selectedMessage.messageDate)}
-              {" · "}
-              aplicacion {formatDate(reeLqResult.selectedMessage.applicationDate)}
-            </small>
+            <span>{summarizeReeLqSyncResult(reeLqResult)}</span>
+            <div className="ree-lq-result-list">
+              {reeLqProcessedResults(reeLqResult).slice(0, 8).map((result) => (
+                <small key={`${result.selectedMessage.code}-${result.selectedMessage.messageId}`}>
+                  {result.requestedPublicationDate} · {result.selectedMessage.messageId} · {result.selectedMessage.code} · {result.selectedFiles.length} ficheros
+                </small>
+              ))}
+              {reeLqProcessedResults(reeLqResult).length > 8 && <small>{reeLqProcessedResults(reeLqResult).length - 8} publicaciones mas.</small>}
+            </div>
           </div>
         )}
       </div>
@@ -718,11 +725,15 @@ function fileObservation(file: ReeFile | MedperFile | ReeSeieFile | ReeLossesImp
   return file.containerFileName ? `Origen: ${file.containerFileName}` : "Carga importada";
 }
 
-function summarizeReeLqResult(result: ReeLqDownloadResult) {
-  const imported = result.selectedFiles.filter((file) => file.status === "IMPORTED").length;
-  const skipped = result.selectedFiles.filter((file) => file.status === "SKIPPED").length;
-  const family = result.family === "liquicomun" ? "Liquicomun" : "Liqui empresa";
-  return `${family} REE/eSIOS ${result.selectedMessage.messageId}.${result.selectedMessage.version ?? "-"}: ${imported} fichero(s) importados, ${skipped} omitidos.`;
+function reeLqProcessedResults(result: ReeLqSyncRangeResult): ReeLqProcessedResult[] {
+  return result.results.filter((item): item is ReeLqProcessedResult => "family" in item);
+}
+
+function summarizeReeLqSyncResult(result: ReeLqSyncRangeResult) {
+  const processed = reeLqProcessedResults(result);
+  const imported = processed.reduce((sum, item) => sum + item.selectedFiles.filter((file) => file.status === "IMPORTED").length, 0);
+  const skipped = processed.reduce((sum, item) => sum + item.selectedFiles.filter((file) => file.status === "SKIPPED").length, 0);
+  return `REE/eSIOS ${formatDate(result.from)} - ${formatDate(result.to)}: ${processed.length} publicacion(es), ${imported} fichero(s) importados, ${skipped} omitidos.`;
 }
 
 function buildGlobalKpis(rows: UnifiedRow[]) {
