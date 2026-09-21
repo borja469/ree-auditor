@@ -800,6 +800,404 @@ body {
   gap: 2px;
 }
 
+.ree-download-center .ree-lq-matrix-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.ree-download-center .ree-lq-matrix-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ree-download-center .ree-lq-matrix-head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ree-download-center .ree-lq-matrix-head small,
+.ree-download-center .ree-lq-matrix-empty {
+  color: var(--color-muted);
+  font-size: .78rem;
+  font-weight: 760;
+}
+
+.ree-download-center .ree-lq-matrix-head button,
+.ree-download-center .ree-lq-matrix-cell button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 7px 10px;
+  color: #fff;
+  font-weight: 800;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary-strong);
+  border-radius: var(--radius-sm);
+}
+
+.ree-download-center .ree-lq-matrix-head button:disabled,
+.ree-download-center .ree-lq-matrix-cell button:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+
+.ree-download-center .ree-lq-matrix-scroll {
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.ree-download-center .ree-lq-matrix-grid {
+  display: grid;
+  gap: 6px;
+  min-width: 1040px;
+}
+
+.ree-download-center .ree-lq-matrix-header,
+.ree-download-center .ree-lq-matrix-month {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  padding: 7px 9px;
+  color: var(--color-muted);
+  font-size: .78rem;
+  font-weight: 900;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.ree-download-center .ree-lq-matrix-month {
+  color: var(--color-text);
+  background: #ffffff;
+}
+
+.ree-download-center .ree-lq-matrix-cell {
+  display: grid;
+  gap: 7px;
+  min-height: 154px;
+  padding: 9px;
+  background: #ffffff;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.ree-download-center .ree-lq-matrix-cell.available {
+  border-color: rgba(15, 118, 110, .32);
+}
+
+.ree-download-center .ree-lq-matrix-cell.empty {
+  background: var(--color-surface-soft);
+}
+
+.ree-download-center .ree-lq-matrix-cell-title,
+.ree-download-center .ree-lq-matrix-file {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 7px;
+}
+
+.ree-download-center .ree-lq-matrix-cell-title span {
+  color: var(--color-muted);
+  font-size: .72rem;
+  font-weight: 850;
+}
+
+.ree-download-center .ree-lq-matrix-file {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) 58px;
+  padding: 5px 6px;
+  background: var(--color-surface-soft);
+  border-radius: var(--radius-sm);
+}
+
+.ree-download-center .ree-lq-matrix-file b,
+.ree-download-center .ree-lq-matrix-file small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ree-download-center .ree-lq-matrix-file b {
+  font-size: .72rem;
+}
+
+.ree-download-center .ree-lq-matrix-file small {
+  color: var(--color-muted);
+  font-size: .7rem;
+  font-weight: 760;
+}
+
+.ree-download-center .ree-lq-matrix-file.missing {
+  opacity: .62;
+}
+
+.ree-zip-files {
+  display: grid;
+  gap: 10px;
+}
+
+.ree-zip-command-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.ree-zip-command-panel > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ree-zip-command-panel strong {
+  color: var(--color-text);
+}
+
+.ree-zip-command-panel span:last-child {
+  color: var(--color-muted);
+  font-size: .82rem;
+  font-weight: 760;
+}
+
+.ree-zip-toolbar {
+  display: grid;
+  grid-template-columns: 170px 170px 150px;
+  gap: 10px;
+  align-items: end;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.ree-zip-toolbar label {
+  display: grid;
+  gap: 5px;
+  color: var(--color-muted);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.ree-zip-toolbar input {
+  min-height: 36px;
+  min-width: 0;
+  padding: 7px 9px;
+  color: var(--color-text);
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.ree-zip-matrix-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.ree-zip-empty {
+  color: var(--color-muted);
+  font-size: .82rem;
+  font-weight: 760;
+}
+
+.ree-zip-matrix-scroll {
+  max-height: calc(100vh - 230px);
+  overflow: auto;
+  padding-bottom: 2px;
+}
+
+.ree-zip-matrix-grid {
+  display: grid;
+  gap: 4px;
+  min-width: 1030px;
+}
+
+.ree-zip-matrix-header,
+.ree-zip-matrix-month {
+  display: flex;
+  min-height: 30px;
+  align-items: center;
+  padding: 5px 8px;
+  color: var(--color-muted);
+  font-size: .76rem;
+  font-weight: 900;
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.ree-zip-matrix-header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  justify-content: center;
+}
+
+.ree-zip-matrix-header:first-child {
+  left: 0;
+  z-index: 6;
+}
+
+.ree-zip-matrix-month {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  justify-content: center;
+  color: var(--color-text);
+  background: #ffffff;
+  font-variant-numeric: tabular-nums;
+}
+
+.ree-zip-matrix-cell {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-height: 102px;
+  padding: 6px;
+  background: #ffffff;
+  border: 1px solid var(--color-border-soft);
+  border-radius: var(--radius-sm);
+}
+
+.ree-zip-matrix-cell.available {
+  border-color: rgba(15, 118, 110, .32);
+}
+
+.ree-zip-matrix-cell.empty {
+  background: var(--color-surface-soft);
+}
+
+.ree-zip-matrix-cell-status-row {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  min-height: 18px;
+}
+
+.ree-zip-matrix-status {
+  display: inline-flex;
+  min-height: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 6px;
+  color: var(--color-muted);
+  font-size: .66rem;
+  font-weight: 900;
+  line-height: 1;
+  background: #f1f5f9;
+  border: 1px solid #dbe4ec;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.ree-zip-matrix-status.complete {
+  color: var(--color-success);
+  background: #f1fbf4;
+  border-color: #cfe8d7;
+}
+
+.ree-zip-matrix-status.partial {
+  color: var(--color-warning);
+  background: #fffaf0;
+  border-color: #f3dfb8;
+}
+
+.ree-zip-matrix-status.empty {
+  color: #6b7c89;
+  background: #f4f7fa;
+  border-color: #dfe7ee;
+}
+
+.ree-zip-matrix-files {
+  display: grid;
+  gap: 3px;
+}
+
+.ree-zip-matrix-file {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 20px;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 5px;
+  background: var(--color-surface-soft);
+  border-radius: var(--radius-sm);
+}
+
+.ree-zip-matrix-file b,
+.ree-zip-matrix-file small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ree-zip-matrix-file b {
+  font-size: .7rem;
+}
+
+.ree-zip-matrix-file small {
+  color: var(--color-muted);
+  font-size: .7rem;
+  font-weight: 760;
+  font-variant-numeric: tabular-nums;
+}
+
+.ree-zip-matrix-file.missing {
+  opacity: .62;
+}
+
+.ree-zip-matrix-cell button {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 1px;
+  padding: 4px 8px;
+  color: #fff;
+  font-size: .72rem;
+  font-weight: 800;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary-strong);
+  border-radius: var(--radius-sm);
+}
+
+.ree-zip-matrix-cell button:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+
+.ree-zip-notice.status-message {
+  min-height: 0;
+  margin: 0;
+  padding: 6px 10px;
+  font-size: .78rem;
+  font-weight: 800;
+  border-radius: var(--radius-sm);
+}
+
 .ree-download-center .ree-lq-automation-panel {
   display: grid;
   gap: 10px;

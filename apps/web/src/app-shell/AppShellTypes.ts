@@ -1,5 +1,6 @@
 export type Section =
   | "reeDownloads"
+  | "reeZipFiles"
   | "reganecu"
   | "reeSeie"
   | "medidas"

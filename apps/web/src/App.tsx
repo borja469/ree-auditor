@@ -80,6 +80,7 @@ import { MedperFilterBand, MedperViewPanel } from "./modules/medper/MedperModule
 import { HistoryView } from "./modules/import-history/ImportHistoryModule";
 import { isLikelyMedperFileName, loadAllMedperRows, loadMedperRecordPage, sanitizeMedperFiltersForView } from "./modules/medper/MedperHelpers";
 import { ReeDownloadCenterModule } from "./modules/ree-download-center/ReeDownloadCenterModule";
+import { ReeZipFilesModule } from "./modules/ree-zip-files/ReeZipFilesModule";
 import type {
   ImportHistoryFile,
   ImportHistoryMode,
@@ -1715,6 +1716,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   const workspaceTitle =
     section === "reeDownloads"
       ? "Centro de cargas"
+      : section === "reeZipFiles"
+        ? "Ficheros ZIP"
       : section === "reganecu"
         ? "Auditoria de liquidaciones REGANECU"
       : section === "reeSeie"
@@ -1864,8 +1867,15 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     {
       key: "ree",
       title: "Liquidaciones REE",
-      active: section === "reeDownloads" || section === "reganecu" || section === "reeSeie" || section === "medidas" || section === "reeLosses",
+      active: section === "reeDownloads" || section === "reeZipFiles" || section === "reganecu" || section === "reeSeie" || section === "medidas" || section === "reeLosses",
       items: [
+        {
+          key: "ree-zip-files",
+          label: "Ficheros ZIP",
+          description: "matriz de descargas REE",
+          active: section === "reeZipFiles",
+          onSelect: () => changeSection("reeZipFiles")
+        },
         {
           key: "ree-download-center",
           label: "Centro de cargas",
@@ -2645,6 +2655,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
               onRefresh={refreshReeDownloadCenter}
             />
           )}
+
+          {section === "reeZipFiles" && <ReeZipFilesModule disabled={isBusy} />}
 
           {section === "reganecu" && reganecuView === "history" && (
             <HistoryView files={imports} latestImport={latestImport} onRefresh={() => refreshReganecu("history", filters)} />

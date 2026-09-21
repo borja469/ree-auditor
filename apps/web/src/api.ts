@@ -240,6 +240,37 @@ export type ReeLqSyncRangeResult = {
   >;
 };
 
+export type ReeLqSettlement = "A1" | "C1" | "C2" | "C3" | "C4" | "C5";
+export type ReeLqMessageSummary = {
+  code: string;
+  messageId: string;
+  messageType: string | null;
+  owner: string | null;
+  publicationDate: string | null;
+  messageDate: string | null;
+  fileVersion: number;
+};
+export type ReeLqMonthlyMatrixCell = {
+  month: string;
+  settlement: ReeLqSettlement;
+  liquicomun: ReeLqMessageSummary | null;
+  liquiEmpresa: ReeLqMessageSummary | null;
+};
+export type ReeLqMonthlyMatrixResponse = {
+  source: "REE_ESIOS";
+  service: "ServicioLQ";
+  from: string;
+  to: string;
+  owner: string;
+  months: string[];
+  settlements: ReeLqSettlement[];
+  cells: ReeLqMonthlyMatrixCell[];
+};
+export type ReeLqMonthlyPairDownloadBlob = {
+  blob: Blob;
+  fileName: string;
+};
+
 export type ReeLqAutomationConfig = {
   active: boolean;
   scheduleTime: string;
@@ -3301,6 +3332,96 @@ export async function syncReeLqLiquiEmpresaRange(from: string, to: string, owner
   return sendJson(`/ree-esios-private/lq/liqui-empresa/sync-range`, "POST", "Sincronizando liquidacion empresa REE/eSIOS", REQUEST_TIMEOUT_MS * 30, { from, to, owner });
 }
 
+export async function getReeLqMonthlyMatrix(from: string, to: string, owner = "STROM"): Promise<ReeLqMonthlyMatrixResponse> {
+  return getJson(`/ree-esios-private/lq/monthly-matrix${toQuery({ from, to, owner })}`);
+}
+
+export async function getReeLqZipCatalog(monthsBack = 15, owner = "STROM"): Promise<ReeLqMonthlyMatrixResponse> {
+  return getJson(`/ree-esios-private/lq/zip-catalog${toQuery({ monthsBack, owner })}`);
+}
+
+export async function downloadReeLqMonthlyPair(input: {
+  from: string;
+  to: string;
+  month: string;
+  settlement: ReeLqSettlement;
+  owner?: string;
+  liquicomun?: boolean;
+  liquiEmpresa?: boolean;
+}): Promise<ReeLqMonthlyPairDownloadBlob> {
+  return withGlobalLoading(async () => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS * 30);
+    try {
+      const response = await fetch(`${API_URL}/ree-esios-private/lq/monthly-pair/download`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          ...authHeaders(),
+          "X-User": getAuditUser(),
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      });
+      if (!response.ok) {
+        handleUnauthorized(response);
+        throw new Error(await readError(response, "Error descargando liquidaciones REE/eSIOS."));
+      }
+      return {
+        blob: await response.blob(),
+        fileName: filenameFromDisposition(response.headers.get("Content-Disposition")) ?? `REE_ESIOS_LQ_${input.settlement}_${input.month.replace("-", "")}_${input.owner ?? "STROM"}.zip`
+      };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error("Tiempo de espera agotado descargando liquidaciones REE/eSIOS.");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, { label: "Descargando liquidaciones REE/eSIOS" });
+}
+
+export async function downloadReeLqZipCatalogPair(input: {
+  month: string;
+  settlement: ReeLqSettlement;
+  owner?: string;
+  liquicomun?: boolean;
+  liquiEmpresa?: boolean;
+}): Promise<ReeLqMonthlyPairDownloadBlob> {
+  return withGlobalLoading(async () => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS * 4);
+    try {
+      const response = await fetch(`${API_URL}/ree-esios-private/lq/zip-catalog/download`, {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          ...authHeaders(),
+          "X-User": getAuditUser(),
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(input)
+      });
+      if (!response.ok) {
+        handleUnauthorized(response);
+        throw new Error(await readError(response, "Error descargando ZIP local de liquidaciones REE/eSIOS."));
+      }
+      return {
+        blob: await response.blob(),
+        fileName: filenameFromDisposition(response.headers.get("Content-Disposition")) ?? `REE_ESIOS_LQ_${input.settlement}_${input.month.replace("-", "")}_${input.owner ?? "STROM"}.zip`
+      };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error("Tiempo de espera agotado descargando ZIP local de liquidaciones REE/eSIOS.");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, { label: "Descargando ZIP local REE/eSIOS" });
+}
+
 export async function getReeLqAutomationConfig(): Promise<ReeLqAutomationConfig> {
   return getJson(`/ree-esios-private/lq/automation`);
 }
@@ -4357,6 +4478,17 @@ function toQuery(filters: Record<string, string | number | boolean | Array<strin
 
   const text = params.toString();
   return text ? `?${text}` : "";
+}
+
+function filenameFromDisposition(value: string | null) {
+  if (!value) {
+    return undefined;
+  }
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(value)?.[1];
+  if (encoded) {
+    return decodeURIComponent(encoded);
+  }
+  return /filename="?([^";]+)"?/i.exec(value)?.[1];
 }
 
 async function readError(response: Response, fallback: string) {
