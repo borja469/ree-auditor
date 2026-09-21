@@ -11,6 +11,6 @@ import { ReeLossesService } from "./ree-losses.service";
   imports: [PrismaModule],
   controllers: [ReeLossesController],
   providers: [ReeLossesService, ReeKFactorImporter, ReeLossesRegulatoryEngine, ReeLossesAnalyticsEngine, RegulatedLossesService],
-  exports: [ReeLossesRegulatoryEngine, ReeLossesAnalyticsEngine, RegulatedLossesService]
+  exports: [ReeLossesService, ReeLossesRegulatoryEngine, ReeLossesAnalyticsEngine, RegulatedLossesService]
 })
 export class ReeLossesModule {}

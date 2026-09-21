@@ -16,6 +16,7 @@ import { SettlementsController } from "./settlements.controller";
     MedperController,
     LiquidationAnalysisController
   ],
-  providers: [ImportsService]
+  providers: [ImportsService],
+  exports: [ImportsService]
 })
 export class ImportsModule {}
