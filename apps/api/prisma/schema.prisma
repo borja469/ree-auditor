@@ -1445,6 +1445,33 @@ model ReeEsiosLqAutomationRun {
   @@map("ree_esios_lq_automation_runs")
 }
 
+model ReeEsiosLqZipFile {
+  id              String   @id @default(uuid()) @db.Uuid
+  month           String   @db.VarChar(7)
+  settlement      String   @db.VarChar(2)
+  family          String   @db.VarChar(20)
+  owner           String   @db.VarChar(40)
+  messageId       String   @map("message_id") @db.VarChar(180)
+  code            String   @db.VarChar(40)
+  messageType     String?  @map("message_type") @db.VarChar(80)
+  messageOwner    String?  @map("message_owner") @db.VarChar(80)
+  publicationDate DateTime @map("publication_date") @db.Date
+  messageDate     DateTime? @map("message_date")
+  fileVersion     Int      @default(0) @map("file_version")
+  zipName         String   @map("zip_name") @db.VarChar(240)
+  filePath        String   @map("file_path") @db.Text
+  sha256          String   @db.VarChar(64)
+  bytes           Int
+  downloadedAt    DateTime @default(now()) @map("downloaded_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@unique([month, settlement, family, owner], name: "ree_esios_lq_zip_latest_unique")
+  @@index([month, settlement])
+  @@index([publicationDate])
+  @@map("ree_esios_lq_zip_files")
+}
+
 model EsiosProfileUpload {
   id           String                    @id @default(uuid()) @db.Uuid
   year         Int

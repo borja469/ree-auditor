@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Param, Post, Put, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Put, Query, Res, StreamableFile } from "@nestjs/common";
+import type { Response } from "express";
 import { ReeEsiosPrivateDownloadQueryDto } from "./dto/ree-esios-private-download-query.dto";
 import { ReeEsiosPrivateMessagesQueryDto } from "./dto/ree-esios-private-query.dto";
 import { ReeEsiosPrivateLqAutomationService, type ReeEsiosLqAutomationConfigInput } from "./ree-esios-private-lq-automation.service";
@@ -45,6 +46,69 @@ export class ReeEsiosPrivateController {
   @Get("lq/messages")
   lqMessages(@Query("date") date: string) {
     return this.lqService.listMessages(date);
+  }
+
+  @Get("lq/monthly-matrix")
+  lqMonthlyMatrix(@Query("from") from: string, @Query("to") to: string, @Query("owner") owner?: string) {
+    return this.lqService.monthlyMatrix(from, to, owner);
+  }
+
+  @Post("lq/monthly-pair/download")
+  downloadLqMonthlyPair(@Body() body: {
+    from?: string;
+    to?: string;
+    month?: string;
+    settlement?: string;
+    owner?: string;
+    liquicomun?: boolean;
+    liquiEmpresa?: boolean;
+  }, @Res({ passthrough: true }) response: Response) {
+    return this.lqService.downloadMonthlyPairArchive({
+      from: body.from ?? "",
+      to: body.to ?? "",
+      month: body.month ?? "",
+      settlement: body.settlement ?? "",
+      owner: body.owner,
+      liquicomun: body.liquicomun,
+      liquiEmpresa: body.liquiEmpresa
+    }).then((archive) => {
+      response.setHeader("Content-Type", archive.contentType);
+      response.setHeader("Content-Disposition", `attachment; filename="${archive.fileName}"`);
+      response.setHeader("X-REE-LQ-Metadata", encodeURIComponent(JSON.stringify(archive.metadata)));
+      return new StreamableFile(archive.buffer);
+    });
+  }
+
+  @Get("lq/zip-catalog")
+  lqZipCatalog(@Query("monthsBack") monthsBack?: string, @Query("owner") owner?: string) {
+    return this.lqService.zipCatalogMatrix(Number(monthsBack ?? 15), owner);
+  }
+
+  @Post("lq/zip-catalog/sync")
+  syncLqZipCatalog(@Body() body: { from?: string; to?: string; owner?: string }) {
+    return this.lqService.syncZipCatalogRange(body.from ?? "", body.to ?? "", body.owner);
+  }
+
+  @Post("lq/zip-catalog/download")
+  downloadLqZipCatalog(@Body() body: {
+    month?: string;
+    settlement?: string;
+    owner?: string;
+    liquicomun?: boolean;
+    liquiEmpresa?: boolean;
+  }, @Res({ passthrough: true }) response: Response) {
+    return this.lqService.downloadCatalogMonthlyPairArchive({
+      month: body.month ?? "",
+      settlement: body.settlement ?? "",
+      owner: body.owner,
+      liquicomun: body.liquicomun,
+      liquiEmpresa: body.liquiEmpresa
+    }).then((archive) => {
+      response.setHeader("Content-Type", archive.contentType);
+      response.setHeader("Content-Disposition", `attachment; filename="${archive.fileName}"`);
+      response.setHeader("X-REE-LQ-Metadata", encodeURIComponent(JSON.stringify(archive.metadata)));
+      return new StreamableFile(archive.buffer);
+    });
   }
 
   @Post("lq/liqui-empresa/download")

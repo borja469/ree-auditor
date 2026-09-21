@@ -1,6 +1,8 @@
 import { BadGatewayException, BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import AdmZip from "adm-zip";
 import { createHash } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { ImportsService } from "../imports/imports.service";
 import { parseMedperFileMetadata } from "../imports/parsers/medper.parser";
 import { parseReeFileMetadata } from "../imports/parsers/reganecu.parser";
@@ -13,6 +15,14 @@ import { ReeEsiosPrivateParserService } from "./ree-esios-private-parser.service
 import type { ReeEsiosMessageMetadata } from "./types/ree-esios-private.types";
 
 type DownloadFamily = "liquicomun" | "liqui-empresa";
+type SettlementVersion = "A1" | "C1" | "C2" | "C3" | "C4" | "C5";
+type ParsedLqMessage = {
+  settlement: SettlementVersion;
+  family: DownloadFamily;
+  owner: string | null;
+  month: string;
+  fileVersion: number;
+};
 
 type LqDownloadResult = {
   source: "REE_ESIOS";
@@ -65,6 +75,10 @@ export class ReeEsiosPrivateLqService {
 
   private async processLiquicomunMessage(publicationDate: string, selected: ReeEsiosMessageMetadata): Promise<LqDownloadResult> {
     const downloaded = await this.downloadZip(selected);
+    const parsed = parseLqMessage(selected, "STROM");
+    if (parsed) {
+      await this.storeDownloadedZip({ publicationDate, message: selected, parsed, owner: "STROM", downloaded });
+    }
     const selectedEntries = await this.selectKFactorEntries(downloaded.entries);
     const importableEntries = selectedEntries.filter((entry) => entry.status === "IMPORTED");
     const importResponse = importableEntries.length > 0
@@ -109,6 +123,10 @@ export class ReeEsiosPrivateLqService {
 
   private async processLiquiEmpresaMessage(publicationDate: string, normalizedOwner: string, selected: ReeEsiosMessageMetadata): Promise<LqDownloadResult> {
     const downloaded = await this.downloadZip(selected);
+    const parsed = parseLqMessage(selected, normalizedOwner);
+    if (parsed) {
+      await this.storeDownloadedZip({ publicationDate, message: selected, parsed, owner: normalizedOwner, downloaded });
+    }
     const reganecuEntries = await this.selectReganecuEntries(downloaded.entries);
     const medperEntries = await this.selectMedperEntries(downloaded.entries);
     const seieEntries = await this.selectSeieEntries(downloaded.entries);
@@ -158,6 +176,395 @@ export class ReeEsiosPrivateLqService {
       const candidates = selectMessages(messages, "liquidacion", normalizedOwner);
       return Promise.all(candidates.map((message) => this.processLiquiEmpresaMessage(date, normalizedOwner, message)));
     });
+  }
+
+  async monthlyMatrix(from: string, to: string, owner = "STROM") {
+    validateDate(from, "from");
+    validateDate(to, "to");
+    const normalizedOwner = owner.trim().toUpperCase() || "STROM";
+    const messages = await this.listRangeMessages(from, to);
+    const cells = buildMonthlyMatrix(messages, normalizedOwner);
+    return {
+      source: "REE_ESIOS",
+      service: "ServicioLQ",
+      from,
+      to,
+      owner: normalizedOwner,
+      months: [...new Set(cells.map((cell) => cell.month))].sort((left, right) => right.localeCompare(left)),
+      settlements: ["A1", "C1", "C2", "C3", "C4", "C5"] satisfies SettlementVersion[],
+      cells
+    };
+  }
+
+  async syncZipCatalogRange(from: string, to: string, owner = "STROM") {
+    validateDate(from, "from");
+    validateDate(to, "to");
+    const normalizedOwner = owner.trim().toUpperCase() || "STROM";
+    const messages = await this.listRangeMessages(from, to);
+    const candidates = messages
+      .map((message) => ({ message, parsed: parseLqMessage(message, normalizedOwner) }))
+      .filter((item): item is { message: ReeEsiosMessageMetadata; parsed: ParsedLqMessage } => Boolean(item.parsed));
+    const results = [];
+
+    for (const candidate of candidates.sort((left, right) => compareMonthlyCandidates(left, right))) {
+      const downloaded = await this.downloadZip(candidate.message);
+      results.push(await this.storeDownloadedZip({
+        publicationDate: publicationDateOf(candidate.message),
+        message: candidate.message,
+        parsed: candidate.parsed,
+        owner: normalizedOwner,
+        downloaded
+      }));
+    }
+
+    return {
+      source: "REE_ESIOS",
+      service: "ServicioLQ",
+      storage: "LOCAL",
+      from,
+      to,
+      owner: normalizedOwner,
+      count: results.length,
+      downloaded: results.filter((result) => result.status === "DOWNLOADED").length,
+      updated: results.filter((result) => result.status === "UPDATED").length,
+      skipped: results.filter((result) => result.status === "SKIPPED").length,
+      results
+    };
+  }
+
+  private async storeDownloadedZip(input: {
+    publicationDate: string;
+    message: ReeEsiosMessageMetadata;
+    parsed: ParsedLqMessage;
+    owner: string;
+    downloaded: { reeZipName: string; payload: Buffer; payloadBytes: number; sha256: string };
+  }) {
+    const catalogOwner = catalogOwnerFor(input.parsed, input.owner);
+    const existing = await this.prisma.reeEsiosLqZipFile.findUnique({
+      where: {
+        ree_esios_lq_zip_latest_unique: {
+          month: input.parsed.month,
+          settlement: input.parsed.settlement,
+          family: input.parsed.family,
+          owner: catalogOwner
+        }
+      }
+    });
+
+    if (existing && !isNewerCatalogMessage(existing, input.message, input.parsed.fileVersion)) {
+      return {
+        status: "SKIPPED",
+        reason: "already_latest",
+        month: input.parsed.month,
+        settlement: input.parsed.settlement,
+        family: input.parsed.family,
+        owner: catalogOwner,
+        messageId: input.message.messageId,
+        code: input.message.code
+      };
+    }
+
+    const filePath = await writeCatalogZip({
+      month: input.parsed.month,
+      settlement: input.parsed.settlement,
+      zipName: input.downloaded.reeZipName,
+      payload: input.downloaded.payload
+    });
+
+    const record = await this.prisma.reeEsiosLqZipFile.upsert({
+      where: {
+        ree_esios_lq_zip_latest_unique: {
+          month: input.parsed.month,
+          settlement: input.parsed.settlement,
+          family: input.parsed.family,
+          owner: catalogOwner
+        }
+      },
+      create: {
+        month: input.parsed.month,
+        settlement: input.parsed.settlement,
+        family: input.parsed.family,
+        owner: catalogOwner,
+        messageId: input.message.messageId,
+        code: input.message.code,
+        messageType: input.message.messageType,
+        messageOwner: input.message.owner,
+        publicationDate: new Date(`${input.publicationDate}T00:00:00.000Z`),
+        messageDate: parseOptionalDate(input.message.messageDate),
+        fileVersion: input.parsed.fileVersion,
+        zipName: input.downloaded.reeZipName,
+        filePath,
+        sha256: input.downloaded.sha256,
+        bytes: input.downloaded.payloadBytes,
+        downloadedAt: new Date()
+      },
+      update: {
+        messageId: input.message.messageId,
+        code: input.message.code,
+        messageType: input.message.messageType,
+        messageOwner: input.message.owner,
+        publicationDate: new Date(`${input.publicationDate}T00:00:00.000Z`),
+        messageDate: parseOptionalDate(input.message.messageDate),
+        fileVersion: input.parsed.fileVersion,
+        zipName: input.downloaded.reeZipName,
+        filePath,
+        sha256: input.downloaded.sha256,
+        bytes: input.downloaded.payloadBytes,
+        downloadedAt: new Date()
+      }
+    });
+
+    if (existing?.filePath && existing.filePath !== filePath) {
+      await rm(existing.filePath, { force: true }).catch(() => undefined);
+    }
+
+    return {
+      status: existing ? "UPDATED" : "DOWNLOADED",
+      month: record.month,
+      settlement: record.settlement,
+      family: record.family,
+      owner: record.owner,
+      messageId: record.messageId,
+      code: record.code,
+      zipName: record.zipName,
+      bytes: record.bytes,
+      sha256: record.sha256,
+      publicationDate: formatDateOnly(record.publicationDate),
+      downloadedAt: record.downloadedAt.toISOString()
+    };
+  }
+
+  async zipCatalogMatrix(monthsBack = 15, owner = "STROM") {
+    const normalizedOwner = owner.trim().toUpperCase() || "STROM";
+    const months = buildRollingMonths(Math.max(0, Math.min(60, Math.trunc(monthsBack))));
+    const records = await this.prisma.reeEsiosLqZipFile.findMany({
+      where: {
+        month: { in: months },
+        OR: [
+          { family: "liquicomun", owner: "REE" },
+          { family: "liqui-empresa", owner: normalizedOwner }
+        ]
+      },
+      orderBy: [
+        { month: "desc" },
+        { settlement: "asc" },
+        { family: "asc" }
+      ]
+    });
+    const cells = buildMonthlyMatrixFromCatalog(records);
+    return {
+      source: "REE_ESIOS",
+      service: "ServicioLQ",
+      storage: "LOCAL",
+      from: months.at(-1) ?? "",
+      to: months[0] ?? "",
+      owner: normalizedOwner,
+      months,
+      settlements: ["A1", "C1", "C2", "C3", "C4", "C5"] satisfies SettlementVersion[],
+      cells
+    };
+  }
+
+  async downloadCatalogMonthlyPairArchive(input: {
+    month: string;
+    settlement: string;
+    owner?: string;
+    liquicomun?: boolean;
+    liquiEmpresa?: boolean;
+  }) {
+    validateMonth(input.month);
+    const settlement = normalizeSettlement(input.settlement);
+    const normalizedOwner = input.owner?.trim().toUpperCase() || "STROM";
+    const includeLiquicomun = input.liquicomun !== false;
+    const includeLiquiEmpresa = input.liquiEmpresa !== false;
+    const records = await this.prisma.reeEsiosLqZipFile.findMany({
+      where: {
+        month: input.month,
+        settlement,
+        OR: [
+          ...(includeLiquicomun ? [{ family: "liquicomun", owner: "REE" }] : []),
+          ...(includeLiquiEmpresa ? [{ family: "liqui-empresa", owner: normalizedOwner }] : [])
+        ]
+      }
+    });
+    const archive = new AdmZip();
+    const downloaded = [];
+    const missing = [];
+
+    for (const record of records) {
+      try {
+        archive.addFile(record.zipName, await readFile(record.filePath));
+        downloaded.push({
+          family: record.family,
+          messageId: record.messageId,
+          code: record.code,
+          zipName: record.zipName,
+          payloadBytes: record.bytes,
+          sha256: record.sha256
+        });
+      } catch {
+        missing.push(record.family);
+      }
+    }
+
+    if (includeLiquicomun && !records.some((record) => record.family === "liquicomun")) {
+      missing.push("liquicomun");
+    }
+    if (includeLiquiEmpresa && !records.some((record) => record.family === "liqui-empresa")) {
+      missing.push(`liquidacion_${normalizedOwner}`);
+    }
+    if (downloaded.length === 0) {
+      throw new NotFoundException(`No se encontraron ZIPs locales ${settlement} ${input.month}. Actualiza los ZIPs locales desde Centro de cargas.`);
+    }
+
+    const fileName = `REE_ESIOS_LQ_${settlement}_${input.month.replace("-", "")}_${normalizedOwner}.zip`;
+    return {
+      fileName,
+      contentType: "application/zip",
+      buffer: archive.toBuffer(),
+      metadata: {
+        source: "REE_ESIOS",
+        service: "ServicioLQ",
+        storage: "LOCAL",
+        month: input.month,
+        settlement,
+        owner: normalizedOwner,
+        missing,
+        downloaded
+      }
+    };
+  }
+
+  async downloadMonthlyPair(input: {
+    from: string;
+    to: string;
+    month: string;
+    settlement: string;
+    owner?: string;
+    liquicomun?: boolean;
+    liquiEmpresa?: boolean;
+  }) {
+    validateDate(input.from, "from");
+    validateDate(input.to, "to");
+    validateMonth(input.month);
+    const settlement = normalizeSettlement(input.settlement);
+    const normalizedOwner = input.owner?.trim().toUpperCase() || "STROM";
+    const includeLiquicomun = input.liquicomun !== false;
+    const includeLiquiEmpresa = input.liquiEmpresa !== false;
+    const messages = await this.listRangeMessages(input.from, input.to);
+    const pair = selectMonthlyPair(messages, input.month, settlement, normalizedOwner);
+    const results: LqDownloadResult[] = [];
+    const missing: string[] = [];
+
+    if (includeLiquicomun) {
+      if (pair.liquicomun) {
+        results.push(await this.processLiquicomunMessage(pair.liquicomun.publicationDate, pair.liquicomun.message));
+      } else {
+        missing.push("liquicomun");
+      }
+    }
+    if (includeLiquiEmpresa) {
+      if (pair.liquiEmpresa) {
+        results.push(await this.processLiquiEmpresaMessage(pair.liquiEmpresa.publicationDate, normalizedOwner, pair.liquiEmpresa.message));
+      } else {
+        missing.push(`liquidacion_${normalizedOwner}`);
+      }
+    }
+
+    if (results.length === 0) {
+      throw new NotFoundException(`No se encontraron ficheros ${settlement} ${input.month} publicados entre ${input.from} y ${input.to}.`);
+    }
+
+    return {
+      source: "REE_ESIOS",
+      service: "ServicioLQ",
+      from: input.from,
+      to: input.to,
+      month: input.month,
+      settlement,
+      owner: normalizedOwner,
+      missing,
+      count: results.length,
+      results
+    };
+  }
+
+  async downloadMonthlyPairArchive(input: {
+    from: string;
+    to: string;
+    month: string;
+    settlement: string;
+    owner?: string;
+    liquicomun?: boolean;
+    liquiEmpresa?: boolean;
+  }) {
+    validateDate(input.from, "from");
+    validateDate(input.to, "to");
+    validateMonth(input.month);
+    const settlement = normalizeSettlement(input.settlement);
+    const normalizedOwner = input.owner?.trim().toUpperCase() || "STROM";
+    const includeLiquicomun = input.liquicomun !== false;
+    const includeLiquiEmpresa = input.liquiEmpresa !== false;
+    const messages = await this.listRangeMessages(input.from, input.to);
+    const pair = selectMonthlyPair(messages, input.month, settlement, normalizedOwner);
+    const archive = new AdmZip();
+    const downloaded: Array<{ family: DownloadFamily; messageId: string; code: string; zipName: string; payloadBytes: number; sha256: string }> = [];
+    const missing: string[] = [];
+
+    if (includeLiquicomun) {
+      if (pair.liquicomun) {
+        const file = await this.downloadZip(pair.liquicomun.message);
+        archive.addFile(file.reeZipName, file.payload);
+        downloaded.push({
+          family: "liquicomun",
+          messageId: pair.liquicomun.message.messageId,
+          code: pair.liquicomun.message.code,
+          zipName: file.reeZipName,
+          payloadBytes: file.payloadBytes,
+          sha256: file.sha256
+        });
+      } else {
+        missing.push("liquicomun");
+      }
+    }
+    if (includeLiquiEmpresa) {
+      if (pair.liquiEmpresa) {
+        const file = await this.downloadZip(pair.liquiEmpresa.message);
+        archive.addFile(file.reeZipName, file.payload);
+        downloaded.push({
+          family: "liqui-empresa",
+          messageId: pair.liquiEmpresa.message.messageId,
+          code: pair.liquiEmpresa.message.code,
+          zipName: file.reeZipName,
+          payloadBytes: file.payloadBytes,
+          sha256: file.sha256
+        });
+      } else {
+        missing.push(`liquidacion_${normalizedOwner}`);
+      }
+    }
+
+    if (downloaded.length === 0) {
+      throw new NotFoundException(`No se encontraron ZIPs ${settlement} ${input.month} publicados entre ${input.from} y ${input.to}.`);
+    }
+
+    const fileName = `REE_ESIOS_LQ_${settlement}_${input.month.replace("-", "")}_${normalizedOwner}.zip`;
+    return {
+      fileName,
+      contentType: "application/zip",
+      buffer: archive.toBuffer(),
+      metadata: {
+        source: "REE_ESIOS",
+        service: "ServicioLQ",
+        from: input.from,
+        to: input.to,
+        month: input.month,
+        settlement,
+        owner: normalizedOwner,
+        missing,
+        downloaded
+      }
+    };
   }
 
   async listMessages(publicationDate: string) {
@@ -228,6 +635,25 @@ export class ReeEsiosPrivateLqService {
       endpoint: this.client.lqEndpoint()
     });
     return this.parser.parseMessageList(response.body);
+  }
+
+  private async listRangeMessages(from: string, to: string) {
+    const start = new Date(`${from}T00:00:00.000Z`);
+    const end = new Date(`${to}T00:00:00.000Z`);
+    if (start.getTime() > end.getTime()) {
+      throw new BadRequestException("from no puede ser posterior a to.");
+    }
+    const days = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1;
+    if (days > 500) {
+      throw new BadRequestException("El rango de publicaciones no puede superar 500 dias.");
+    }
+
+    const messages: ReeEsiosMessageMetadata[] = [];
+    for (let cursor = start; cursor.getTime() <= end.getTime(); cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000)) {
+      const publicationDate = cursor.toISOString().slice(0, 10);
+      messages.push(...(await this.listPublicationMessages(publicationDate)));
+    }
+    return messages;
   }
 
   private async downloadZip(message: ReeEsiosMessageMetadata) {
@@ -440,6 +866,233 @@ function buildReeZipName(message: ReeEsiosMessageMetadata) {
 function settlementRank(value: string) {
   const version = /(?:^|_)(A1|C[1-5])(?:_|$)/i.exec(value)?.[1]?.toUpperCase();
   return { A1: 1, C1: 2, C2: 3, C3: 4, C4: 5, C5: 6 }[version as "A1" | "C1" | "C2" | "C3" | "C4" | "C5"] ?? 0;
+}
+
+function buildMonthlyMatrix(messages: ReeEsiosMessageMetadata[], owner: string) {
+  const map = new Map<string, ReturnType<typeof emptyMatrixCell>>();
+  for (const message of messages) {
+    const parsed = parseLqMessage(message, owner);
+    if (!parsed) {
+      continue;
+    }
+    const key = `${parsed.month}-${parsed.settlement}`;
+    const cell = map.get(key) ?? emptyMatrixCell(parsed.month, parsed.settlement);
+    const summary = {
+      code: message.code,
+      messageId: message.messageId,
+      messageType: message.messageType,
+      owner: message.owner,
+      publicationDate: message.messageDate?.slice(0, 10) ?? null,
+      messageDate: message.messageDate,
+      fileVersion: parsed.fileVersion
+    };
+    if (parsed.family === "liquicomun") {
+      cell.liquicomun = pickLatestSummary(cell.liquicomun, summary);
+    } else {
+      cell.liquiEmpresa = pickLatestSummary(cell.liquiEmpresa, summary);
+    }
+    map.set(key, cell);
+  }
+  return [...map.values()].sort((left, right) => right.month.localeCompare(left.month) || settlementRank(left.settlement) - settlementRank(right.settlement));
+}
+
+function emptyMatrixCell(month: string, settlement: SettlementVersion) {
+  return {
+    month,
+    settlement,
+    liquicomun: null as LqMessageSummary | null,
+    liquiEmpresa: null as LqMessageSummary | null
+  };
+}
+
+type LqMessageSummary = {
+  code: string;
+  messageId: string;
+  messageType: string | null;
+  owner: string | null;
+  publicationDate: string | null;
+  messageDate: string | null;
+  fileVersion: number;
+};
+
+function pickLatestSummary(current: LqMessageSummary | null, next: LqMessageSummary) {
+  if (!current) {
+    return next;
+  }
+  const comparison = next.fileVersion - current.fileVersion || (next.messageDate ?? "").localeCompare(current.messageDate ?? "");
+  return comparison > 0 ? next : current;
+}
+
+function selectMonthlyPair(messages: ReeEsiosMessageMetadata[], month: string, settlement: SettlementVersion, owner: string) {
+  const matches = messages
+    .map((message) => ({ message, parsed: parseLqMessage(message, owner) }))
+    .filter((item): item is { message: ReeEsiosMessageMetadata; parsed: NonNullable<ReturnType<typeof parseLqMessage>> } => {
+      if (!item.parsed) {
+        return false;
+      }
+      return item.parsed.month === month && item.parsed.settlement === settlement;
+    });
+  const liquicomun = matches
+    .filter((item) => item.parsed.family === "liquicomun")
+    .sort(compareMonthlyCandidates)
+    .at(0);
+  const liquiEmpresa = matches
+    .filter((item) => item.parsed.family === "liqui-empresa")
+    .sort(compareMonthlyCandidates)
+    .at(0);
+  return {
+    liquicomun: liquicomun ? { publicationDate: publicationDateOf(liquicomun.message), message: liquicomun.message } : null,
+    liquiEmpresa: liquiEmpresa ? { publicationDate: publicationDateOf(liquiEmpresa.message), message: liquiEmpresa.message } : null
+  };
+}
+
+function compareMonthlyCandidates(
+  left: { message: ReeEsiosMessageMetadata; parsed: { fileVersion: number } },
+  right: { message: ReeEsiosMessageMetadata; parsed: { fileVersion: number } }
+) {
+  return right.parsed.fileVersion - left.parsed.fileVersion || (right.message.messageDate ?? "").localeCompare(left.message.messageDate ?? "");
+}
+
+function parseLqMessage(message: ReeEsiosMessageMetadata, owner: string): ParsedLqMessage | null {
+  const id = message.messageId.trim();
+  const pattern = /^(A1|C[1-5])_(liquicomun|liquidacion(?:_([A-Z0-9]+))?)_(\d{6})(?:\.(\d+))?\.zip$/i;
+  const match = pattern.exec(id);
+  if (!match) {
+    return null;
+  }
+  const settlement = match[1].toUpperCase() as SettlementVersion;
+  const rawFamily = match[2].toLowerCase();
+  const messageOwner = match[3]?.toUpperCase() ?? null;
+  const family: DownloadFamily = rawFamily.startsWith("liquicomun") ? "liquicomun" : "liqui-empresa";
+  if (family === "liqui-empresa" && settlement === "A1") {
+    return null;
+  }
+  if (family === "liqui-empresa" && messageOwner !== owner.toUpperCase()) {
+    return null;
+  }
+  return {
+    settlement,
+    family,
+    owner: messageOwner,
+    month: `${match[4].slice(0, 4)}-${match[4].slice(4, 6)}`,
+    fileVersion: Number(match[5] ?? 0)
+  };
+}
+
+function buildMonthlyMatrixFromCatalog(records: Array<{
+  month: string;
+  settlement: string;
+  family: string;
+  code: string;
+  messageId: string;
+  messageType: string | null;
+  messageOwner: string | null;
+  publicationDate: Date;
+  messageDate: Date | null;
+  fileVersion: number;
+}>) {
+  const map = new Map<string, ReturnType<typeof emptyMatrixCell>>();
+  for (const record of records) {
+    const settlement = normalizeSettlement(record.settlement);
+    const key = `${record.month}-${settlement}`;
+    const cell = map.get(key) ?? emptyMatrixCell(record.month, settlement);
+    const summary = {
+      code: record.code,
+      messageId: record.messageId,
+      messageType: record.messageType,
+      owner: record.messageOwner,
+      publicationDate: formatDateOnly(record.publicationDate),
+      messageDate: record.messageDate?.toISOString() ?? null,
+      fileVersion: record.fileVersion
+    };
+    if (record.family === "liquicomun") {
+      cell.liquicomun = pickLatestSummary(cell.liquicomun, summary);
+    } else if (record.family === "liqui-empresa") {
+      cell.liquiEmpresa = pickLatestSummary(cell.liquiEmpresa, summary);
+    }
+    map.set(key, cell);
+  }
+  return [...map.values()].sort((left, right) => right.month.localeCompare(left.month) || settlementRank(left.settlement) - settlementRank(right.settlement));
+}
+
+function catalogOwnerFor(parsed: ParsedLqMessage, owner: string) {
+  return parsed.family === "liquicomun" ? "REE" : owner.toUpperCase();
+}
+
+function isNewerCatalogMessage(
+  current: { fileVersion: number; messageDate: Date | null; messageId: string },
+  message: ReeEsiosMessageMetadata,
+  fileVersion: number
+) {
+  if (fileVersion !== current.fileVersion) {
+    return fileVersion > current.fileVersion;
+  }
+  const nextTime = parseOptionalDate(message.messageDate)?.getTime() ?? 0;
+  const currentTime = current.messageDate?.getTime() ?? 0;
+  if (nextTime !== currentTime) {
+    return nextTime > currentTime;
+  }
+  return message.messageId !== current.messageId;
+}
+
+async function writeCatalogZip(input: { month: string; settlement: SettlementVersion; zipName: string; payload: Buffer }) {
+  const dir = join(lqZipRoot(), input.month, input.settlement);
+  await mkdir(dir, { recursive: true });
+  const filePath = join(dir, safeFileName(input.zipName));
+  await writeFile(filePath, input.payload);
+  return filePath;
+}
+
+function lqZipRoot() {
+  return join(process.env.DATA_DIR ?? join(process.cwd(), "data"), "ree-esios-lq-zips");
+}
+
+function safeFileName(value: string) {
+  return value.replace(/[\\/:*?"<>|]+/g, "_");
+}
+
+function parseOptionalDate(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatDateOnly(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function buildRollingMonths(monthsBack: number) {
+  const now = new Date();
+  const months: string[] = [];
+  for (let offset = 0; offset <= monthsBack; offset += 1) {
+    const date = new Date(Date.UTC(now.getFullYear(), now.getMonth() - offset, 1));
+    months.push(`${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+  return months;
+}
+
+function publicationDateOf(message: ReeEsiosMessageMetadata) {
+  const date = message.messageDate?.slice(0, 10);
+  if (!date) {
+    throw new BadGatewayException(`El mensaje ${message.messageId} no informa fecha de publicacion.`);
+  }
+  return date;
+}
+
+function normalizeSettlement(value: string): SettlementVersion {
+  const normalized = value.trim().toUpperCase();
+  if (!/^(?:A1|C[1-5])$/.test(normalized)) {
+    throw new BadRequestException("settlement debe ser A1 o C1-C5.");
+  }
+  return normalized as SettlementVersion;
+}
+
+function validateMonth(value: string) {
+  if (!/^\d{4}-\d{2}$/.test(value)) {
+    throw new BadRequestException("month debe tener formato YYYY-MM.");
+  }
 }
 
 function parseKCandidate(entry: { name: string; buffer: Buffer }) {
