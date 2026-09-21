@@ -1402,6 +1402,49 @@ model EsiosSeriesAutomationConfig {
   @@map("esios_series_automation_config")
 }
 
+model ReeEsiosLqAutomationConfig {
+  id                Int       @id @default(1)
+  active            Boolean   @default(false)
+  scheduleTime      String    @default("06:30") @map("schedule_time") @db.VarChar(5)
+  daysBack          Int       @default(7) @map("days_back")
+  owner             String    @default("STROM") @db.VarChar(40)
+  syncLiquiEmpresa  Boolean   @default(true) @map("sync_liqui_empresa")
+  syncLiquicomun    Boolean   @default(true) @map("sync_liquicomun")
+  lastRunKey        String?   @map("last_run_key") @db.VarChar(30)
+  lastRunAt         DateTime? @map("last_run_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("ree_esios_lq_automation_config")
+}
+
+model ReeEsiosLqAutomationRun {
+  id                 String    @id @default(uuid()) @db.Uuid
+  trigger            String    @db.VarChar(20)
+  status             String    @db.VarChar(20)
+  startedAt          DateTime  @map("started_at")
+  finishedAt         DateTime? @map("finished_at")
+  executionTimeMs    Int?      @map("execution_time_ms")
+  publicationFrom    DateTime  @map("publication_from") @db.Date
+  publicationTo      DateTime  @map("publication_to") @db.Date
+  daysBack           Int       @map("days_back")
+  owner              String    @db.VarChar(40)
+  syncLiquiEmpresa   Boolean   @map("sync_liqui_empresa")
+  syncLiquicomun     Boolean   @map("sync_liquicomun")
+  totalPublications  Int       @default(0) @map("total_publications")
+  importedFiles      Int       @default(0) @map("imported_files")
+  skippedFiles       Int       @default(0) @map("skipped_files")
+  failedItems        Int       @default(0) @map("failed_items")
+  errorMessage       String?   @map("error_message") @db.Text
+  resultJson         Json?     @map("result_json")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  @@index([startedAt])
+  @@index([status])
+  @@index([publicationFrom, publicationTo])
+  @@map("ree_esios_lq_automation_runs")
+}
+
 model EsiosProfileUpload {
   id           String                    @id @default(uuid()) @db.Uuid
   year         Int

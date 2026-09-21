@@ -800,6 +800,109 @@ body {
   gap: 2px;
 }
 
+.ree-download-center .ree-lq-automation-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.ree-download-center .ree-lq-automation-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ree-download-center .ree-lq-automation-head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ree-download-center .ree-lq-automation-head small,
+.ree-download-center .ree-lq-automation-meta,
+.ree-download-center .ree-lq-automation-runs small {
+  color: var(--color-muted);
+  font-size: .78rem;
+  font-weight: 760;
+}
+
+.ree-download-center .ree-lq-automation-controls {
+  display: grid;
+  grid-template-columns: minmax(94px, 120px) minmax(100px, 130px) minmax(90px, 120px) minmax(112px, 140px) auto auto auto auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.ree-download-center .ree-lq-automation-controls label {
+  display: grid;
+  gap: 5px;
+  color: var(--color-muted);
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.ree-download-center .ree-lq-automation-controls input,
+.ree-download-center .ree-lq-automation-controls select {
+  min-height: 36px;
+  min-width: 0;
+  padding: 7px 9px;
+  color: var(--color-text);
+  background: var(--color-surface-soft);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.ree-download-center .ree-lq-automation-controls .ree-lq-check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  color: var(--color-text);
+}
+
+.ree-download-center .ree-lq-automation-controls .ree-lq-check input {
+  width: 16px;
+  min-height: 16px;
+}
+
+.ree-download-center .ree-lq-automation-controls button {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 11px;
+  color: #fff;
+  font-weight: 800;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary-strong);
+  border-radius: var(--radius-sm);
+}
+
+.ree-download-center .ree-lq-automation-controls button:disabled {
+  cursor: not-allowed;
+  opacity: .6;
+}
+
+.ree-download-center .ree-lq-automation-meta,
+.ree-download-center .ree-lq-automation-runs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  min-width: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border-soft);
+}
+
+.ree-download-center .ree-lq-automation-runs {
+  display: grid;
+  gap: 3px;
+}
+
 .ree-download-center .ops-filter-bar {
   margin-top: 2px;
 }
@@ -841,6 +944,10 @@ body {
   }
 
   .ree-download-center .ree-lq-download-panel {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ree-download-center .ree-lq-automation-controls {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

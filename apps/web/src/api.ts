@@ -240,6 +240,55 @@ export type ReeLqSyncRangeResult = {
   >;
 };
 
+export type ReeLqAutomationConfig = {
+  active: boolean;
+  scheduleTime: string;
+  daysBack: number;
+  owner: string;
+  syncLiquiEmpresa: boolean;
+  syncLiquicomun: boolean;
+  lastRunKey: string | null;
+  lastRunAt: string | null;
+  lastRunAtUtc: string | null;
+};
+
+export type ReeLqAutomationRunResponse = {
+  id: string;
+  trigger: "manual" | "scheduled";
+  status: "SUCCESS" | "ERROR";
+  startedAt: string;
+  finishedAt: string;
+  executionTimeMs: number;
+  publicationFrom: string;
+  publicationTo: string;
+  daysBack: number;
+  owner: string;
+  syncLiquiEmpresa: boolean;
+  syncLiquicomun: boolean;
+  totalPublications: number;
+  importedFiles: number;
+  skippedFiles: number;
+  failedItems: number;
+  errorMessage: string | null;
+  results: Array<{
+    family: "liquicomun" | "liqui-empresa";
+    requestedPublicationDate: string;
+    messageId: string;
+    code: string;
+    messageDate: string | null;
+    totalFiles: number;
+    selectedFiles: number;
+    importedFiles: number;
+    skippedFiles: number;
+    failedFiles: number;
+  }>;
+};
+
+export type ReeLqAutomationRunHistoryRow = Omit<ReeLqAutomationRunResponse, "finishedAt" | "executionTimeMs" | "results"> & {
+  finishedAt: string | null;
+  executionTimeMs: number | null;
+};
+
 export type ImportHistoryKind = "reganecu" | "medper";
 export type ImportHistoryIssue = {
   sourceFileName: string;
@@ -3250,6 +3299,22 @@ export async function syncReeLqLiquicomunRange(from: string, to: string): Promis
 
 export async function syncReeLqLiquiEmpresaRange(from: string, to: string, owner = "STROM"): Promise<ReeLqSyncRangeResult> {
   return sendJson(`/ree-esios-private/lq/liqui-empresa/sync-range`, "POST", "Sincronizando liquidacion empresa REE/eSIOS", REQUEST_TIMEOUT_MS * 30, { from, to, owner });
+}
+
+export async function getReeLqAutomationConfig(): Promise<ReeLqAutomationConfig> {
+  return getJson(`/ree-esios-private/lq/automation`);
+}
+
+export async function saveReeLqAutomationConfig(config: Partial<ReeLqAutomationConfig>): Promise<ReeLqAutomationConfig> {
+  return sendJson(`/ree-esios-private/lq/automation`, "PUT", "Guardando automatismo REE/eSIOS", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function runReeLqAutomationNow(): Promise<ReeLqAutomationRunResponse> {
+  return sendJson(`/ree-esios-private/lq/automation/run`, "POST", "Ejecutando automatismo REE/eSIOS", REQUEST_TIMEOUT_MS * 30, {});
+}
+
+export async function getReeLqAutomationRuns(take = 10): Promise<ReeLqAutomationRunHistoryRow[]> {
+  return getJson(`/ree-esios-private/lq/automation/runs${toQuery({ take })}`);
 }
 
 export async function login(username: string, password: string): Promise<AuthSession> {

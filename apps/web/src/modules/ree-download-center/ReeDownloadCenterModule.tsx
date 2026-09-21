@@ -1,4 +1,4 @@
-import { type DragEvent, type ReactNode, useMemo, useState } from "react";
+import { type DragEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   Clipboard,
@@ -14,10 +14,14 @@ import {
 } from "lucide-react";
 import {
   deleteImportFile,
+  getReeLqAutomationConfig,
+  getReeLqAutomationRuns,
   getImportFileDetail,
   getImportFileErrorsCsv,
   getImportFileLogs,
   reprocessImportFile,
+  runReeLqAutomationNow,
+  saveReeLqAutomationConfig,
   syncReeLqLiquicomunRange,
   syncReeLqLiquiEmpresaRange,
   type ImportHistoryDetail,
@@ -26,6 +30,9 @@ import {
   type MedperMonthlyConsumptionRow,
   type ReeFile,
   type ReeDownloadCenterSummaryRow,
+  type ReeLqAutomationConfig,
+  type ReeLqAutomationRunHistoryRow,
+  type ReeLqAutomationRunResponse,
   type ReeLqSyncRangeResult,
   type ReeLossesImportFile,
   type ReeSeieFile
@@ -107,6 +114,17 @@ const STATUS_LABELS: Record<UnifiedStatus, string> = {
   duplicated: "Duplicado",
   warning: "Advertencia"
 };
+const DEFAULT_REE_LQ_AUTOMATION: ReeLqAutomationConfig = {
+  active: false,
+  scheduleTime: "06:30",
+  daysBack: 7,
+  owner: "STROM",
+  syncLiquiEmpresa: true,
+  syncLiquicomun: true,
+  lastRunKey: null,
+  lastRunAt: null,
+  lastRunAtUtc: null
+};
 
 export function ReeDownloadCenterModule({
   reganecuFiles,
@@ -146,6 +164,9 @@ export function ReeDownloadCenterModule({
   const [reeLqOwner, setReeLqOwner] = useState("STROM");
   const [reeLqBusy, setReeLqBusy] = useState<"liquicomun" | "liqui-empresa" | null>(null);
   const [reeLqResult, setReeLqResult] = useState<ReeLqSyncRangeResult>();
+  const [reeLqAutomation, setReeLqAutomation] = useState<ReeLqAutomationConfig>(DEFAULT_REE_LQ_AUTOMATION);
+  const [reeLqAutomationRuns, setReeLqAutomationRuns] = useState<ReeLqAutomationRunHistoryRow[]>([]);
+  const [reeLqAutomationBusy, setReeLqAutomationBusy] = useState<"load" | "save" | "run" | null>(null);
 
   const rows = useMemo(
     () => buildUnifiedRows(reganecuFiles, seieFiles, medperFiles, medperMonthlyConsumption, reeLossesImports),
@@ -195,6 +216,32 @@ export function ReeDownloadCenterModule({
   const globalKpis = useMemo(() => buildGlobalKpis(rows), [rows]);
   const moduleKpis = useMemo(() => buildModuleKpis(rows), [rows]);
   const coverageRows = useMemo(() => buildMonthlyCoverageRows(coverageSummary), [coverageSummary]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadAutomation() {
+      setReeLqAutomationBusy("load");
+      try {
+        const [config, runs] = await Promise.all([getReeLqAutomationConfig(), getReeLqAutomationRuns(8)]);
+        if (!cancelled) {
+          setReeLqAutomation(config);
+          setReeLqAutomationRuns(runs);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo cargar el automatismo REE/eSIOS." });
+        }
+      } finally {
+        if (!cancelled) {
+          setReeLqAutomationBusy(null);
+        }
+      }
+    }
+    void loadAutomation();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function handleDrop(event: DragEvent<HTMLLabelElement>) {
     event.preventDefault();
@@ -334,6 +381,41 @@ export function ReeDownloadCenterModule({
     }
   }
 
+  function patchReeLqAutomation(patch: Partial<ReeLqAutomationConfig>) {
+    setReeLqAutomation((current) => ({ ...current, ...patch }));
+  }
+
+  async function saveReeLqAutomation() {
+    setReeLqAutomationBusy("save");
+    setActionMessage(undefined);
+    try {
+      const config = await saveReeLqAutomationConfig(reeLqAutomation);
+      setReeLqAutomation(config);
+      setActionMessage({ tone: "success", text: "Automatismo REE/eSIOS guardado." });
+    } catch (error) {
+      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo guardar el automatismo REE/eSIOS." });
+    } finally {
+      setReeLqAutomationBusy(null);
+    }
+  }
+
+  async function runReeLqAutomation() {
+    setReeLqAutomationBusy("run");
+    setActionMessage(undefined);
+    try {
+      const result = await runReeLqAutomationNow();
+      const [config, runs] = await Promise.all([getReeLqAutomationConfig(), getReeLqAutomationRuns(8)]);
+      setReeLqAutomation(config);
+      setReeLqAutomationRuns(runs);
+      await onRefresh();
+      setActionMessage({ tone: result.failedItems > 0 ? "error" : "success", text: summarizeReeLqAutomationRun(result) });
+    } catch (error) {
+      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo ejecutar el automatismo REE/eSIOS." });
+    } finally {
+      setReeLqAutomationBusy(null);
+    }
+  }
+
   return (
     <section className="ree-download-center">
       <div className="ops-hero">
@@ -454,6 +536,98 @@ export function ReeDownloadCenterModule({
               ))}
               {reeLqProcessedResults(reeLqResult).length > 8 && <small>{reeLqProcessedResults(reeLqResult).length - 8} publicaciones mas.</small>}
             </div>
+          </div>
+        )}
+      </div>
+
+      <div className="ree-lq-automation-panel">
+        <div className="ree-lq-automation-head">
+          <div>
+            <span className="ops-eyebrow">Automatismo ServicioLQ</span>
+            <strong>Revision diaria de publicaciones</strong>
+            <small>Comprueba las publicaciones de los ultimos dias y solo importa lo que no exista ya.</small>
+          </div>
+          <span className={`ops-status-badge ${reeLqAutomation.active ? "valid" : "muted"}`}>{reeLqAutomation.active ? "Activo" : "Pausado"}</span>
+        </div>
+        <div className="ree-lq-automation-controls">
+          <label>
+            Estado
+            <select
+              disabled={disabled || reeLqAutomationBusy === "load"}
+              value={reeLqAutomation.active ? "yes" : "no"}
+              onChange={(event) => patchReeLqAutomation({ active: event.target.value === "yes" })}
+            >
+              <option value="yes">Activo</option>
+              <option value="no">Pausado</option>
+            </select>
+          </label>
+          <label>
+            Hora Madrid
+            <input
+              disabled={disabled || reeLqAutomationBusy === "load"}
+              type="time"
+              value={reeLqAutomation.scheduleTime}
+              onChange={(event) => patchReeLqAutomation({ scheduleTime: event.target.value })}
+            />
+          </label>
+          <label>
+            Dias atras
+            <input
+              disabled={disabled || reeLqAutomationBusy === "load"}
+              max={31}
+              min={1}
+              type="number"
+              value={reeLqAutomation.daysBack}
+              onChange={(event) => patchReeLqAutomation({ daysBack: Number(event.target.value) })}
+            />
+          </label>
+          <label>
+            Sujeto
+            <input
+              disabled={disabled || reeLqAutomationBusy === "load"}
+              value={reeLqAutomation.owner}
+              onChange={(event) => patchReeLqAutomation({ owner: event.target.value.toUpperCase() })}
+            />
+          </label>
+          <label className="ree-lq-check">
+            <input
+              checked={reeLqAutomation.syncLiquiEmpresa}
+              disabled={disabled || reeLqAutomationBusy === "load"}
+              type="checkbox"
+              onChange={(event) => patchReeLqAutomation({ syncLiquiEmpresa: event.target.checked })}
+            />
+            Empresa C1-C5
+          </label>
+          <label className="ree-lq-check">
+            <input
+              checked={reeLqAutomation.syncLiquicomun}
+              disabled={disabled || reeLqAutomationBusy === "load"}
+              type="checkbox"
+              onChange={(event) => patchReeLqAutomation({ syncLiquicomun: event.target.checked })}
+            />
+            K REE A1/C1-C5
+          </label>
+          <button disabled={disabled || Boolean(reeLqAutomationBusy)} onClick={() => void saveReeLqAutomation()} type="button">
+            <Clipboard size={16} />
+            {reeLqAutomationBusy === "save" ? "Guardando" : "Guardar"}
+          </button>
+          <button disabled={disabled || Boolean(reeLqAutomationBusy)} onClick={() => void runReeLqAutomation()} type="button">
+            <RefreshCw size={16} />
+            {reeLqAutomationBusy === "run" ? "Ejecutando" : "Ejecutar ahora"}
+          </button>
+        </div>
+        <div className="ree-lq-automation-meta">
+          <span>Ventana actual: ultimos {formatNumber(reeLqAutomation.daysBack)} dias de publicacion.</span>
+          <span>Ultima ejecucion: {reeLqAutomation.lastRunAt ? formatDateTime(reeLqAutomation.lastRunAt) : "-"}</span>
+          <span>Clave: {reeLqAutomation.lastRunKey ?? "-"}</span>
+        </div>
+        {reeLqAutomationRuns.length > 0 && (
+          <div className="ree-lq-automation-runs">
+            {reeLqAutomationRuns.map((run) => (
+              <small key={run.id}>
+                {formatDateTime(run.startedAt)} · {run.trigger === "scheduled" ? "Auto" : "Manual"} · {formatDate(run.publicationFrom)} - {formatDate(run.publicationTo)} · {run.totalPublications} publicaciones · {run.importedFiles} importados · {run.skippedFiles} omitidos · {run.failedItems} errores
+              </small>
+            ))}
           </div>
         )}
       </div>
@@ -734,6 +908,10 @@ function summarizeReeLqSyncResult(result: ReeLqSyncRangeResult) {
   const imported = processed.reduce((sum, item) => sum + item.selectedFiles.filter((file) => file.status === "IMPORTED").length, 0);
   const skipped = processed.reduce((sum, item) => sum + item.selectedFiles.filter((file) => file.status === "SKIPPED").length, 0);
   return `REE/eSIOS ${formatDate(result.from)} - ${formatDate(result.to)}: ${processed.length} publicacion(es), ${imported} fichero(s) importados, ${skipped} omitidos.`;
+}
+
+function summarizeReeLqAutomationRun(result: ReeLqAutomationRunResponse) {
+  return `Automatismo REE/eSIOS ${formatDate(result.publicationFrom)} - ${formatDate(result.publicationTo)}: ${result.totalPublications} publicacion(es), ${result.importedFiles} fichero(s) importados, ${result.skippedFiles} omitidos, ${result.failedItems} errores.`;
 }
 
 function buildGlobalKpis(rows: UnifiedRow[]) {

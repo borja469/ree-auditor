@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Param, Post, Put, Query } from "@nestjs/common";
 import { ReeEsiosPrivateDownloadQueryDto } from "./dto/ree-esios-private-download-query.dto";
 import { ReeEsiosPrivateMessagesQueryDto } from "./dto/ree-esios-private-query.dto";
+import { ReeEsiosPrivateLqAutomationService, type ReeEsiosLqAutomationConfigInput } from "./ree-esios-private-lq-automation.service";
 import { ReeEsiosPrivateLqService } from "./ree-esios-private-lq.service";
 import { ReeEsiosPrivateService } from "./ree-esios-private.service";
 
@@ -8,7 +9,8 @@ import { ReeEsiosPrivateService } from "./ree-esios-private.service";
 export class ReeEsiosPrivateController {
   constructor(
     private readonly service: ReeEsiosPrivateService,
-    private readonly lqService: ReeEsiosPrivateLqService
+    private readonly lqService: ReeEsiosPrivateLqService,
+    private readonly lqAutomationService: ReeEsiosPrivateLqAutomationService
   ) {}
 
   @Get("diagnostics")
@@ -58,5 +60,25 @@ export class ReeEsiosPrivateController {
   @Post("lq/liqui-empresa/sync-range")
   syncLiquiEmpresaRange(@Body() body: { from?: string; to?: string; owner?: string }) {
     return this.lqService.syncLiquiEmpresaRange(body.from ?? "", body.to ?? "", body.owner);
+  }
+
+  @Get("lq/automation")
+  lqAutomation() {
+    return this.lqAutomationService.getAutomationConfig();
+  }
+
+  @Put("lq/automation")
+  saveLqAutomation(@Body() body: ReeEsiosLqAutomationConfigInput) {
+    return this.lqAutomationService.saveAutomationConfig(body);
+  }
+
+  @Post("lq/automation/run")
+  runLqAutomation() {
+    return this.lqAutomationService.runAutomation("manual");
+  }
+
+  @Get("lq/automation/runs")
+  lqAutomationRuns(@Query("take") take?: string) {
+    return this.lqAutomationService.listRuns(Number(take ?? 20));
   }
 }
