@@ -40,6 +40,11 @@ export class ReeEsiosPrivateController {
     return this.lqService.downloadLiquicomun(date);
   }
 
+  @Get("lq/messages")
+  lqMessages(@Query("date") date: string) {
+    return this.lqService.listMessages(date);
+  }
+
   @Post("lq/liqui-empresa/download")
   downloadLiquiEmpresa(@Query("date") date: string, @Query("owner") owner?: string) {
     return this.lqService.downloadLiquiEmpresa(date, owner);

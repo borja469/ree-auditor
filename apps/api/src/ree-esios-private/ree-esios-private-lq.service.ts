@@ -145,6 +145,16 @@ export class ReeEsiosPrivateLqService {
     return this.syncRange(from, to, (date) => this.downloadLiquiEmpresa(date, owner));
   }
 
+  async listMessages(publicationDate: string) {
+    validateDate(publicationDate, "date");
+    return {
+      source: "REE_ESIOS",
+      service: "ServicioLQ",
+      publicationDate,
+      messages: await this.listPublicationMessages(publicationDate)
+    };
+  }
+
   private async syncRange(from: string, to: string, run: (date: string) => Promise<LqDownloadResult>) {
     validateDate(from, "from");
     validateDate(to, "to");
