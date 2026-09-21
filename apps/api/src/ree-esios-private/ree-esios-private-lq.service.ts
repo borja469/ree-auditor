@@ -57,9 +57,13 @@ export class ReeEsiosPrivateLqService {
     const messages = await this.listPublicationMessages(publicationDate);
     const selected = selectBestMessage(messages, "liquicomun");
     if (!selected) {
-      throw new NotFoundException(`No se encontro liquicomun C2+ publicado el ${publicationDate}.`);
+      throw new NotFoundException(`No se encontro liquicomun publicado el ${publicationDate}.`);
     }
 
+    return this.processLiquicomunMessage(publicationDate, selected);
+  }
+
+  private async processLiquicomunMessage(publicationDate: string, selected: ReeEsiosMessageMetadata): Promise<LqDownloadResult> {
     const downloaded = await this.downloadZip(selected);
     const selectedEntries = await this.selectKFactorEntries(downloaded.entries);
     const importableEntries = selectedEntries.filter((entry) => entry.status === "IMPORTED");
@@ -97,9 +101,13 @@ export class ReeEsiosPrivateLqService {
     const messages = await this.listPublicationMessages(publicationDate);
     const selected = selectBestMessage(messages, "liquidacion", normalizedOwner);
     if (!selected) {
-      throw new NotFoundException(`No se encontro liquidacion_${normalizedOwner} C2+ publicada el ${publicationDate}.`);
+      throw new NotFoundException(`No se encontro liquidacion_${normalizedOwner} publicada el ${publicationDate}.`);
     }
 
+    return this.processLiquiEmpresaMessage(publicationDate, normalizedOwner, selected);
+  }
+
+  private async processLiquiEmpresaMessage(publicationDate: string, normalizedOwner: string, selected: ReeEsiosMessageMetadata): Promise<LqDownloadResult> {
     const downloaded = await this.downloadZip(selected);
     const reganecuEntries = await this.selectReganecuEntries(downloaded.entries);
     const medperEntries = await this.selectMedperEntries(downloaded.entries);
@@ -138,11 +146,18 @@ export class ReeEsiosPrivateLqService {
   }
 
   async syncLiquicomunRange(from: string, to: string) {
-    return this.syncRange(from, to, (date) => this.downloadLiquicomun(date));
+    return this.syncRange(from, to, async (date, messages) => {
+      const candidates = selectMessages(messages, "liquicomun");
+      return Promise.all(candidates.map((message) => this.processLiquicomunMessage(date, message)));
+    });
   }
 
   async syncLiquiEmpresaRange(from: string, to: string, owner = "STROM") {
-    return this.syncRange(from, to, (date) => this.downloadLiquiEmpresa(date, owner));
+    const normalizedOwner = owner.trim().toUpperCase() || "STROM";
+    return this.syncRange(from, to, async (date, messages) => {
+      const candidates = selectMessages(messages, "liquidacion", normalizedOwner);
+      return Promise.all(candidates.map((message) => this.processLiquiEmpresaMessage(date, normalizedOwner, message)));
+    });
   }
 
   async listMessages(publicationDate: string) {
@@ -155,7 +170,11 @@ export class ReeEsiosPrivateLqService {
     };
   }
 
-  private async syncRange(from: string, to: string, run: (date: string) => Promise<LqDownloadResult>) {
+  private async syncRange(
+    from: string,
+    to: string,
+    run: (date: string, messages: ReeEsiosMessageMetadata[]) => Promise<LqDownloadResult[]>
+  ) {
     validateDate(from, "from");
     validateDate(to, "to");
     const start = new Date(`${from}T00:00:00.000Z`);
@@ -168,7 +187,19 @@ export class ReeEsiosPrivateLqService {
     for (let cursor = start; cursor.getTime() <= end.getTime(); cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000)) {
       const date = cursor.toISOString().slice(0, 10);
       try {
-        results.push(await run(date));
+        const messages = await this.listPublicationMessages(date);
+        const dayResults = await run(date, messages);
+        if (dayResults.length === 0) {
+          results.push({
+            source: "REE_ESIOS",
+            service: "ServicioLQ",
+            requestedPublicationDate: date,
+            status: "SKIPPED",
+            errorMessage: "No se encontraron publicaciones candidatas."
+          });
+        } else {
+          results.push(...dayResults);
+        }
       } catch (error) {
         results.push({
           source: "REE_ESIOS",
@@ -227,7 +258,7 @@ export class ReeEsiosPrivateLqService {
   }
 
   private async selectKFactorEntries(entries: Array<{ name: string; buffer: Buffer; size: number; hash: string }>) {
-    const candidates = entries.filter((entry) => /^C[2-5]_K(?:estimqh|realqh)_\d{8}_\d{8}$/i.test(entry.name));
+    const candidates = entries.filter((entry) => /^(?:A1|C[1-5])_K(?:estimqh|realqh)_\d{8}_\d{8}$/i.test(entry.name));
     const selected = [];
     for (const entry of candidates) {
       const parsed = parseKCandidate(entry);
@@ -253,7 +284,7 @@ export class ReeEsiosPrivateLqService {
   }
 
   private async selectSeieEntries(entries: Array<{ name: string; buffer: Buffer; size: number; hash: string }>) {
-    const candidates = entries.filter((entry) => /^C[2-5]_SEIErega_\d{8}_/i.test(entry.name));
+    const candidates = entries.filter((entry) => /^C[1-5]_SEIErega_\d{8}_/i.test(entry.name));
     const selected = [];
     for (const entry of candidates) {
       const existing = await this.prisma.reeSeieFile.findUnique({
@@ -270,7 +301,7 @@ export class ReeEsiosPrivateLqService {
   }
 
   private async selectReganecuEntries(entries: Array<{ name: string; buffer: Buffer; size: number; hash: string }>) {
-    const candidates = entries.filter((entry) => /^C[2-5]_?reganecu(?:QH)?_\d{8}_[A-Z0-9]+/i.test(entry.name));
+    const candidates = entries.filter((entry) => /^C[1-5]_?reganecu(?:QH)?_\d{8}_[A-Z0-9]+/i.test(entry.name));
     const selected = [];
     for (const entry of candidates) {
       try {
@@ -302,7 +333,7 @@ export class ReeEsiosPrivateLqService {
   }
 
   private async selectMedperEntries(entries: Array<{ name: string; buffer: Buffer; size: number; hash: string }>) {
-    const candidates = entries.filter((entry) => /^C[2-5].*(?:medperqh|meperqh)/i.test(entry.name) || /(?:medperqh|meperqh).*C[2-5]/i.test(entry.name));
+    const candidates = entries.filter((entry) => /^C[1-5].*(?:medperqh|meperqh)/i.test(entry.name) || /(?:medperqh|meperqh).*C[1-5]/i.test(entry.name));
     const selected = [];
     for (const entry of candidates) {
       try {
@@ -373,16 +404,24 @@ function buildResult(input: {
 }
 
 function selectBestMessage(messages: ReeEsiosMessageMetadata[], kind: "liquicomun" | "liquidacion", owner = "STROM") {
+  return selectMessages(messages, kind, owner).at(0);
+}
+
+function selectMessages(messages: ReeEsiosMessageMetadata[], kind: "liquicomun" | "liquidacion", owner = "STROM") {
   const normalizedOwner = owner.toUpperCase();
   const candidates = messages.filter((message) => {
     const id = message.messageId.toLowerCase();
     const type = message.messageType?.toLowerCase() ?? "";
     const matchesFamily = kind === "liquicomun"
       ? id.includes("_liquicomun_") || type.includes("liquicomun")
-      : id.includes(`_liquidacion_${normalizedOwner.toLowerCase()}_`) || type.includes("liquidacion");
-    return matchesFamily && settlementRank(message.messageId) >= settlementRank("C2");
+      : id.includes(`_liquidacion_${normalizedOwner.toLowerCase()}_`);
+    if (!matchesFamily) {
+      return false;
+    }
+    const rank = settlementRank(message.messageId);
+    return kind === "liquicomun" ? rank >= settlementRank("A1") : rank >= settlementRank("C1");
   });
-  return candidates.sort(compareMessages).at(0);
+  return candidates.sort(compareMessages);
 }
 
 function compareMessages(left: ReeEsiosMessageMetadata, right: ReeEsiosMessageMetadata) {
