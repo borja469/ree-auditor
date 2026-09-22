@@ -334,12 +334,12 @@ export class ReeEsiosPrivateLqService {
     };
   }
 
-  async zipCatalogMatrix(monthsBack = 15, owner = "STROM") {
+  async zipCatalogMatrix(monthsBack = 15, owner = "STROM", allHistory = false) {
     const normalizedOwner = owner.trim().toUpperCase() || "STROM";
-    const months = buildRollingMonths(Math.max(0, Math.min(60, Math.trunc(monthsBack))));
+    const requestedMonths = allHistory ? null : buildRollingMonths(Math.max(0, Math.min(60, Math.trunc(monthsBack))));
     const records = await this.prisma.reeEsiosLqZipFile.findMany({
       where: {
-        month: { in: months },
+        ...(requestedMonths ? { month: { in: requestedMonths } } : {}),
         OR: [
           { family: "liquicomun", owner: "REE" },
           { family: "liqui-empresa", owner: normalizedOwner }
@@ -352,6 +352,7 @@ export class ReeEsiosPrivateLqService {
       ]
     });
     const cells = buildMonthlyMatrixFromCatalog(records);
+    const months = requestedMonths ?? [...new Set(records.map((record) => record.month))].sort((left, right) => right.localeCompare(left));
     return {
       source: "REE_ESIOS",
       service: "ServicioLQ",

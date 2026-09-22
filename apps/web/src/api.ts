@@ -3336,8 +3336,8 @@ export async function getReeLqMonthlyMatrix(from: string, to: string, owner = "S
   return getJson(`/ree-esios-private/lq/monthly-matrix${toQuery({ from, to, owner })}`);
 }
 
-export async function getReeLqZipCatalog(monthsBack = 15, owner = "STROM"): Promise<ReeLqMonthlyMatrixResponse> {
-  return getJson(`/ree-esios-private/lq/zip-catalog${toQuery({ monthsBack, owner })}`);
+export async function getReeLqZipCatalog(monthsBack = 15, owner = "STROM", all = false): Promise<ReeLqMonthlyMatrixResponse> {
+  return getJson(`/ree-esios-private/lq/zip-catalog${toQuery({ monthsBack: all ? undefined : monthsBack, owner, all: all ? true : undefined })}`);
 }
 
 export async function downloadReeLqMonthlyPair(input: {

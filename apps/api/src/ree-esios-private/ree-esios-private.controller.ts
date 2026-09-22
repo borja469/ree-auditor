@@ -80,8 +80,8 @@ export class ReeEsiosPrivateController {
   }
 
   @Get("lq/zip-catalog")
-  lqZipCatalog(@Query("monthsBack") monthsBack?: string, @Query("owner") owner?: string) {
-    return this.lqService.zipCatalogMatrix(Number(monthsBack ?? 15), owner);
+  lqZipCatalog(@Query("monthsBack") monthsBack?: string, @Query("owner") owner?: string, @Query("all") all?: string) {
+    return this.lqService.zipCatalogMatrix(Number(monthsBack ?? 15), owner, all === "true" || all === "1");
   }
 
   @Post("lq/zip-catalog/sync")

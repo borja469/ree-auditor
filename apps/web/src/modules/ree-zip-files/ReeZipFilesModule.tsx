@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Download, RefreshCw } from "lucide-react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { ChevronDown, ChevronRight, Download, RefreshCw } from "lucide-react";
 import {
   downloadReeLqZipCatalogPair,
   getReeLqZipCatalog,
@@ -18,17 +18,18 @@ export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) 
   const [matrix, setMatrix] = useState<ReeLqMonthlyMatrixResponse>();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>();
-  const displayMonths = buildRollingMonths(15);
+  const [openYears, setOpenYears] = useState<Set<string>>(() => new Set([String(new Date().getFullYear())]));
   const visibleMatrix: ReeLqMonthlyMatrixResponse = matrix ?? {
     source: "REE_ESIOS",
     service: "ServicioLQ",
-    from: displayMonths.at(-1) ?? "",
-    to: displayMonths[0] ?? "",
+    from: "",
+    to: "",
     owner: DEFAULT_OWNER,
-    months: displayMonths,
+    months: [],
     settlements: REE_LQ_SETTLEMENTS,
     cells: []
   };
+  const yearGroups = buildYearGroups(visibleMatrix.months);
 
   useEffect(() => {
     void loadMatrix({ silent: true });
@@ -40,10 +41,10 @@ export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) 
       setNotice(undefined);
     }
     try {
-      const response = await getReeLqZipCatalog(15, DEFAULT_OWNER);
+      const response = await getReeLqZipCatalog(15, DEFAULT_OWNER, true);
       setMatrix(response);
       if (!options.silent) {
-        setNotice({ tone: "success", text: `Catalogo local recargado: ${response.cells.length} celda(s) con ZIPs.` });
+        setNotice({ tone: "success", text: `Catalogo local recargado: ${response.cells.length} celda(s) con ZIPs en ${response.months.length} mes(es).` });
       }
     } catch (error) {
       setNotice({ tone: "error", text: error instanceof Error ? error.message : "No se pudo cargar la matriz de ficheros ZIP." });
@@ -77,7 +78,7 @@ export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) 
         <div>
           <span className="ops-eyebrow">Liquidaciones REE</span>
           <strong>Ficheros ZIP</strong>
-          <span>Mes actual y 15 meses atras. Sujeto {DEFAULT_OWNER}. Descarga los ZIPs comun y empresa guardados en el servidor.</span>
+          <span>{`Hist\u00f3rico local por a\u00f1o. Sujeto ${DEFAULT_OWNER}. Descarga los ZIPs com\u00fan y empresa guardados en el servidor.`}</span>
         </div>
         <button className="ops-primary-button" disabled={disabled || Boolean(busyKey)} onClick={() => void loadMatrix()} type="button">
           <RefreshCw size={16} />
@@ -88,26 +89,71 @@ export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) 
       {notice && <div className={`status-message ree-zip-notice ${notice.tone}`}>{notice.text}</div>}
 
       <div className="ree-zip-matrix-panel">
-        {!matrix && <div className="ree-zip-empty">Mostrando meses desde el actual hasta 15 meses atras. Actualiza ZIPs locales desde Centro de cargas para alimentar esta matriz.</div>}
-          <div className="ree-zip-matrix-scroll">
-            <div className="ree-zip-matrix-grid" style={{ gridTemplateColumns: `96px repeat(${REE_LQ_SETTLEMENTS.length}, minmax(156px, 1fr))` }}>
-              <div className="ree-zip-matrix-header">Mes</div>
-              {REE_LQ_SETTLEMENTS.map((settlement) => (
-                <div className="ree-zip-matrix-header" key={settlement}>{settlement}</div>
-              ))}
-              {displayMonths.map((month) => (
-                <MatrixRow
-                  busyKey={busyKey}
-                  disabled={disabled}
-                  key={month}
-                  matrix={visibleMatrix}
-                  month={month}
-                  onDownload={downloadCell}
-                />
-              ))}
-            </div>
-          </div>
+        {!matrix && <div className="ree-zip-empty">{"Mostrando todo el hist\u00f3rico local disponible. Actualiza ZIPs locales desde Centro de cargas para alimentar esta matriz."}</div>}
+        {matrix && yearGroups.length === 0 && <div className="ree-zip-empty">{"No hay ZIPs locales guardados todav\u00eda."}</div>}
+        {yearGroups.map((group) => (
+          <YearMatrix
+            busyKey={busyKey}
+            disabled={disabled}
+            group={group}
+            isOpen={openYears.has(group.year)}
+            key={group.year}
+            matrix={visibleMatrix}
+            onDownload={downloadCell}
+            onToggle={() => toggleYear(group.year, setOpenYears)}
+          />
+        ))}
       </div>
+    </section>
+  );
+}
+
+function YearMatrix({
+  busyKey,
+  disabled,
+  group,
+  isOpen,
+  matrix,
+  onDownload,
+  onToggle
+}: {
+  busyKey: string | null;
+  disabled: boolean;
+  group: YearGroup;
+  isOpen: boolean;
+  matrix: ReeLqMonthlyMatrixResponse;
+  onDownload: (cell: ReeLqMonthlyMatrixCell) => Promise<void>;
+  onToggle: () => void;
+}) {
+  const cellCount = countCellsWithZips(matrix, group.months);
+  return (
+    <section className={`ree-zip-year-panel ${isOpen ? "open" : "closed"}`}>
+      <button className="ree-zip-year-toggle" onClick={onToggle} type="button">
+        {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        <strong>{group.year}</strong>
+        <span>{group.months.length} mes(es)</span>
+        <small>{cellCount} celda(s) con ZIPs</small>
+      </button>
+      {isOpen && (
+        <div className="ree-zip-matrix-scroll">
+          <div className="ree-zip-matrix-grid" style={{ gridTemplateColumns: `96px repeat(${REE_LQ_SETTLEMENTS.length}, minmax(156px, 1fr))` }}>
+            <div className="ree-zip-matrix-header">Mes</div>
+            {REE_LQ_SETTLEMENTS.map((settlement) => (
+              <div className="ree-zip-matrix-header" key={settlement}>{settlement}</div>
+            ))}
+            {group.months.map((month) => (
+              <MatrixRow
+                busyKey={busyKey}
+                disabled={disabled}
+                key={month}
+                matrix={matrix}
+                month={month}
+                onDownload={onDownload}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </section>
   );
 }
@@ -146,7 +192,7 @@ function MatrixRow({
               <span className={`ree-zip-matrix-status ${statusTone}`}>{statusLabel}</span>
             </div>
             <div className="ree-zip-matrix-files">
-              <MatrixFileBadge label="Común" message={cell.liquicomun} />
+              <MatrixFileBadge label={"Com\u00fan"} message={cell.liquicomun} />
               <MatrixFileBadge label="Empresa" message={cell.liquiEmpresa} />
             </div>
             {hasAny && (
@@ -174,7 +220,13 @@ function MatrixFileBadge({ label, message }: { label: string; message: ReeLqMont
   return (
     <span className="ree-zip-matrix-file" title={message.messageId}>
       <b>{label}</b>
-      <small>{formatVersion(message.fileVersion)} · {formatShortDate(message.publicationDate)} · {message.code || "-"}</small>
+      <small>
+        {formatVersion(message.fileVersion)}
+        {" \u00b7 "}
+        {formatShortDate(message.publicationDate)}
+        {" \u00b7 "}
+        {message.code || "-"}
+      </small>
     </span>
   );
 }
@@ -196,12 +248,34 @@ function formatMonth(value: string) {
   return month && year ? `${month}/${year}` : value;
 }
 
-function buildRollingMonths(monthsBack: number) {
-  const now = new Date();
-  const months: string[] = [];
-  for (let offset = 0; offset <= monthsBack; offset += 1) {
-    const date = new Date(Date.UTC(now.getFullYear(), now.getMonth() - offset, 1));
-    months.push(`${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`);
+type YearGroup = { year: string; months: string[] };
+
+function buildYearGroups(months: string[]): YearGroup[] {
+  const groups = new Map<string, string[]>();
+  for (const month of [...months].sort((left, right) => right.localeCompare(left))) {
+    const year = month.slice(0, 4);
+    const group = groups.get(year) ?? [];
+    group.push(month);
+    groups.set(year, group);
   }
-  return months;
+  return [...groups.entries()]
+    .sort(([left], [right]) => right.localeCompare(left))
+    .map(([year, groupMonths]) => ({ year, months: groupMonths }));
+}
+
+function countCellsWithZips(matrix: ReeLqMonthlyMatrixResponse, months: string[]) {
+  const allowedMonths = new Set(months);
+  return matrix.cells.filter((cell) => allowedMonths.has(cell.month) && (cell.liquicomun || cell.liquiEmpresa)).length;
+}
+
+function toggleYear(year: string, setOpenYears: Dispatch<SetStateAction<Set<string>>>) {
+  setOpenYears((current) => {
+    const next = new Set(current);
+    if (next.has(year)) {
+      next.delete(year);
+    } else {
+      next.add(year);
+    }
+    return next;
+  });
 }
