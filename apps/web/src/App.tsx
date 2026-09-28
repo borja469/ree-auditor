@@ -46,6 +46,7 @@ import {
   getTodayInputValue,
   isEsiosSection,
   isGasSection,
+  isDashboardSection,
   isInformesSection,
   isMercadoSection,
   isOmieSection,
@@ -67,6 +68,7 @@ import { EsiosModule, type EsiosViewKey } from "./modules/esios/EsiosModule";
 import { AnnualReportModule } from "./modules/annual-report/AnnualReportModule";
 import { FuturesEvolutionReportModule } from "./modules/reports/FuturesEvolutionReportModule";
 import { PricingBaseModule } from "./modules/pricing/PricingBaseModule";
+import { BillingDashboardModule } from "./modules/pricing/BillingDashboardModule";
 import { PricingHedgesModule } from "./modules/pricing/PricingHedgesModule";
 import { MirPortfolioModule } from "./modules/pricing/MirPortfolioModule";
 import { PricingMeffModule } from "./modules/pricing/PricingMeffModule";
@@ -81,6 +83,7 @@ import { HistoryView } from "./modules/import-history/ImportHistoryModule";
 import { isLikelyMedperFileName, loadAllMedperRows, loadMedperRecordPage, sanitizeMedperFiltersForView } from "./modules/medper/MedperHelpers";
 import { ReeDownloadCenterModule } from "./modules/ree-download-center/ReeDownloadCenterModule";
 import { ReeZipFilesModule } from "./modules/ree-zip-files/ReeZipFilesModule";
+import { REE_SETTLEMENT_CODES, settlementDefinition, settlementLabel, settlementQueryFields, settlementRank, sortSettlements } from "./settlements";
 import type {
   ImportHistoryFile,
   ImportHistoryMode,
@@ -232,9 +235,7 @@ import {
 } from "./api";
 import { useGlobalLoadingState, withGlobalLoading } from "./loading";
 
-const VERSIONS: ReeVersion[] = ["C1", "C2", "C3", "C4", "C5"];
-const SUMMARY_VERSIONS: ReeVersion[] = ["C3", "C4", "C5"];
-const VERSION_PALETTE = ["#64748b", "#2563eb", "#16a34a", "#7c3aed", "#f97316", "#0f766e"];
+const VERSIONS: ReeVersion[] = REE_SETTLEMENT_CODES;
 const DEFAULT_PAGE_SIZE = 50;
 const PAGE_SIZE_OPTIONS = [25, 50, 100, 500] as const;
 const EXPORT_PAGE_SIZE = 1000;
@@ -380,6 +381,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     esios: false,
     mercado: false,
     pricing: true,
+    dashboards: true,
     gas: false,
     informes: false
   });
@@ -1209,7 +1211,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   }
 
   function updateFilter(key: keyof Filters, value: string) {
-    const next = { ...filters, [key]: value || undefined, skip: 0 };
+    const next: Filters = key === "version"
+      ? { ...filters, ...settlementQueryFields(value), skip: 0 }
+      : { ...filters, [key]: value || undefined, skip: 0 };
     if (key === "fecha") {
       next.fechaInicio = undefined;
       next.fechaFin = undefined;
@@ -1220,7 +1224,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   }
 
   function updateReeSeieFilter(key: keyof Filters, value: string) {
-    const next = { ...reeSeieFilters, [key]: value || undefined, skip: 0 };
+    const next: Filters = key === "version"
+      ? { ...reeSeieFilters, ...settlementQueryFields(value), skip: 0 }
+      : { ...reeSeieFilters, [key]: value || undefined, skip: 0 };
     if (key === "brp") {
       next.brps = undefined;
     }
@@ -1239,6 +1245,21 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     }
     setReeSeieFilters(next);
     setReeSeieHourlyPage(0);
+  }
+
+  function selectReganecuSettlement(version: ReeVersion) {
+    const next = { ...filters, ...settlementQueryFields(version), skip: 0 };
+    setFilters(next);
+    setHourlyPage(0);
+    setQhPage(0);
+    void refreshReganecu(reganecuView, sanitizeReganecuFiltersForView(reganecuView, next), { hourly: 0, qh: 0 });
+  }
+
+  function selectReeSeieSettlement(version: ReeVersion) {
+    const next = { ...reeSeieFilters, ...settlementQueryFields(version), skip: 0 };
+    setReeSeieFilters(next);
+    setReeSeieHourlyPage(0);
+    void refreshReeSeie(reeSeieView, sanitizeReeSeieFiltersForView(reeSeieView, next), 0);
   }
 
   function updateMedperFilter(key: keyof MedperFilters, value: string) {
@@ -1281,7 +1302,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 
   function updateReeLossesFilter(key: keyof ReeLossesFilters, value: string) {
     setReeLossesFilters((current) => {
-      const next = { ...current, [key]: value || undefined };
+      const next: ReeLossesFilters = key === "version"
+        ? { ...current, ...settlementQueryFields(value) }
+        : { ...current, [key]: value || undefined };
       if (key === "fechaInicio" || key === "fechaFin") {
         next.mes = undefined;
       }
@@ -1310,6 +1333,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 
     const next: Filters = {
       fecha: value.fecha,
+      version: value.version,
+      settlementType: value.settlementType,
+      settlementNumber: value.settlementNumber,
       brp: value.brp,
       sujeto: value.sujeto
     };
@@ -1331,6 +1357,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   function sanitizeReeSeieFiltersForView(view: ReeSeieView, value: Filters) {
     const next: Filters = {
       fecha: value.fecha,
+      version: value.version,
+      settlementType: value.settlementType,
+      settlementNumber: value.settlementNumber,
       brp: value.brp,
       brps: value.brps,
       sujeto: value.sujeto
@@ -1764,6 +1793,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 	                        ? "Pricing Coberturas"
 	                      : section === "pricingMir"
 	                        ? "Pricing Cartera Fijo"
+	                      : section === "billingDashboard"
+	                        ? "Cuadro de Mando de Facturacion"
                     : section === "esiosIndicadores"
                       ? "ESIOS Indicadores"
                     : section === "esiosPerfiles"
@@ -2249,6 +2280,20 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       ]
     },
     {
+      key: "dashboards",
+      title: "Cuadro de Mandos",
+      active: isDashboardSection(section),
+      items: [
+        {
+          key: "billing-dashboard",
+          label: "Facturacion",
+          description: "facturas, curvas y PF/BC",
+          active: section === "billingDashboard",
+          onSelect: () => changeSection("billingDashboard")
+        }
+      ]
+    },
+    {
       key: "gas",
       title: "GAS",
       active: isGasSection(section),
@@ -2611,6 +2656,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           {section === "pricingMeff" && <PricingMeffModule />}
           {section === "pricingHedges" && <PricingHedgesModule />}
           {section === "pricingMir" && <MirPortfolioModule />}
+          {section === "billingDashboard" && <BillingDashboardModule />}
           {section === "gasMibgas" && <GasMibgasModule />}
           {section === "gasMibgasMarket" && <MibgasPrivateModule />}
           {section === "gasMibgasDeliveryTransactions" && <MibgasDeliveryTransactionsModule />}
@@ -2674,6 +2720,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
               onPageChange={changeHourlyPage}
               onPageSizeChange={changeHourlyPageSize}
               loadExportRows={() => loadAllRecordRows(listReganecu, sanitizeReganecuFiltersForView("hourly", filters))}
+              selectedSettlement={filters.version}
+              availableSettlements={reganecuFilterOptions?.versions}
+              onSettlementChange={selectReganecuSettlement}
             />
           )}
           {section === "reganecu" && reganecuView === "qh" && (
@@ -2689,6 +2738,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
               onPageChange={changeQhPage}
               onPageSizeChange={changeQhPageSize}
               loadExportRows={() => loadAllRecordRows(listReganecuQh, sanitizeReganecuFiltersForView("qh", filters))}
+              selectedSettlement={filters.version}
+              availableSettlements={reganecuFilterOptions?.versions}
+              onSettlementChange={selectReganecuSettlement}
             />
           )}
           {section === "reeSeie" && (
@@ -2706,6 +2758,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                 onPageChange={changeReeSeieHourlyPage}
                 onPageSizeChange={changeReeSeieHourlyPageSize}
                 loadExportRows={() => loadAllReeSeieA1Rows(toReeSeieApiFilters(sanitizeReeSeieFiltersForView("hourly", reeSeieFilters)))}
+                selectedSettlement={reeSeieFilters.version}
+                availableSettlements={buildReeSeieSettlementFilterOptions(reeSeieFilterOptions)?.versions}
+                onSettlementChange={selectReeSeieSettlement}
               />
             )
           )}
@@ -2831,7 +2886,7 @@ function buildReeSeieSettlementFilterOptions(options?: ReeSeieFilterOptions): Se
   }
 
   return {
-    versions: options.versions as ReeVersion[],
+    versions: sortSettlements(options.versions.filter((version): version is ReeVersion => Boolean(settlementDefinition(version)))),
     months: options.months,
     brps: options.unidades,
     subjects: [],
@@ -2846,7 +2901,10 @@ function buildReeSeieSettlementFilterOptions(options?: ReeSeieFilterOptions): Se
 function buildReeSeieSettlementGroups(summary?: ReeSeieSummary): SettlementGroup[] {
   return (summary?.groups ?? []).map((group) => ({
     fechaLiquidacion: group.fechaLiquidacion,
-    version: (group.version || "C1") as ReeVersion,
+    version: (group.settlementCode || group.version) as ReeVersion,
+    settlementCode: (group.settlementCode || group.version) as ReeVersion,
+    settlementType: group.settlementType,
+    settlementNumber: group.settlementNumber,
     segmento: group.segmento,
     records: group.records,
     sums: {
@@ -2854,7 +2912,7 @@ function buildReeSeieSettlementGroups(summary?: ReeSeieSummary): SettlementGroup
       importeEur: group.energia,
       importeCalculadoEur: group.energia
     }
-  }));
+  })).sort((left, right) => settlementRank(left.version) - settlementRank(right.version));
 }
 
 function buildDynamicSummarySegments(groups: SettlementGroup[]): SummarySegment[] {
@@ -2869,6 +2927,8 @@ function toReeSeieApiFilters(filters: Filters): ReeSeieFilters {
     fechaInicio: filters.fechaInicio,
     fechaFin: filters.fechaFin,
     version: filters.version,
+    settlementType: filters.settlementType,
+    settlementNumber: filters.settlementNumber,
     unidad: filters.eicUpr ?? (selectedBrps && selectedBrps.length > 0 ? selectedBrps.join(",") : filters.brp),
     codigo: filters.codigoApunte,
     tipo: filters.codigoPrecio,
@@ -3291,10 +3351,11 @@ function ReganecuFilterBand({
 
   const loadingOptions = !options;
   const months = options?.months ?? [];
+  const settlementOptions = REE_SETTLEMENT_CODES;
 
   return (
     <section className="filter-band">
-      {view !== "summary" && <FilterSelect disabled={disabled} loading={loadingOptions} label="Versión" value={filters.version ?? ""} options={options?.versions ?? []} onChange={(value) => onChange("version", value)} />}
+      <FilterSelect disabled={disabled} loading={loadingOptions} label="Liquidacion" value={filters.version ?? ""} options={settlementOptions} onChange={(value) => onChange("version", value)} />
       <FilterSelect disabled={disabled} loading={loadingOptions} label="Mes" value={filters.fecha ?? ""} options={months} onChange={(value) => onChange("fecha", value)} />
       {multiBrp ? (
         <MultiFilterSelect disabled={disabled} loading={loadingOptions} label="BRP" value={filters.brps ?? []} options={options?.brps ?? []} onChange={(value) => onMultiChange?.("brps", value)} />
@@ -4226,57 +4287,127 @@ function SummaryView({
   segments?: readonly SummarySegment[];
   invertChartAmount?: boolean;
 }) {
-  const latestVersion = getLatestSettlementVersion(groups);
   return (
     <section className="content-grid">
       <div className="panel wide">
         <PanelTitle
           icon={<Gauge size={18} />}
-          title="Costes horarios clave"
-          subtitle={latestVersion ? `${latestVersion} € ${describeSettlementVersion(latestVersion)}` : "Sin versión disponible"}
+          title="Evolucion por liquidacion"
+          subtitle="Energia, importe oficial y variacion frente a la liquidacion anterior disponible"
         />
-        <KeyCostSegments groups={groups} version={latestVersion} segments={segments} />
+        <SettlementEvolutionTable groups={groups} invertAmount={invertChartAmount} />
       </div>
       <div className="panel wide">
-        <PanelTitle icon={<BarChart3 size={18} />} title="Energia e importe por version" />
+        <PanelTitle icon={<BarChart3 size={18} />} title="Energia e importe por liquidacion" />
         <EnergyChart groups={groups} invertAmount={invertChartAmount} />
       </div>
       <div className="panel wide">
-        <PanelTitle icon={<BarChart3 size={18} />} title="Segmentos clave por version" />
+        <PanelTitle icon={<BarChart3 size={18} />} title="Segmentos por liquidacion" />
         <SegmentSummaryTable groups={groups} segments={segments} />
       </div>
     </section>
   );
 }
 
-function KeyCostSegments({ groups, version, segments }: { groups: SettlementGroup[]; version: ReeVersion | null; segments: readonly SummarySegment[] }) {
-  const versionGroups = version ? groups.filter((group) => group.version === version) : [];
-  const rows = segments.map((segment) => ({
-    ...segment,
-    totals: summarizeGroups(versionGroups.filter((group) => normalizeSegment(group.segmento) === segment.code))
-  }));
+type SettlementEvolutionRow = {
+  version: ReeVersion;
+  type: "A" | "C";
+  label: string;
+  records: number;
+  energy: number;
+  amount: number;
+  energyDelta?: number;
+  amountDelta?: number;
+};
 
+function SettlementEvolutionTable({ groups, invertAmount }: { groups: SettlementGroup[]; invertAmount: boolean }) {
+  const rows = buildSettlementEvolutionRows(groups, invertAmount);
   return (
-    <div className="key-cost-grid">
-      {rows.map((row) => (
-        <div className="key-cost-item" key={row.code}>
-          <span className="key-cost-code">{row.code}</span>
-          <span>{row.label}</span>
-          <strong>{formatCurrency(row.totals.amount)}</strong>
-          <small>{formatNumber(row.totals.records)} registros ? {formatNumber(row.totals.energy)} MWh</small>
-        </div>
-      ))}
+    <div className="segment-summary-scroll">
+      <table className="segment-summary-table settlement-evolution-table">
+        <thead>
+          <tr>
+            <th>Liquidacion</th>
+            <th>Tipo</th>
+            <th>Energia</th>
+            <th>Importe oficial</th>
+            <th>Var. energia</th>
+            <th>Var. importe</th>
+            <th>Registros</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={7}>
+                <div className="empty-state">Sin liquidaciones para los filtros seleccionados.</div>
+              </td>
+            </tr>
+          )}
+          {rows.map((row) => (
+            <tr key={row.version}>
+              <th scope="row">
+                <span className={`settlement-pill ${row.type === "A" ? "advance" : "close"}`}>{row.version}</span>
+              </th>
+              <td>{row.label}</td>
+              <td className="ops-number-cell">{formatNumber(row.energy)} MWh</td>
+              <td className="ops-number-cell">{formatCurrency(row.amount)}</td>
+              <td className={deltaClass(row.energyDelta)}>{formatDelta(row.energyDelta, "MWh")}</td>
+              <td className={deltaClass(row.amountDelta)}>{formatDeltaCurrency(row.amountDelta)}</td>
+              <td className="ops-number-cell">{formatNumber(row.records)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
 
-function getLatestSettlementVersion(groups: SettlementGroup[]) {
-  const availableVersions = new Set(groups.map((group) => group.version));
-  return [...VERSIONS].reverse().find((version) => availableVersions.has(version)) ?? null;
+function buildSettlementEvolutionRows(groups: SettlementGroup[], invertAmount: boolean): SettlementEvolutionRow[] {
+  const rows = VERSIONS.map((version) => {
+    const totals = summarizeGroups(groups.filter((group) => group.version === version));
+    const definition = settlementDefinition(version);
+    return {
+      version,
+      type: definition?.settlementType ?? "C",
+      label: definition?.label ?? settlementLabel(version),
+      records: totals.records,
+      energy: totals.energy,
+      amount: invertAmount ? -totals.amount : totals.amount
+    };
+  }).filter((row) => row.records > 0);
+
+  return rows.map((row, index) => {
+    const previous = index > 0 ? rows[index - 1] : undefined;
+    return {
+      ...row,
+      energyDelta: previous ? row.energy - previous.energy : undefined,
+      amountDelta: previous ? row.amount - previous.amount : undefined
+    };
+  });
 }
 
-function describeSettlementVersion(version: ReeVersion) {
-  return version === "C5" ? "Versión definitiva" : "Versión provisional";
+function formatDelta(value: number | undefined, unit: string) {
+  if (value === undefined) {
+    return "-";
+  }
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatNumber(Math.abs(value))} ${unit}`;
+}
+
+function formatDeltaCurrency(value: number | undefined) {
+  if (value === undefined) {
+    return "-";
+  }
+  const sign = value > 0 ? "+" : value < 0 ? "-" : "";
+  return `${sign}${formatCurrency(Math.abs(value))}`;
+}
+
+function deltaClass(value: number | undefined) {
+  if (value === undefined || Math.abs(value) < 0.000001) {
+    return "ops-number-cell delta neutral";
+  }
+  return `ops-number-cell delta ${value > 0 ? "positive" : "negative"}`;
 }
 
 function DetailView({
@@ -4290,7 +4421,10 @@ function DetailView({
   loading,
   onPageChange,
   onPageSizeChange,
-  loadExportRows
+  loadExportRows,
+  selectedSettlement,
+  availableSettlements,
+  onSettlementChange
 }: {
   rows: A1Record[];
   title: string;
@@ -4303,6 +4437,9 @@ function DetailView({
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
   loadExportRows?: () => Promise<A1Record[]>;
+  selectedSettlement?: ReeVersion;
+  availableSettlements?: ReeVersion[];
+  onSettlementChange?: (version: ReeVersion) => void;
 }) {
   const columns = useMemo<Array<TechnicalColumn<A1Record>>>(() => {
     const codeLabel = showRelatedHour ? "EIC UPR" : "EIC UPR";
@@ -4316,7 +4453,7 @@ function DetailView({
       { id: "energia", label: "Energía", help: "Energía liquidada en MWh.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.energiaMwh },
       { id: "importe", label: "Importe", help: "Importe liquidado en euros.", width: 128, align: "right", type: "number", filter: "number", value: (row) => row.importeEur, render: (row) => formatCurrency(Number(row.importeEur ?? 0)) },
       { id: "diferencia", label: "Dif.", help: "Diferencia entre importe informado e importe calculado.", width: 110, align: "right", type: "number", filter: "number", value: (row) => row.importeDiferenciaEur },
-      { id: "version", label: "Versión", width: 86, advanced: true, filter: "select", value: (row) => row.version },
+      { id: "version", label: "Liquidacion", width: 86, advanced: true, filter: "select", value: (row) => row.version },
       { id: "segmento", label: "Segmento", width: 110, filter: "select", value: (row) => row.segmento },
       { id: "codigoPrecio", label: "Cod. precio", help: "Código de precio REE aplicado al apunte.", width: 132, advanced: true, filter: "select", value: (row) => row.codigoPrecio },
       { id: "codigoApunte", label: "Cod. apunte", help: "Código técnico del apunte liquidado.", width: 136, advanced: true, filter: "select", value: (row) => row.codigoApunte },
@@ -4327,24 +4464,69 @@ function DetailView({
   }, [showRelatedHour, timeColumnLabel]);
 
   return (
-    <TechnicalDataTableV2
-      columns={columns}
-      exportFileName={showRelatedHour ? "reganecuqh-filtrado" : "reganecu-filtrado"}
-      getDuplicateKey={(row) => [formatRecordDate(row), formatRecordHour(row), row.eicUpr ?? row.codigoUpr ?? "", row.codigoPrecio ?? "", row.codigoApunte ?? ""].join("|")}
-      getGroupLabel={(row) => `Fecha ${formatRecordDate(row)} € ${showRelatedHour ? `Hora ${formatRelatedHour(row)}` : `Hora ${formatRecordHour(row)}`}`}
-      getRowId={(row) => row.id}
-      getRowQuality={reganecuQuality}
-      hasNext={hasNext}
-      kpis={buildReganecuKpis(rows)}
-      loading={loading}
-      loadExportRows={loadExportRows}
-      onPageChange={onPageChange}
-      onPageSizeChange={onPageSizeChange}
-      page={page}
-      pageSize={pageSize}
-      rows={rows}
-      title={title}
-    />
+    <>
+      {availableSettlements && availableSettlements.length > 0 && onSettlementChange && (
+        <SettlementSwitcher
+          availableSettlements={availableSettlements}
+          disabled={loading}
+          onChange={onSettlementChange}
+          selectedSettlement={selectedSettlement}
+        />
+      )}
+      <TechnicalDataTableV2
+        columns={columns}
+        exportFileName={showRelatedHour ? "reganecuqh-filtrado" : "reganecu-filtrado"}
+        getDuplicateKey={(row) => [formatRecordDate(row), formatRecordHour(row), row.eicUpr ?? row.codigoUpr ?? "", row.codigoPrecio ?? "", row.codigoApunte ?? ""].join("|")}
+        getGroupLabel={(row) => `Fecha ${formatRecordDate(row)} - ${showRelatedHour ? `Hora ${formatRelatedHour(row)}` : `Hora ${formatRecordHour(row)}`}`}
+        getRowId={(row) => row.id}
+        getRowQuality={reganecuQuality}
+        hasNext={hasNext}
+        kpis={buildReganecuKpis(rows)}
+        loading={loading}
+        loadExportRows={loadExportRows}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+        page={page}
+        pageSize={pageSize}
+        rows={rows}
+        title={title}
+      />
+    </>
+  );
+}
+
+function SettlementSwitcher({
+  availableSettlements,
+  disabled,
+  selectedSettlement,
+  onChange
+}: {
+  availableSettlements: ReeVersion[];
+  disabled: boolean;
+  selectedSettlement?: ReeVersion;
+  onChange: (version: ReeVersion) => void;
+}) {
+  const versions = sortSettlements([...new Set(availableSettlements)]);
+  return (
+    <section className="settlement-switcher">
+      <span>Liquidacion</span>
+      <div>
+        {versions.map((version) => {
+          const definition = settlementDefinition(version);
+          return (
+            <button
+              className={`settlement-switch ${selectedSettlement === version ? "active" : ""} ${definition?.settlementType === "A" ? "advance" : "close"}`}
+              disabled={disabled}
+              key={version}
+              onClick={() => onChange(version)}
+              type="button"
+            >
+              {version}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -4371,7 +4553,7 @@ function VirtualGrid({
         <span>Fecha</span>
         <span>{timeColumnLabel}</span>
         {showRelatedHour && <span>Hora</span>}
-        <span>Version</span>
+        <span>Liquidacion</span>
         <span>Segmento</span>
         <span>Cod. precio</span>
         <span>Cod. apunte</span>
@@ -4412,10 +4594,11 @@ function EnergyChart({ groups, invertAmount = true }: { groups: SettlementGroup[
     const amount = versionGroups.reduce((sum, group) => sum + Number(group.sums.importeEur ?? 0), 0);
     return {
       version,
+      records: versionGroups.reduce((sum, group) => sum + group.records, 0),
       energy: versionGroups.reduce((sum, group) => sum + Number(group.sums.energiaMwh ?? 0), 0),
       amount: invertAmount ? -amount : amount
     };
-  });
+  }).filter((item) => item.records > 0);
   const max = Math.max(...byVersion.map((item) => Math.abs(item.amount)), 1);
 
   return (
@@ -4444,14 +4627,14 @@ function SegmentSummaryTable({ groups, segments }: { groups: SettlementGroup[]; 
       })),
       total: summarizeGroups(versionGroups)
     };
-  });
+  }).filter((row) => row.total.records > 0);
 
   return (
     <div className="segment-summary-scroll">
       <table className="segment-summary-table">
         <thead>
           <tr>
-            <th>Version</th>
+            <th>Liquidacion</th>
             {segments.map((segment) => (
               <th key={segment.code}>
                 <span>{segment.label}</span>
@@ -4663,7 +4846,7 @@ function compareNumbers(left: number, right: number) {
 
 function compareRecordTieBreakers(left: A1Record, right: A1Record) {
   return (
-    left.version.localeCompare(right.version) ||
+    (settlementRank(left.version) - settlementRank(right.version)) ||
     (left.segmento ?? "").localeCompare(right.segmento ?? "") ||
     (left.codigoPrecio ?? "").localeCompare(right.codigoPrecio ?? "") ||
     (left.codigoApunte ?? "").localeCompare(right.codigoApunte ?? "") ||

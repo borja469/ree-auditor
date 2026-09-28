@@ -1,6 +1,6 @@
 import { Transform } from "class-transformer";
 import { IsEnum, IsInt, IsOptional, IsString, Matches, Max, Min } from "class-validator";
-import { ReeSettlementVersion } from "@prisma/client";
+import { ReeSettlementType, ReeSettlementVersion } from "@prisma/client";
 
 export class SettlementQueryDto {
   @IsOptional()
@@ -18,6 +18,17 @@ export class SettlementQueryDto {
   @IsOptional()
   @IsEnum(ReeSettlementVersion)
   version?: ReeSettlementVersion;
+
+  @IsOptional()
+  @IsEnum(ReeSettlementType)
+  settlementType?: ReeSettlementType;
+
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  settlementNumber?: number;
 
   @IsOptional()
   @IsString()

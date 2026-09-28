@@ -1,6 +1,7 @@
 import type { PricingSettlementVersion } from "./pricing-base.types";
+import { SETTLEMENT_CODES, isSettlementCode } from "../common/settlements";
 
-export const PRICING_VERSION_PRIORITY: PricingSettlementVersion[] = ["C5", "C4", "C3", "C2", "C1"];
+export const PRICING_VERSION_PRIORITY: PricingSettlementVersion[] = [...SETTLEMENT_CODES].reverse() as PricingSettlementVersion[];
 
 export type VersionedValue<TValue> = {
   fecha: string;
@@ -24,5 +25,5 @@ export function selectLatestAvailableVersion<TValue>(values: Array<Pick<Versione
 }
 
 export function isPricingSettlementVersion(value: unknown): value is PricingSettlementVersion {
-  return value === "C1" || value === "C2" || value === "C3" || value === "C4" || value === "C5";
+  return typeof value === "string" && isSettlementCode(value);
 }

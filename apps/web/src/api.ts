@@ -1,7 +1,8 @@
 import { beginLoading, withGlobalLoading } from "./loading";
 
 export type ReeFileType = "REGANECU" | "REGANECUQH" | "SEIE";
-export type ReeVersion = "A1" | "C1" | "C2" | "C3" | "C4" | "C5";
+export type ReeVersion = "A1" | "C1" | "A2" | "C2" | "A3" | "C3" | "A4" | "C4" | "A5" | "C5";
+export type ReeSettlementType = "A" | "C";
 export type MedperFileType = "MEDPERQH";
 export type ReeKFactorFileType = "KESTIMQH" | "KREALQH";
 export type OmieTipoDocumento = "PVD" | "PHF";
@@ -10,6 +11,7 @@ export type OmieDownloadModulo = "Programas" | "Precios" | "Transacciones" | "RE
 export type OmieDownloadCodigo = "5302" | "5608" | "5202" | "5603" | "4125" | "4121" | "9230";
 export type OmieDownloadDocumentType = OmieTipoDocumento | OmieTipoPrecio | "TRANSACCIONES" | "REER_OFICIAL_9230";
 export type OmieDownloadEstado = "PENDIENTE" | "DESCARGANDO" | "DESCARGADO" | "PROCESADO" | "SIN_DATOS" | "ERROR";
+export type BillingInvoiceStatus = "IMPORTED" | "PROCESSING" | "READY" | "WARNING" | "ERROR";
 
 export type AnnualReportMetricKind = "energy" | "currency" | "price" | "text";
 export type AnnualReportMetricRow = {
@@ -52,6 +54,9 @@ export type ReeFile = {
   fileHash: string;
   tipoArchivo: ReeFileType;
   version: ReeVersion;
+  settlementCode?: ReeVersion;
+  settlementType: ReeSettlementType;
+  settlementNumber: number;
   fechaLiquidacion: string;
   sujetoEic: string;
   encoding: string;
@@ -140,6 +145,9 @@ export type ReeLossesImportResponse = Omit<ImportResponse, "files"> & {
     status: "IMPORTED" | "FAILED";
     tipoArchivo?: ReeKFactorFileType | null;
     version?: ReeVersion | null;
+    settlementCode?: ReeVersion | null;
+    settlementType?: ReeSettlementType | null;
+    settlementNumber?: number | null;
     fechaInicio?: string | null;
     fechaFin?: string | null;
     importedAt?: string;
@@ -162,6 +170,9 @@ export type ReeLossesImportFile = {
   fileHash?: string | null;
   tipoArchivo: ReeKFactorFileType | null;
   version: ReeVersion | null;
+  settlementCode?: ReeVersion | null;
+  settlementType?: ReeSettlementType | null;
+  settlementNumber?: number | null;
   fechaInicio: string | null;
   fechaFin: string | null;
   status: "IMPORTED" | "FAILED" | "DUPLICATED";
@@ -187,6 +198,11 @@ export type ReeLqDownloadResult = {
   source: "REE_ESIOS";
   service: "ServicioLQ";
   family: "liquicomun" | "liqui-empresa";
+  settlementCode: ReeVersion;
+  settlementType: ReeSettlementType;
+  settlementNumber: number;
+  settlementLabel: "Avance" | "Cierre";
+  month: string;
   requestedPublicationDate: string;
   owner: string | null;
   selectedMessage: {
@@ -240,7 +256,8 @@ export type ReeLqSyncRangeResult = {
   >;
 };
 
-export type ReeLqSettlement = "A1" | "C1" | "C2" | "C3" | "C4" | "C5";
+export type ReeLqSettlement = ReeVersion;
+export type ReeLqSettlementFilter = "ALL" | "ADVANCES" | "CLOSURES" | ReeLqSettlement;
 export type ReeLqMessageSummary = {
   code: string;
   messageId: string;
@@ -248,11 +265,16 @@ export type ReeLqMessageSummary = {
   owner: string | null;
   publicationDate: string | null;
   messageDate: string | null;
+  downloadedAt?: string | null;
   fileVersion: number;
 };
 export type ReeLqMonthlyMatrixCell = {
   month: string;
   settlement: ReeLqSettlement;
+  settlementCode?: ReeLqSettlement;
+  settlementType?: ReeSettlementType;
+  settlementNumber?: number;
+  settlementLabel?: "Avance" | "Cierre";
   liquicomun: ReeLqMessageSummary | null;
   liquiEmpresa: ReeLqMessageSummary | null;
 };
@@ -303,6 +325,11 @@ export type ReeLqAutomationRunResponse = {
   errorMessage: string | null;
   results: Array<{
     family: "liquicomun" | "liqui-empresa";
+    settlementCode: ReeVersion;
+    settlementType: ReeSettlementType;
+    settlementNumber: number;
+    settlementLabel: "Avance" | "Cierre";
+    month: string;
     requestedPublicationDate: string;
     messageId: string;
     code: string;
@@ -318,6 +345,7 @@ export type ReeLqAutomationRunResponse = {
 export type ReeLqAutomationRunHistoryRow = Omit<ReeLqAutomationRunResponse, "finishedAt" | "executionTimeMs" | "results"> & {
   finishedAt: string | null;
   executionTimeMs: number | null;
+  settlements?: ReeVersion[];
 };
 
 export type ImportHistoryKind = "reganecu" | "medper";
@@ -355,6 +383,195 @@ export type DeleteImportFileResponse = {
   deletedFileId: string;
   deletedFileName: string;
   deletedRecords: number;
+};
+
+export type BillingInvoiceRow = {
+  id: string;
+  gisceInvoiceId: number;
+  invoiceNumber: string | null;
+  cups: string;
+  polissaNumber: string | null;
+  invoiceDate: string | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  tariffCode: string | null;
+  processingStatus: BillingInvoiceStatus;
+  processingMessage: string | null;
+  billedEnergyKwh?: number | null;
+  expectedIntervals: number;
+  f1Intervals: number;
+  f5dIntervals: number;
+  p1Intervals: number;
+  p5dIntervals: number;
+  profiledIntervals: number;
+  missingIntervals: number;
+  f1Pct: number;
+  f5dPct: number;
+  p1Pct: number;
+  p5dPct: number;
+  profilePct: number;
+  realCoveragePct: number;
+  issueCount: number;
+  energyByPeriod: Record<string, number>;
+};
+
+export type BillingInvoicesResponse = {
+  total: number;
+  page: number;
+  pageSize: number;
+  hasNext: boolean;
+  summary: {
+    invoices: number;
+    ready: number;
+    withF1: number;
+    withF5d: number;
+    withP1: number;
+    withP5d: number;
+    withProfile: number;
+    withIssues: number;
+  };
+  rows: BillingInvoiceRow[];
+};
+
+export type BillingImportBatch = {
+  id: string;
+  startedAt: string;
+  finishedAt: string | null;
+  executionTimeMs: number | null;
+  invoiceDateFrom: string;
+  invoiceDateTo: string;
+  giscePages: number;
+  totalFound: number;
+  processedCount: number;
+  createdCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  errorCount: number;
+  status: string;
+  message: string | null;
+};
+
+export type BillingJobStatus = "QUEUED" | "RUNNING" | "SUCCESS" | "ERROR" | "CANCELLED";
+export type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING";
+export type BillingJob = {
+  id: string;
+  type: BillingJobType;
+  status: BillingJobStatus;
+  requestedBy: string | null;
+  params: Record<string, unknown> | null;
+  result: Record<string, unknown> | null;
+  totalItems: number;
+  processedItems: number;
+  successCount: number;
+  warningCount: number;
+  errorCount: number;
+  currentItem: string | null;
+  message: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BillingDeleteInvoicesResponse = {
+  invoiceDateFrom: string;
+  invoiceDateTo: string;
+  deletedInvoices: number;
+  deletedLines: number;
+  deletedF1Raw: number;
+  deletedF5dRaw: number;
+  deletedP1Raw: number;
+  deletedP5dRaw: number;
+  deletedCurveRows: number;
+};
+
+export type BillingInvoiceDetail = BillingInvoiceRow & {
+  lines: Array<{
+    id: string;
+    accountId: number | null;
+    accountName: string | null;
+    lineName: string | null;
+    quantity: number | null;
+    priceUnit: number | null;
+    priceSubtotal: number | null;
+  }>;
+  curveSummary: {
+    expectedIntervals: number;
+    f1Intervals: number;
+    f5dIntervals: number;
+    p1Intervals: number;
+    p5dIntervals: number;
+    profiledIntervals: number;
+    missingIntervals: number;
+    realCoveragePct: number;
+    profilePct: number;
+    pfTotalKwh: number;
+    bcTotalKwh: number | null;
+  };
+  reconciliation: Array<{ period: string; invoiceKwh: number; curveKwh: number; differenceKwh: number; differencePct: number | null }>;
+  issues: Array<{ code?: string; datetime?: string | null; period?: string | null; detail?: Record<string, unknown> }>;
+};
+
+export type BillingInvoiceCurveResponse = {
+  total: number;
+  page: number;
+  pageSize: number;
+  items: Array<{
+    id: string;
+    datetime: string;
+    tariffPeriod: string;
+    consumptionMeterKwh: number | null;
+    consumptionSource: string;
+    sourceRawId: string | null;
+    sourceResolutionMinutes: number | null;
+    profileType: string | null;
+    profileVersionId: string | null;
+    profileRowId: string | null;
+    lossVersion: string | null;
+    lossSourceId: string | null;
+    lossPercentage: number | null;
+    consumptionPfKwh: number | null;
+    consumptionBcKwh: number | null;
+  }>;
+};
+
+export type BillingGisceConfig = {
+  baseUrl: string;
+  username: string | null;
+  passwordConfigured: boolean;
+  timeoutMs: number;
+  invoiceDateField: string;
+  invoiceStartField: string;
+  invoiceEndField: string;
+  updatedAt: string | null;
+  authSource: "database" | "environment" | "fallback_token" | "missing";
+};
+
+export type BillingGisceConfigInput = {
+  baseUrl?: string | null;
+  username?: string | null;
+  password?: string | null;
+  timeoutMs?: number | null;
+  invoiceDateField?: string | null;
+  invoiceStartField?: string | null;
+  invoiceEndField?: string | null;
+};
+
+export type BillingGisceConnectionTest = {
+  tokenEndpoint: {
+    ok: boolean;
+    httpStatus: number | null;
+    tokenReceived: boolean;
+    errorType?: string;
+    message?: string;
+  };
+  fieldsGet?: {
+    ok: boolean;
+    fieldNames: string[];
+    confirmedFields: Record<string, boolean>;
+    errorType?: string;
+    message?: string;
+  };
 };
 
 export type OmieProgramaPeriodo = {
@@ -1020,7 +1237,7 @@ export type EsiosSeriesAutomationRunResponse = {
 export type MercadoIndicatorMappingStatus = "external" | "confirmed" | "auto" | "ambiguous" | "not_found";
 
 export type PricingBaseStatus = "ok" | "partial" | "missing";
-export type PricingSettlementVersion = "C1" | "C2" | "C3" | "C4" | "C5";
+export type PricingSettlementVersion = ReeVersion;
 
 export type PricingBaseRow = {
   fecha: string;
@@ -2828,6 +3045,9 @@ export type ReeSeieFile = {
   fileHash: string;
   tipoArchivo: "SEIE";
   version: string;
+  settlementCode?: ReeVersion;
+  settlementType: ReeSettlementType;
+  settlementNumber: number;
   fechaLiquidacion: string;
   sujetoEic?: string | null;
   encoding: string;
@@ -2849,6 +3069,9 @@ export type ReeSeieRecord = {
   hash: string;
   fechaCarga: string;
   version: string;
+  settlementCode?: ReeVersion;
+  settlementType: ReeSettlementType;
+  settlementNumber: number;
   fechaLiquidacion: string;
   sujetoEic?: string | null;
   fecha?: string | null;
@@ -2879,6 +3102,8 @@ export type ReeSeieFilters = {
   hora?: number;
   archivo?: string;
   version?: string;
+  settlementType?: ReeSettlementType;
+  settlementNumber?: number;
   skip?: number;
   take?: number;
 };
@@ -2900,6 +3125,9 @@ export type ReeSeieSummary = {
   groups: Array<{
     fechaLiquidacion: string;
     version: string;
+    settlementCode?: ReeVersion;
+    settlementType: ReeSettlementType;
+    settlementNumber: number;
     segmento?: string | null;
     tipo?: string | null;
     sentido?: string | null;
@@ -2935,6 +3163,8 @@ export type Filters = {
   fechaInicio?: string;
   fechaFin?: string;
   version?: ReeVersion;
+  settlementType?: ReeSettlementType;
+  settlementNumber?: number;
   brp?: string;
   brps?: string[];
   sujeto?: string;
@@ -2991,6 +3221,9 @@ export type SettlementSummary = {
     missingQhIntervals: Array<{
       fecha?: string | null;
       version: ReeVersion;
+      settlementCode?: ReeVersion;
+      settlementType?: ReeSettlementType;
+      settlementNumber?: number;
       sujetoEic: string;
       eicUpr?: string | null;
       intervals: number;
@@ -3004,6 +3237,9 @@ export type SettlementSummary = {
 export type SettlementGroup = {
   fechaLiquidacion: string;
   version: ReeVersion;
+  settlementCode?: ReeVersion;
+  settlementType?: ReeSettlementType;
+  settlementNumber?: number;
   segmento?: string | null;
   records: number;
   sums: {
@@ -3015,6 +3251,9 @@ export type SettlementGroup = {
 
 export type CompareGroup = {
   version: ReeVersion;
+  settlementCode?: ReeVersion;
+  settlementType?: ReeSettlementType;
+  settlementNumber?: number;
   fechaLiquidacion: string;
   segmento?: string | null;
   codigoPrecio?: string | null;
@@ -3182,6 +3421,9 @@ export type ReeLossesFilters = {
   fechaInicio?: string;
   fechaFin?: string;
   version?: ReeVersion;
+  settlementType?: ReeSettlementType;
+  settlementNumber?: number;
+  tipoArchivo?: ReeKFactorFileType;
   tarifa?: string;
   periodo?: string;
 };
@@ -3220,6 +3462,9 @@ export type ReeLossesRow = {
   diferenciaPct: number | null;
   tipoFicheroUtilizado: ReeKFactorFileType;
   version: ReeVersion;
+  settlementCode?: ReeVersion;
+  settlementType?: ReeSettlementType;
+  settlementNumber?: number;
   versionBoe: string | null;
   kestimValorK: number | null;
   krealValorK: number | null;
@@ -3324,12 +3569,12 @@ export async function downloadReeLqLiquiEmpresa(date: string, owner = "STROM"): 
   return sendJson(`/ree-esios-private/lq/liqui-empresa/download${toQuery({ date, owner })}`, "POST", "Descargando liquidacion empresa REE/eSIOS", REQUEST_TIMEOUT_MS * 6);
 }
 
-export async function syncReeLqLiquicomunRange(from: string, to: string): Promise<ReeLqSyncRangeResult> {
-  return sendJson(`/ree-esios-private/lq/liquicomun/sync-range`, "POST", "Sincronizando liquicomun REE/eSIOS", REQUEST_TIMEOUT_MS * 30, { from, to });
+export async function syncReeLqLiquicomunRange(from: string, to: string, settlementFilter: ReeLqSettlementFilter = "ALL"): Promise<ReeLqSyncRangeResult> {
+  return sendJson(`/ree-esios-private/lq/liquicomun/sync-range`, "POST", "Sincronizando liquicomun REE/eSIOS", REQUEST_TIMEOUT_MS * 30, { from, to, settlementFilter });
 }
 
-export async function syncReeLqLiquiEmpresaRange(from: string, to: string, owner = "STROM"): Promise<ReeLqSyncRangeResult> {
-  return sendJson(`/ree-esios-private/lq/liqui-empresa/sync-range`, "POST", "Sincronizando liquidacion empresa REE/eSIOS", REQUEST_TIMEOUT_MS * 30, { from, to, owner });
+export async function syncReeLqLiquiEmpresaRange(from: string, to: string, owner = "STROM", settlementFilter: ReeLqSettlementFilter = "ALL"): Promise<ReeLqSyncRangeResult> {
+  return sendJson(`/ree-esios-private/lq/liqui-empresa/sync-range`, "POST", "Sincronizando liquidacion empresa REE/eSIOS", REQUEST_TIMEOUT_MS * 30, { from, to, owner, settlementFilter });
 }
 
 export async function getReeLqMonthlyMatrix(from: string, to: string, owner = "STROM"): Promise<ReeLqMonthlyMatrixResponse> {
@@ -3380,6 +3625,33 @@ export async function downloadReeLqMonthlyPair(input: {
       window.clearTimeout(timeout);
     }
   }, { label: "Descargando liquidaciones REE/eSIOS" });
+}
+
+export async function processReeLqMonthlyPair(input: {
+  from: string;
+  to: string;
+  month: string;
+  settlement: ReeLqSettlement;
+  owner?: string;
+  liquicomun?: boolean;
+  liquiEmpresa?: boolean;
+}): Promise<{
+  source: "REE_ESIOS";
+  service: "ServicioLQ";
+  from: string;
+  to: string;
+  month: string;
+  settlement: ReeLqSettlement;
+  settlementCode: ReeLqSettlement;
+  settlementType: ReeSettlementType;
+  settlementNumber: number;
+  settlementLabel: "Avance" | "Cierre";
+  owner: string;
+  missing: string[];
+  count: number;
+  results: ReeLqDownloadResult[];
+}> {
+  return sendJson(`/ree-esios-private/lq/monthly-pair/process`, "POST", "Procesando liquidacion REE/eSIOS", REQUEST_TIMEOUT_MS * 30, input);
 }
 
 export async function downloadReeLqZipCatalogPair(input: {
@@ -4171,6 +4443,77 @@ export async function deleteMirContracts(): Promise<MirDeleteContractsResponse> 
 
 export async function getMirConfig(): Promise<MirConfig> {
   return getJson(`/mir/config`);
+}
+
+export async function getBillingInvoices(filters: {
+  search?: string;
+  invoiceDateFrom?: string;
+  invoiceDateTo?: string;
+  cups?: string;
+  invoiceNumber?: string;
+  polissa?: string;
+  tariff?: string;
+  status?: string;
+  curveSource?: string;
+  withIssues?: string;
+  sort?: string;
+  direction?: string;
+  skip?: number;
+  take?: number;
+} = {}): Promise<BillingInvoicesResponse> {
+  return getJson(`/billing-dashboard/invoices${toQuery(filters)}`);
+}
+
+export async function getBillingInvoiceDetail(id: string): Promise<BillingInvoiceDetail> {
+  return getJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}`);
+}
+
+export async function getBillingInvoiceCurve(id: string, filters: { source?: string; period?: string; skip?: number; take?: number } = {}): Promise<BillingInvoiceCurveResponse> {
+  return getJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}/curve${toQuery(filters)}`);
+}
+
+export async function getBillingImportBatches(): Promise<BillingImportBatch[]> {
+  return getJson(`/billing-dashboard/imports`);
+}
+
+export async function getBillingJobs(filters: { take?: number | string; status?: string } = {}): Promise<BillingJob[]> {
+  return getJson(`/billing-dashboard/jobs${toQuery(filters)}`);
+}
+
+export async function getBillingGisceConfig(): Promise<BillingGisceConfig> {
+  return getJson(`/billing-dashboard/gisce/config`);
+}
+
+export async function saveBillingGisceConfig(config: BillingGisceConfigInput): Promise<BillingGisceConfig> {
+  return sendJson(`/billing-dashboard/gisce/config`, "PUT", "Guardando configuracion GISCE", REQUEST_TIMEOUT_MS, config);
+}
+
+export async function testBillingGisceConnection(): Promise<BillingGisceConnectionTest> {
+  return sendJson(`/billing-dashboard/gisce/test-connection`, "POST", "Probando conexion GISCE", REQUEST_TIMEOUT_MS * 2);
+}
+
+export async function importBillingInvoices(dateFrom: string, dateTo: string): Promise<BillingImportBatch> {
+  return sendJson(`/billing-dashboard/imports`, "POST", "Importando facturas GISCE", REQUEST_TIMEOUT_MS * 10, { dateFrom, dateTo });
+}
+
+export async function startBillingImportJob(dateFrom: string, dateTo: string): Promise<BillingJob> {
+  return sendJson(`/billing-dashboard/jobs/imports`, "POST", "Lanzando importacion GISCE", REQUEST_TIMEOUT_MS, { dateFrom, dateTo });
+}
+
+export async function startBillingProcessPendingJob(limit = 5): Promise<BillingJob> {
+  return sendJson(`/billing-dashboard/jobs/process-pending`, "POST", "Lanzando procesamiento de facturas", REQUEST_TIMEOUT_MS, { limit });
+}
+
+export async function deleteBillingInvoicesByInvoiceDate(dateFrom: string, dateTo: string): Promise<BillingDeleteInvoicesResponse> {
+  return sendJson(`/billing-dashboard/invoices/delete-range`, "POST", "Eliminando facturas", REQUEST_TIMEOUT_MS * 4, { dateFrom, dateTo });
+}
+
+export async function processBillingInvoice(id: string): Promise<BillingInvoiceRow> {
+  return sendJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}/process`, "POST", "Preparando curva de factura", REQUEST_TIMEOUT_MS * 10);
+}
+
+export async function processPendingBillingInvoices(limit = 50): Promise<{ processed: number; remainingImported: number; results: BillingInvoiceRow[] }> {
+  return sendJson(`/billing-dashboard/process-pending`, "POST", "Procesando facturas pendientes", REQUEST_TIMEOUT_MS * 20, { limit });
 }
 
 export async function saveMirConfig(config: MirConfigInput): Promise<MirConfig> {

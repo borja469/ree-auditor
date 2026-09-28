@@ -7,7 +7,8 @@ import { TechnicalDataTable } from "../../components/technical-data-table/Techni
 import type { TechnicalColumn } from "../../components/technical-data-table/TechnicalDataTableTypes";
 import type { ReeLossesAnnualSummaryRow, ReeLossesAnalyticsSummary, ReeLossesFilterOptions, ReeLossesFilters, ReeLossesImportFile, ReeLossesImportResponse, ReeLossesReport, ReeLossesRow } from "../../api";
 import type { ReeLossesViewKey, LoadStatus } from "../../app-shell/AppShellTypes";
-import { buildReeLossesAnalyticsScopeLabel, buildReeLossesAnnualColumns, buildReeLossesEvolutionOption, buildReeLossesHeatmapScopeLabel, buildReeLossesHistoryCharts, buildReeLossesHistoryKpis, buildReeLossesKpis, buildReeLossesLatestAnnualScopeLabel, buildReeLossesRowsScopeLabel, buildReeLossesSummaryHeatmapOption, buildReeLossesTotalsRow, buildReeLossesVersionCompareOption, buildReeLossesVersionSourceCompareOption, compareReeLossesLoads, exportReeLossesLoadCsv, formatAnomalyLabel, formatDateTime, formatFactor, formatFullDate, formatLossPercent, formatMonthKeyLabel, formatNumber, formatSignedLossPercent, getReeLossesImportPeriodKey, getReeLossesImportPeriodLabel, getReeLossesLoadStatus, reeLossesQuality, buildReeLossesPeriodDistributionFromAnnualOption, pivotReeLossesAnnualRows, anomalyBadgeTone } from "./ReeLossesHelpers";
+import { buildReeLossesAnalyticsScopeLabel, buildReeLossesAnnualColumns, buildReeLossesEvolutionOption, buildReeLossesHeatmapScopeLabel, buildReeLossesHistoryCharts, buildReeLossesHistoryKpis, buildReeLossesKpis, buildReeLossesLatestAnnualScopeLabel, buildReeLossesRowsScopeLabel, buildReeLossesSummaryHeatmapOption, buildReeLossesTotalsRow, buildReeLossesVersionCompareOption, buildReeLossesVersionSourceCompareOption, compareReeLossesLoads, exportReeLossesLoadCsv, formatAnomalyLabel, formatDateTime, formatFactor, formatFullDate, formatKFactorType, formatLossPercent, formatMonthKeyLabel, formatNumber, formatSignedLossPercent, getReeLossesImportPeriodKey, getReeLossesImportPeriodLabel, getReeLossesLoadStatus, reeLossesQuality, buildReeLossesPeriodDistributionFromAnnualOption, pivotReeLossesAnnualRows, anomalyBadgeTone, settlementCodeOf, settlementDisplay, settlementTone } from "./ReeLossesHelpers";
+import { REE_SETTLEMENT_CODES, settlementRank } from "../../settlements";
 import type { ReeLossesLoadSortKey } from "./ReeLossesTypes";
 
 const SEARCHABLE_SELECT_THRESHOLD = 24;
@@ -31,7 +32,8 @@ export function ReeLossesFilterBand({
 
   return (
     <section className={`filter-band ree-losses-filter-band ${showVersion ? "" : "no-version"}`}>
-      {showVersion && <FilterSelect disabled={disabled} loading={loadingOptions} label="Versión" value={filters.version ?? ""} options={options?.versions ?? []} onChange={(value) => onChange("version", value)} />}
+      {showVersion && <FilterSelect disabled={disabled} loading={loadingOptions} label="Liquidacion" value={filters.version ?? ""} options={REE_SETTLEMENT_CODES} formatOption={settlementDisplay} onChange={(value) => onChange("version", value)} />}
+      <FilterSelect disabled={disabled} loading={loadingOptions} label="Tipo K" value={filters.tipoArchivo ?? ""} options={["KESTIMQH", "KREALQH"]} formatOption={formatKFactorType} onChange={(value) => onChange("tipoArchivo", value)} />
       <FilterSelect disabled={disabled} loading={loadingOptions} label="Mes" value={filters.mes ?? ""} options={options?.months ?? []} onChange={(value) => onChange("mes", value)} />
       <FilterSelect disabled={disabled} loading={loadingOptions} label="Tarifa" value={filters.tarifa ?? ""} options={options?.tarifas ?? []} onChange={(value) => onChange("tarifa", value)} />
       <FilterSelect disabled={disabled} loading={loadingOptions} label="Periodo" value={filters.periodo ?? ""} options={options?.periodos ?? []} onChange={(value) => onChange("periodo", value)} />
@@ -74,7 +76,7 @@ export function ReeLossesView({
     return (
       <section className="content-grid">
         <div className="panel wide">
-          <div className="empty-state">Sin datos cargados de KESTIMQH/KREALQH.</div>
+          <div className="empty-state">Sin datos cargados de K estimado o K real.</div>
         </div>
       </section>
     );
@@ -108,8 +110,8 @@ function ReeLossesHistoryModule({
   const [sortKey, setSortKey] = useState<ReeLossesLoadSortKey>("importedAt");
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("desc");
   const [tablePage, setTablePage] = useState(0);
-  const versionOptions = useMemo(() => [...new Set(files.map((file) => file.version).filter(Boolean))].sort(), [files]);
-  const typeOptions = useMemo(() => [...new Set(files.map((file) => file.tipoArchivo).filter(Boolean))].sort(), [files]);
+  const versionOptions = REE_SETTLEMENT_CODES;
+  const typeOptions = ["KESTIMQH", "KREALQH"];
   const filteredFiles = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return files
@@ -118,8 +120,8 @@ function ReeLossesHistoryModule({
         const importedDate = file.importedAt.slice(0, 10);
         const haystack = [
           file.fileName,
-          file.tipoArchivo ?? "",
-          file.version ?? "",
+          formatKFactorType(file.tipoArchivo),
+          settlementCodeOf(file),
           filePeriod,
           importedDate,
           file.errorMessage ?? ""
@@ -127,7 +129,7 @@ function ReeLossesHistoryModule({
         if (normalizedQuery && !haystack.includes(normalizedQuery)) {
           return false;
         }
-        if (version && file.version !== version) {
+        if (version && settlementCodeOf(file) !== version) {
           return false;
         }
         if (fileType && file.tipoArchivo !== fileType) {
@@ -184,7 +186,7 @@ function ReeLossesHistoryModule({
         <div>
           <p className="ops-eyebrow">Liquidaciones REE · Histórico</p>
           <h2>Histórico de cargas K REE</h2>
-          <span>Supervisión de ficheros KESTIMQH/KREALQH, estado de carga y trazabilidad de registros usados en pérdidas.</span>
+          <span>Supervision de ficheros K estimado y K real, estado de carga y trazabilidad de registros usados en perdidas.</span>
         </div>
         <div className="ops-hero-actions">
           <button className="ops-primary-button" onClick={() => exportReeLossesLoadCsv("cargas-perdidas-ree.csv", filteredFiles)} type="button">
@@ -216,7 +218,7 @@ function ReeLossesHistoryModule({
           </div>
           <div>
             <strong>Importación rápida</strong>
-            <span>Arrastra ficheros KESTIMQH/KREALQH en la zona superior y selecciona el modo K REE.</span>
+            <span>Arrastra ficheros K estimado o K real en la zona superior y selecciona el modo K REE.</span>
           </div>
           <div className="ops-progress-track">
             <span style={{ width: `${Math.min(100, Math.max(8, latestImport ? 100 : 18))}%` }} />
@@ -231,18 +233,18 @@ function ReeLossesHistoryModule({
       <div className="ops-filter-bar">
         <label className="ops-search">
           <Search size={16} />
-          <input value={query} onChange={(event) => { setQuery(event.target.value); setTablePage(0); }} placeholder="Buscar archivo, tipo, version..." />
+          <input value={query} onChange={(event) => { setQuery(event.target.value); setTablePage(0); }} placeholder="Buscar archivo, tipo K, liquidacion..." />
         </label>
         <select value={version} onChange={(event) => { setVersion(event.target.value); setTablePage(0); }}>
-          <option value="">Todas las versiones</option>
+          <option value="">Todas las liquidaciones</option>
           {versionOptions.map((item) => (
-            <option key={item} value={item ?? ""}>{item}</option>
+            <option key={item} value={item}>{settlementDisplay(item)}</option>
           ))}
         </select>
         <select value={fileType} onChange={(event) => { setFileType(event.target.value); setTablePage(0); }}>
-          <option value="">Todos los tipos</option>
+          <option value="">Todos los tipos K</option>
           {typeOptions.map((item) => (
-            <option key={item} value={item ?? ""}>{item}</option>
+            <option key={item} value={item}>{formatKFactorType(item)}</option>
           ))}
         </select>
         <input type="date" value={loadDate} onChange={(event) => { setLoadDate(event.target.value); setTablePage(0); }} />
@@ -306,7 +308,8 @@ function ReeLossesLoadsTable({
 }) {
   const header = [
     { key: "status" as const, label: "Estado" },
-    { key: "type" as const, label: "Tipo" },
+    { key: "type" as const, label: "Liquidacion" },
+    { key: "kType" as const, label: "Tipo K" },
     { key: "period" as const, label: "Periodo" },
     { key: "fileName" as const, label: "Archivo" },
     { key: "totalRecords" as const, label: "Registros" },
@@ -332,7 +335,8 @@ function ReeLossesLoadsTable({
         <div className="ops-load-row" key={file.id}>
           <span className="ops-select-cell" />
           <span><LoadStatusBadge status={getReeLossesLoadStatus(file)} /></span>
-          <span>{file.version ?? "-"}</span>
+          <span><SettlementBadge code={settlementCodeOf(file)} /></span>
+          <span><KTypeBadge type={file.tipoArchivo} /></span>
           <span>{getReeLossesImportPeriodLabel(file)}</span>
           <span className="ops-file-cell" title={file.fileName}>{file.fileName}</span>
           <span className="ops-number-cell">{file.totalRecords.toLocaleString("es-ES")}</span>
@@ -340,7 +344,7 @@ function ReeLossesLoadsTable({
           <span className="ops-number-cell danger">{file.invalidRecords.toLocaleString("es-ES")}</span>
           <span className="ops-number-cell warning">{file.duplicatedRecords.toLocaleString("es-ES")}</span>
           <span>{formatDateTime(file.importedAt)}</span>
-          <span className="ops-file-cell" title={file.errorMessage ?? file.tipoArchivo ?? ""}>{file.errorMessage ?? file.tipoArchivo ?? "-"}</span>
+          <span className="ops-file-cell" title={file.errorMessage ?? ""}>{file.errorMessage ?? "-"}</span>
         </div>
       ))}
       {files.length === 0 && <div className="ops-empty">Sin cargas de Liquidaciones REE con los filtros seleccionados.</div>}
@@ -378,12 +382,86 @@ function ReeLossesSystemModule({
       {loading && rows.length === 0 ? (
         <div className="panel wide"><InlineLoading label="Actualizando Liquidaciones REE" /></div>
       ) : rows.length > 0 ? (
-        <ReeLossesEvolutionPanel rows={rows} />
+        <>
+          <ReeLossesKBySettlementPanel rows={rows} />
+          <ReeLossesEvolutionPanel rows={rows} />
+        </>
       ) : (
         <div className="panel wide"><div className="empty-state">Sin registros para los filtros seleccionados.</div></div>
       )}
     </section>
   );
+}
+
+function ReeLossesKBySettlementPanel({ rows }: { rows: ReeLossesRow[] }) {
+  const summary = useMemo(() => buildKBySettlementRows(rows), [rows]);
+
+  return (
+    <div className="panel wide">
+      <PanelTitle icon={<Gauge size={18} />} title="K liquidado por liquidacion" subtitle="K estimado y K real se mantienen separados; no se promedian entre si." />
+      <div className="segment-summary-scroll">
+        <table className="segment-summary-table ree-losses-k-table">
+          <thead>
+            <tr>
+              <th>Liquidacion</th>
+              <th>Tipo K</th>
+              <th>Valor K medio</th>
+              <th>Registros</th>
+              <th>Uso</th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.map((row) => (
+              <tr key={`${row.settlementCode}-${row.tipoArchivo}`}>
+                <th scope="row"><SettlementBadge code={row.settlementCode} /></th>
+                <td><KTypeBadge type={row.tipoArchivo} /></td>
+                <td className="numeric">{formatFactor(row.averageK)}</td>
+                <td className="numeric">{formatNumber(row.records)}</td>
+                <td>{row.used ? "Utilizado en analitica" : "Disponible para comparacion"}</td>
+              </tr>
+            ))}
+            {summary.length === 0 && (
+              <tr>
+                <td colSpan={5}>Sin valores K para los filtros seleccionados.</td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function buildKBySettlementRows(rows: ReeLossesRow[]) {
+  const groups = new Map<string, { settlementCode: string; tipoArchivo: string; values: number[]; records: number; used: boolean }>();
+  for (const row of rows) {
+    const settlementCode = row.settlementCode ?? row.version;
+    const candidates = [
+      { tipoArchivo: "KESTIMQH", value: row.kestimValorK, used: row.tipoFicheroUtilizado === "KESTIMQH" },
+      { tipoArchivo: "KREALQH", value: row.krealValorK, used: row.tipoFicheroUtilizado === "KREALQH" }
+    ];
+    for (const candidate of candidates) {
+      if (candidate.value === null || candidate.value === undefined || !Number.isFinite(candidate.value)) {
+        continue;
+      }
+      const key = `${settlementCode}|${candidate.tipoArchivo}`;
+      const current = groups.get(key) ?? { settlementCode, tipoArchivo: candidate.tipoArchivo, values: [], records: 0, used: false };
+      current.values.push(candidate.value);
+      current.records += 1;
+      current.used = current.used || candidate.used;
+      groups.set(key, current);
+    }
+  }
+
+  return [...groups.values()]
+    .map((row) => ({
+      settlementCode: row.settlementCode,
+      tipoArchivo: row.tipoArchivo,
+      averageK: row.values.reduce((sum, value) => sum + value, 0) / row.values.length,
+      records: row.records,
+      used: row.used
+    }))
+    .sort((left, right) => settlementRank(left.settlementCode) - settlementRank(right.settlementCode) || left.tipoArchivo.localeCompare(right.tipoArchivo));
 }
 
 function ReeLossesDetailModule({ rows, loading }: { rows: ReeLossesRow[]; loading: boolean }) {
@@ -392,15 +470,17 @@ function ReeLossesDetailModule({ rows, loading }: { rows: ReeLossesRow[]; loadin
       { id: "fecha", label: "Fecha", width: 116, sticky: true, type: "date", filter: "text", heatmap: false, value: (row) => row.fecha, render: (row) => formatFullDate(row.fecha) },
       { id: "hora", label: "Hora", width: 76, sticky: true, align: "right", type: "number", filter: "select", heatmap: false, value: (row) => row.hora },
       { id: "cuartohora", label: "QH", width: 68, sticky: true, align: "right", type: "number", filter: "select", heatmap: false, value: (row) => row.cuartohora },
+      { id: "liquidacion", label: "Liquidacion", width: 126, filter: "select", heatmap: false, value: (row) => row.settlementCode ?? row.version, render: (row) => <SettlementBadge code={row.settlementCode ?? row.version} /> },
+      { id: "tipo", label: "Tipo K", width: 112, filter: "select", heatmap: false, value: (row) => row.tipoFicheroUtilizado, render: (row) => <KTypeBadge type={row.tipoFicheroUtilizado} /> },
       { id: "tarifa", label: "Tarifa", width: 96, filter: "select", heatmap: false, value: (row) => row.tarifa },
       { id: "periodo", label: "Periodo", width: 92, filter: "select", heatmap: false, value: (row) => row.periodo },
+      { id: "factorK", label: "Valor K", width: 112, align: "right", type: "number", filter: "number", value: (row) => row.factorKAplicado, render: (row) => formatFactor(row.factorKAplicado) },
       { id: "perdidaBoe", label: "Perdida BOE", width: 126, align: "right", type: "number", filter: "number", heatmap: false, value: (row) => row.perdidaBoe, render: (row) => formatLossPercent(row.perdidaBoe) },
-      { id: "factorK", label: "Factor K", width: 112, align: "right", type: "number", filter: "number", value: (row) => row.factorKAplicado, render: (row) => formatFactor(row.factorKAplicado) },
       { id: "perdidaFinal", label: "Perdida final", width: 126, align: "right", type: "number", filter: "number", value: (row) => row.perdidaFinal, render: (row) => formatLossPercent(row.perdidaFinal) },
       { id: "diferenciaVsBoe", label: "Dif. BOE", width: 112, align: "right", type: "number", filter: "number", heatmapTone: "risk", value: (row) => row.diferenciaVsBoe, render: (row) => formatLossPercent(row.diferenciaVsBoe) },
       { id: "diferenciaPct", label: "Dif. %", width: 104, align: "right", type: "number", filter: "number", heatmapTone: "risk", value: (row) => row.diferenciaPct, render: (row) => formatSignedLossPercent(row.diferenciaPct) },
-      { id: "tipo", label: "Tipo fichero", width: 118, filter: "select", heatmap: false, value: (row) => row.tipoFicheroUtilizado },
-      { id: "version", label: "Version", width: 88, filter: "select", heatmap: false, value: (row) => row.version },
+      { id: "kestim", label: "K estimado", width: 118, align: "right", advanced: true, type: "number", filter: "number", heatmap: false, value: (row) => row.kestimValorK, render: (row) => formatFactor(row.kestimValorK) },
+      { id: "kreal", label: "K real", width: 118, align: "right", advanced: true, type: "number", filter: "number", heatmap: false, value: (row) => row.krealValorK, render: (row) => formatFactor(row.krealValorK) },
       { id: "versionBoe", label: "BOE", width: 120, advanced: true, filter: "select", heatmap: false, value: (row) => row.versionBoe },
       { id: "anomalias", label: "Anomalias", width: 240, advanced: true, filter: "text", heatmap: false, value: (row) => row.anomalies.join(" "), render: (row) => <LossAnomalyBadges anomalies={row.anomalies} /> }
     ],
@@ -415,7 +495,7 @@ function ReeLossesDetailModule({ rows, loading }: { rows: ReeLossesRow[]; loadin
         <TechnicalDataTable
           columns={columns}
           exportFileName="analisis-perdidas-ree"
-          getDuplicateKey={(row) => [row.fecha, row.hora, row.cuartohora, row.tarifa, row.periodo, row.version].join("|")}
+          getDuplicateKey={(row) => [row.fecha, row.hora, row.cuartohora, row.tarifa, row.periodo, row.version, row.tipoFicheroUtilizado].join("|")}
           getGroupLabel={(row) => `${formatFullDate(row.fecha)} · ${row.tarifa}`}
           getRowId={(row) => row.id}
           getRowQuality={reeLossesQuality}
@@ -508,11 +588,11 @@ function ReeLossesAnalyticsCharts({ summary, fallbackRows }: { summary: ReeLosse
         <EChart option={heatmap} height={340} />
       </div>
       <div className="panel">
-        <PanelTitle icon={<BarChart3 size={18} />} title="BOE vs versiones" subtitle={summaryScope} />
+        <PanelTitle icon={<BarChart3 size={18} />} title="BOE vs liquidaciones" subtitle={summaryScope} />
         <EChart option={sourceCompare} height={340} />
       </div>
       <div className="panel">
-        <PanelTitle icon={<TrendingUp size={18} />} title="Comparativa versiones" subtitle={fallbackScope} />
+        <PanelTitle icon={<TrendingUp size={18} />} title="Comparativa liquidaciones" subtitle={fallbackScope} />
         <EChart option={versionCompare} height={340} />
       </div>
       <div className="panel wide">
@@ -547,7 +627,7 @@ function ReeLossesAnnualSummaryTable({ rows }: { rows: ReeLossesAnnualSummaryRow
               <tr key={row.mes}>
                 <th scope="row">
                   <span>{formatMonthKeyLabel(row.mes)}</span>
-                  <small>{row.versionLabel ? `Version ${row.versionLabel}` : "-"}</small>
+                  <small>{row.versionLabel ? `Liquidacion ${row.versionLabel}` : "-"}</small>
                 </th>
                 {columns.map((column) => {
                   const value = row.values[column.key];
@@ -597,6 +677,14 @@ function LoadStatusBadge({ status }: { status: LoadStatus }) {
   return <span className={`ops-status-badge ${status}`}>{label}</span>;
 }
 
+function SettlementBadge({ code }: { code?: string | null }) {
+  return <span className={`loss-settlement-badge ${settlementTone(code)}`}>{settlementDisplay(code)}</span>;
+}
+
+function KTypeBadge({ type }: { type?: string | null }) {
+  return <span className={`loss-k-badge ${type === "KREALQH" ? "real" : "estimated"}`}>{formatKFactorType(type)}</span>;
+}
+
 function PanelTitle({ icon, title, subtitle }: { icon: ReactNode; title: string; subtitle?: ReactNode }) {
   return (
     <div className="panel-title">
@@ -615,6 +703,7 @@ function FilterSelect({
   options,
   onChange,
   placeholder = "Todos",
+  formatOption,
   disabled = false,
   loading = false
 }: {
@@ -623,6 +712,7 @@ function FilterSelect({
   options: string[];
   onChange: (value: string) => void;
   placeholder?: string;
+  formatOption?: (value: string) => string;
   disabled?: boolean;
   loading?: boolean;
 }) {
@@ -649,7 +739,7 @@ function FilterSelect({
   }, [normalizedOptions, search]);
   const searchable = normalizedOptions.length > SEARCHABLE_SELECT_THRESHOLD;
   const controlDisabled = disabled || loading;
-  const displayValue = loading ? "Cargando..." : value || placeholder;
+  const displayValue = loading ? "Cargando..." : value ? (formatOption ? formatOption(value) : value) : placeholder;
 
   useEffect(() => {
     if (!open) {
@@ -680,7 +770,7 @@ function FilterSelect({
           <option value="">{loading ? "Cargando..." : placeholder}</option>
           {normalizedOptions.map((option) => (
             <option key={option} value={option}>
-              {option}
+              {formatOption ? formatOption(option) : option}
             </option>
           ))}
         </select>
@@ -749,7 +839,7 @@ function FilterSelect({
                 role="option"
                 type="button"
               >
-                {option}
+                {formatOption ? formatOption(option) : option}
               </button>
             ))}
           </div>

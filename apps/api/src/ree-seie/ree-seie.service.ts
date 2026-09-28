@@ -25,6 +25,8 @@ const FILE_SELECT = {
   fileHash: true,
   tipoArchivo: true,
   version: true,
+  settlementType: true,
+  settlementNumber: true,
   fechaLiquidacion: true,
   sujetoEic: true,
   encoding: true,
@@ -57,7 +59,7 @@ export class ReeSeieService {
     });
   }
 
-  async importFiles(files: Express.Multer.File[], options: { overwrite?: boolean; auditUser?: string } = {}) {
+  async importFiles(files: Express.Multer.File[], options: { overwrite?: boolean; auditUser?: string; settlementCode?: string } = {}) {
     if (files.length === 0) {
       throw new BadRequestException("Debe adjuntarse al menos un fichero multipart.");
     }
@@ -120,7 +122,9 @@ export class ReeSeieService {
       this.prisma.reeSeieFile.findMany({
         where: {
           fechaLiquidacion: buildDateRange(query),
-          version: query.version
+          version: query.version,
+          settlementType: query.settlementType,
+          settlementNumber: query.settlementNumber
         },
         select: FILE_SELECT,
         orderBy: {
@@ -129,7 +133,7 @@ export class ReeSeieService {
         take: 50
       }),
       this.prisma.reeSeieRecord.groupBy({
-        by: ["fechaLiquidacion", "version", "segmento", "tipo"] as const,
+        by: ["fechaLiquidacion", "version", "settlementType", "settlementNumber", "segmento", "tipo"] as const,
         where: buildWhere(query),
         _count: {
           _all: true
@@ -148,6 +152,9 @@ export class ReeSeieService {
       groups: records.map((row) => ({
         fechaLiquidacion: row.fechaLiquidacion,
         version: row.version,
+        settlementCode: row.version,
+        settlementType: row.settlementType,
+        settlementNumber: row.settlementNumber,
         segmento: row.segmento,
         tipo: row.tipo,
         records: row._count._all,
@@ -219,8 +226,8 @@ export class ReeSeieService {
           ELSE 'pending'
         END AS status,
         CASE
-          WHEN max(NULLIF(regexp_replace(version, '[^0-9]', '', 'g'), '')::int) FILTER (WHERE status = 'IMPORTED') IS NOT NULL
-            THEN 'Completo (C' || max(NULLIF(regexp_replace(version, '[^0-9]', '', 'g'), '')::int) FILTER (WHERE status = 'IMPORTED') || ')'
+          WHEN (array_agg(version ORDER BY ((settlement_number - 1) * 2 + CASE WHEN settlement_type = 'C' THEN 1 ELSE 0 END) DESC, imported_at DESC) FILTER (WHERE status = 'IMPORTED'))[1] IS NOT NULL
+            THEN 'Completo (' || (array_agg(version ORDER BY ((settlement_number - 1) * 2 + CASE WHEN settlement_type = 'C' THEN 1 ELSE 0 END) DESC, imported_at DESC) FILTER (WHERE status = 'IMPORTED'))[1] || ')'
           ELSE NULL
         END AS label,
         count(*) AS loads,
@@ -288,10 +295,10 @@ export class ReeSeieService {
     }
   }
 
-  private async importSourceFile(sourceFile: SourceFile, options: { overwrite?: boolean; auditUser?: string } = {}): Promise<ImportResult> {
+  private async importSourceFile(sourceFile: SourceFile, options: { overwrite?: boolean; auditUser?: string; settlementCode?: string } = {}): Promise<ImportResult> {
     let metadata: ReeSeieMetadata;
     try {
-      metadata = parseReeSeieMetadata(sourceFile.content, sourceFile.name);
+      metadata = parseReeSeieMetadata(sourceFile.content, sourceFile.name, { settlementCode: options.settlementCode });
     } catch (error) {
       return failedImport(sourceFile.name, error instanceof Error ? error.message : "Fichero SEIE no valido.");
     }
@@ -314,6 +321,8 @@ export class ReeSeieService {
           fileHash,
           tipoArchivo: ReeFileType.SEIE,
           version: metadata.version,
+          settlementType: metadata.settlementType,
+          settlementNumber: metadata.settlementNumber,
           fechaLiquidacion: metadata.fechaLiquidacion,
           sujetoEic: metadata.sujetoEic,
           encoding: sourceFile.encoding,
@@ -445,6 +454,8 @@ function toRecordRow(fileId: string, filename: string, fileHash: string, metadat
     filename,
     hash: fileHash,
     version: metadata.version,
+    settlementType: metadata.settlementType,
+    settlementNumber: metadata.settlementNumber,
     fechaLiquidacion: metadata.fechaLiquidacion,
     sujetoEic: metadata.sujetoEic,
     fecha: record.fecha,
@@ -567,6 +578,8 @@ function buildWhere(query: ReeSeieQueryDto): Prisma.ReeSeieRecordWhereInput {
     segmento: query.segmento,
     hora: query.hora,
     version: query.version,
+    settlementType: query.settlementType,
+    settlementNumber: query.settlementNumber,
     AND: andFilters.length > 0 ? andFilters : undefined
   };
 }

@@ -3,6 +3,7 @@ import AdmZip from "adm-zip";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { findSettlementCode, isSettlementCode, parseSettlementCode, SETTLEMENT_CODES, settlementRank, type SettlementCode } from "../common/settlements";
 import { ImportsService } from "../imports/imports.service";
 import { parseMedperFileMetadata } from "../imports/parsers/medper.parser";
 import { parseReeFileMetadata } from "../imports/parsers/reganecu.parser";
@@ -15,9 +16,9 @@ import { ReeEsiosPrivateParserService } from "./ree-esios-private-parser.service
 import type { ReeEsiosMessageMetadata } from "./types/ree-esios-private.types";
 
 type DownloadFamily = "liquicomun" | "liqui-empresa";
-type SettlementVersion = "A1" | "C1" | "C2" | "C3" | "C4" | "C5";
-type ParsedLqMessage = {
-  settlement: SettlementVersion;
+export type LqSettlementFilter = "ALL" | "ADVANCES" | "CLOSURES" | SettlementCode;
+export type ParsedLqMessage = {
+  settlement: SettlementCode;
   family: DownloadFamily;
   owner: string | null;
   month: string;
@@ -28,6 +29,11 @@ type LqDownloadResult = {
   source: "REE_ESIOS";
   service: "ServicioLQ";
   family: DownloadFamily;
+  settlementCode: SettlementCode;
+  settlementType: "A" | "C";
+  settlementNumber: number;
+  settlementLabel: "Avance" | "Cierre";
+  month: string;
   requestedPublicationDate: string;
   owner: string | null;
   selectedMessage: ReeEsiosMessageMetadata;
@@ -103,6 +109,7 @@ export class ReeEsiosPrivateLqService {
       requestedPublicationDate: publicationDate,
       owner: null,
       selected,
+      parsed,
       downloaded,
       selectedFiles: selectedEntries,
       importResponse
@@ -148,7 +155,7 @@ export class ReeEsiosPrivateLqService {
         zipName: downloaded.reeZipName,
         entries: seieEntries,
         emptyResponse: emptySeieImportResponse(seieEntries),
-        run: (upload) => this.seieService.importFiles([upload], { auditUser: "REE_ESIOS" })
+        run: (upload) => this.seieService.importFiles([upload], { auditUser: "REE_ESIOS", settlementCode: parsed?.settlement })
       })
     };
 
@@ -157,23 +164,26 @@ export class ReeEsiosPrivateLqService {
       requestedPublicationDate: publicationDate,
       owner: normalizedOwner,
       selected,
+      parsed,
       downloaded,
       selectedFiles: [...reganecuEntries, ...medperEntries, ...seieEntries],
       importResponse
     });
   }
 
-  async syncLiquicomunRange(from: string, to: string) {
+  async syncLiquicomunRange(from: string, to: string, settlementFilter = "ALL") {
+    const normalizedFilter = normalizeSettlementFilter(settlementFilter);
     return this.syncRange(from, to, async (date, messages) => {
-      const candidates = selectMessages(messages, "liquicomun");
+      const candidates = filterMessagesBySettlement(selectMessages(messages, "liquicomun"), normalizedFilter);
       return Promise.all(candidates.map((message) => this.processLiquicomunMessage(date, message)));
     });
   }
 
-  async syncLiquiEmpresaRange(from: string, to: string, owner = "STROM") {
+  async syncLiquiEmpresaRange(from: string, to: string, owner = "STROM", settlementFilter = "ALL") {
     const normalizedOwner = owner.trim().toUpperCase() || "STROM";
+    const normalizedFilter = normalizeSettlementFilter(settlementFilter);
     return this.syncRange(from, to, async (date, messages) => {
-      const candidates = selectMessages(messages, "liquidacion", normalizedOwner);
+      const candidates = filterMessagesBySettlement(selectMessages(messages, "liquidacion", normalizedOwner), normalizedFilter);
       return Promise.all(candidates.map((message) => this.processLiquiEmpresaMessage(date, normalizedOwner, message)));
     });
   }
@@ -191,7 +201,7 @@ export class ReeEsiosPrivateLqService {
       to,
       owner: normalizedOwner,
       months: [...new Set(cells.map((cell) => cell.month))].sort((left, right) => right.localeCompare(left)),
-      settlements: ["A1", "C1", "C2", "C3", "C4", "C5"] satisfies SettlementVersion[],
+      settlements: SETTLEMENT_CODES,
       cells
     };
   }
@@ -271,6 +281,7 @@ export class ReeEsiosPrivateLqService {
       payload: input.downloaded.payload
     });
 
+    const settlementIdentity = parseSettlementCode(input.parsed.settlement);
     const record = await this.prisma.reeEsiosLqZipFile.upsert({
       where: {
         ree_esios_lq_zip_latest_unique: {
@@ -283,6 +294,8 @@ export class ReeEsiosPrivateLqService {
       create: {
         month: input.parsed.month,
         settlement: input.parsed.settlement,
+        settlementType: settlementIdentity.settlementType,
+        settlementNumber: settlementIdentity.settlementNumber,
         family: input.parsed.family,
         owner: catalogOwner,
         messageId: input.message.messageId,
@@ -361,7 +374,7 @@ export class ReeEsiosPrivateLqService {
       to: months[0] ?? "",
       owner: normalizedOwner,
       months,
-      settlements: ["A1", "C1", "C2", "C3", "C4", "C5"] satisfies SettlementVersion[],
+      settlements: SETTLEMENT_CODES,
       cells
     };
   }
@@ -476,6 +489,7 @@ export class ReeEsiosPrivateLqService {
       throw new NotFoundException(`No se encontraron ficheros ${settlement} ${input.month} publicados entre ${input.from} y ${input.to}.`);
     }
 
+    const identity = parseSettlementCode(settlement);
     return {
       source: "REE_ESIOS",
       service: "ServicioLQ",
@@ -483,6 +497,10 @@ export class ReeEsiosPrivateLqService {
       to: input.to,
       month: input.month,
       settlement,
+      settlementCode: identity.settlementCode,
+      settlementType: identity.settlementType,
+      settlementNumber: identity.settlementNumber,
+      settlementLabel: settlementLabel(identity.settlementType),
       owner: normalizedOwner,
       missing,
       count: results.length,
@@ -685,7 +703,7 @@ export class ReeEsiosPrivateLqService {
   }
 
   private async selectKFactorEntries(entries: Array<{ name: string; buffer: Buffer; size: number; hash: string }>) {
-    const candidates = entries.filter((entry) => /^(?:A1|C[1-5])_K(?:estimqh|realqh)_\d{8}_\d{8}$/i.test(entry.name));
+    const candidates = entries.filter((entry) => /^[AC][1-5]_K(?:estimqh|realqh)_\d{8}_\d{8}$/i.test(entry.name));
     const selected = [];
     for (const entry of candidates) {
       const parsed = parseKCandidate(entry);
@@ -711,7 +729,7 @@ export class ReeEsiosPrivateLqService {
   }
 
   private async selectSeieEntries(entries: Array<{ name: string; buffer: Buffer; size: number; hash: string }>) {
-    const candidates = entries.filter((entry) => /^C[1-5]_SEIErega_\d{8}_/i.test(entry.name));
+    const candidates = entries.filter((entry) => /^[AC][1-5]_SEIErega_\d{8}_/i.test(entry.name));
     const selected = [];
     for (const entry of candidates) {
       const existing = await this.prisma.reeSeieFile.findUnique({
@@ -728,7 +746,7 @@ export class ReeEsiosPrivateLqService {
   }
 
   private async selectReganecuEntries(entries: Array<{ name: string; buffer: Buffer; size: number; hash: string }>) {
-    const candidates = entries.filter((entry) => /^C[1-5]_?reganecu(?:QH)?_\d{8}_[A-Z0-9]+/i.test(entry.name));
+    const candidates = entries.filter((entry) => /^[AC][1-5]_?reganecu(?:QH)?_\d{8}_[A-Z0-9]+/i.test(entry.name));
     const selected = [];
     for (const entry of candidates) {
       try {
@@ -760,7 +778,7 @@ export class ReeEsiosPrivateLqService {
   }
 
   private async selectMedperEntries(entries: Array<{ name: string; buffer: Buffer; size: number; hash: string }>) {
-    const candidates = entries.filter((entry) => /^C[1-5].*(?:medperqh|meperqh)/i.test(entry.name) || /(?:medperqh|meperqh).*C[1-5]/i.test(entry.name));
+    const candidates = entries.filter((entry) => /^[AC][1-5].*(?:medperqh|meperqh)/i.test(entry.name) || /(?:medperqh|meperqh).*[AC][1-5]/i.test(entry.name));
     const selected = [];
     for (const entry of candidates) {
       try {
@@ -798,14 +816,25 @@ function buildResult(input: {
   requestedPublicationDate: string;
   owner: string | null;
   selected: ReeEsiosMessageMetadata;
+  parsed: ParsedLqMessage | null;
   downloaded: { reeZipName: string; payloadBytes: number; sha256: string; totalFiles: number };
   selectedFiles: Array<{ name: string; hash: string; size: number; status: "IMPORTED" | "SKIPPED" | "FAILED"; reason?: string; validRecords?: number }>;
   importResponse: unknown;
 }): LqDownloadResult {
+  const parsed = input.parsed ?? parseLqMessage(input.selected, input.owner ?? "STROM");
+  if (!parsed) {
+    throw new BadGatewayException(`El mensaje ${input.selected.messageId} no informa una liquidacion A1-C5 reconocible.`);
+  }
+  const identity = parseSettlementCode(parsed.settlement);
   return {
     source: "REE_ESIOS",
     service: "ServicioLQ",
     family: input.family,
+    settlementCode: identity.settlementCode,
+    settlementType: identity.settlementType,
+    settlementNumber: identity.settlementNumber,
+    settlementLabel: settlementLabel(identity.settlementType),
+    month: parsed.month,
     requestedPublicationDate: input.requestedPublicationDate,
     owner: input.owner,
     selectedMessage: input.selected,
@@ -845,10 +874,39 @@ function selectMessages(messages: ReeEsiosMessageMetadata[], kind: "liquicomun" 
     if (!matchesFamily) {
       return false;
     }
-    const rank = settlementRank(message.messageId);
-    return kind === "liquicomun" ? rank >= settlementRank("A1") : rank >= settlementRank("C1");
+    return settlementRank(message.messageId) >= settlementRank("A1");
   });
   return candidates.sort(compareMessages);
+}
+
+function normalizeSettlementFilter(value: string | null | undefined): LqSettlementFilter {
+  const normalized = (value || "ALL").trim().toUpperCase();
+  if (normalized === "" || normalized === "ALL" || normalized === "ADVANCES" || normalized === "CLOSURES") {
+    return (normalized || "ALL") as LqSettlementFilter;
+  }
+  if (isSettlementCode(normalized)) {
+    return normalized;
+  }
+  throw new BadRequestException("settlementFilter debe ser ALL, ADVANCES, CLOSURES o A1-C5.");
+}
+
+function filterMessagesBySettlement(messages: ReeEsiosMessageMetadata[], filter: LqSettlementFilter) {
+  if (filter === "ALL") {
+    return messages;
+  }
+  return messages.filter((message) => {
+    const settlement = findSettlementCode(message.messageId);
+    if (!settlement) {
+      return false;
+    }
+    if (filter === "ADVANCES") {
+      return settlement.settlementType === "A";
+    }
+    if (filter === "CLOSURES") {
+      return settlement.settlementType === "C";
+    }
+    return settlement.settlementCode === filter;
+  });
 }
 
 function compareMessages(left: ReeEsiosMessageMetadata, right: ReeEsiosMessageMetadata) {
@@ -862,11 +920,6 @@ function buildReeZipName(message: ReeEsiosMessageMetadata) {
   const withoutZip = rawName.replace(/\.zip$/i, "");
   const versionSuffix = message.version && !new RegExp(`\\.${message.version}$`, "i").test(withoutZip) ? `.${message.version}` : "";
   return `REE_ESIOS_${withoutZip}${versionSuffix}.zip`;
-}
-
-function settlementRank(value: string) {
-  const version = /(?:^|_)(A1|C[1-5])(?:_|$)/i.exec(value)?.[1]?.toUpperCase();
-  return { A1: 1, C1: 2, C2: 3, C3: 4, C4: 5, C5: 6 }[version as "A1" | "C1" | "C2" | "C3" | "C4" | "C5"] ?? 0;
 }
 
 function buildMonthlyMatrix(messages: ReeEsiosMessageMetadata[], owner: string) {
@@ -897,10 +950,15 @@ function buildMonthlyMatrix(messages: ReeEsiosMessageMetadata[], owner: string) 
   return [...map.values()].sort((left, right) => right.month.localeCompare(left.month) || settlementRank(left.settlement) - settlementRank(right.settlement));
 }
 
-function emptyMatrixCell(month: string, settlement: SettlementVersion) {
+function emptyMatrixCell(month: string, settlement: SettlementCode) {
+  const identity = parseSettlementCode(settlement);
   return {
     month,
     settlement,
+    settlementCode: identity.settlementCode,
+    settlementType: identity.settlementType,
+    settlementNumber: identity.settlementNumber,
+    settlementLabel: settlementLabel(identity.settlementType),
     liquicomun: null as LqMessageSummary | null,
     liquiEmpresa: null as LqMessageSummary | null
   };
@@ -913,6 +971,7 @@ type LqMessageSummary = {
   owner: string | null;
   publicationDate: string | null;
   messageDate: string | null;
+  downloadedAt?: string | null;
   fileVersion: number;
 };
 
@@ -924,7 +983,7 @@ function pickLatestSummary(current: LqMessageSummary | null, next: LqMessageSumm
   return comparison > 0 ? next : current;
 }
 
-function selectMonthlyPair(messages: ReeEsiosMessageMetadata[], month: string, settlement: SettlementVersion, owner: string) {
+function selectMonthlyPair(messages: ReeEsiosMessageMetadata[], month: string, settlement: SettlementCode, owner: string) {
   const matches = messages
     .map((message) => ({ message, parsed: parseLqMessage(message, owner) }))
     .filter((item): item is { message: ReeEsiosMessageMetadata; parsed: NonNullable<ReturnType<typeof parseLqMessage>> } => {
@@ -954,20 +1013,17 @@ function compareMonthlyCandidates(
   return right.parsed.fileVersion - left.parsed.fileVersion || (right.message.messageDate ?? "").localeCompare(left.message.messageDate ?? "");
 }
 
-function parseLqMessage(message: ReeEsiosMessageMetadata, owner: string): ParsedLqMessage | null {
+export function parseLqMessage(message: ReeEsiosMessageMetadata, owner: string): ParsedLqMessage | null {
   const id = message.messageId.trim();
-  const pattern = /^(A1|C[1-5])_(liquicomun|liquidacion(?:_([A-Z0-9]+))?)_(\d{6})(?:\.(\d+))?\.zip$/i;
+  const pattern = /^([AC][1-5])_(liquicomun|liquidacion(?:_([A-Z0-9]+))?)_(\d{6})(?:\.(\d+))?\.zip$/i;
   const match = pattern.exec(id);
   if (!match) {
     return null;
   }
-  const settlement = match[1].toUpperCase() as SettlementVersion;
+  const settlement = parseSettlementCode(match[1]).settlementCode;
   const rawFamily = match[2].toLowerCase();
   const messageOwner = match[3]?.toUpperCase() ?? null;
   const family: DownloadFamily = rawFamily.startsWith("liquicomun") ? "liquicomun" : "liqui-empresa";
-  if (family === "liqui-empresa" && settlement === "A1") {
-    return null;
-  }
   if (family === "liqui-empresa" && messageOwner !== owner.toUpperCase()) {
     return null;
   }
@@ -983,7 +1039,10 @@ function parseLqMessage(message: ReeEsiosMessageMetadata, owner: string): Parsed
 function buildMonthlyMatrixFromCatalog(records: Array<{
   month: string;
   settlement: string;
+  settlementType: string;
+  settlementNumber: number;
   family: string;
+  owner: string;
   code: string;
   messageId: string;
   messageType: string | null;
@@ -991,6 +1050,7 @@ function buildMonthlyMatrixFromCatalog(records: Array<{
   publicationDate: Date;
   messageDate: Date | null;
   fileVersion: number;
+  downloadedAt: Date;
 }>) {
   const map = new Map<string, ReturnType<typeof emptyMatrixCell>>();
   for (const record of records) {
@@ -1004,6 +1064,7 @@ function buildMonthlyMatrixFromCatalog(records: Array<{
       owner: record.messageOwner,
       publicationDate: formatDateOnly(record.publicationDate),
       messageDate: record.messageDate?.toISOString() ?? null,
+      downloadedAt: record.downloadedAt.toISOString(),
       fileVersion: record.fileVersion
     };
     if (record.family === "liquicomun") {
@@ -1036,7 +1097,7 @@ function isNewerCatalogMessage(
   return message.messageId !== current.messageId;
 }
 
-async function writeCatalogZip(input: { month: string; settlement: SettlementVersion; zipName: string; payload: Buffer }) {
+async function writeCatalogZip(input: { month: string; settlement: SettlementCode; zipName: string; payload: Buffer }) {
   const dir = join(lqZipRoot(), input.month, input.settlement);
   await mkdir(dir, { recursive: true });
   const filePath = join(dir, safeFileName(input.zipName));
@@ -1082,12 +1143,16 @@ function publicationDateOf(message: ReeEsiosMessageMetadata) {
   return date;
 }
 
-function normalizeSettlement(value: string): SettlementVersion {
+function normalizeSettlement(value: string): SettlementCode {
   const normalized = value.trim().toUpperCase();
-  if (!/^(?:A1|C[1-5])$/.test(normalized)) {
-    throw new BadRequestException("settlement debe ser A1 o C1-C5.");
+  if (!isSettlementCode(normalized)) {
+    throw new BadRequestException("settlement debe ser A1-A5 o C1-C5.");
   }
-  return normalized as SettlementVersion;
+  return normalized;
+}
+
+function settlementLabel(type: "A" | "C") {
+  return type === "A" ? "Avance" : "Cierre";
 }
 
 function validateMonth(value: string) {

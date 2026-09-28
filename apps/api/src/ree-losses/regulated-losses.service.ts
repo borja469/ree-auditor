@@ -12,6 +12,7 @@ export type RegulatedLossHourlyValue = {
   value: number | null;
   version: PricingSettlementVersion | null;
   status: PricingBaseStatus;
+  sourceId?: string | null;
 };
 
 @Injectable()
@@ -44,6 +45,8 @@ export class RegulatedLossesService {
           hora: true,
           cuartohora: true,
           version: true,
+          settlementType: true,
+          settlementNumber: true,
           tarifa: true,
           tipoArchivo: true,
           periodo: true,
@@ -56,14 +59,14 @@ export class RegulatedLossesService {
     ]);
 
     const lossRows = this.analyticsEngine.buildRows(kFactors, boeLosses, context);
-    const groups = new Map<string, Map<PricingSettlementVersion, number[]>>();
+    const groups = new Map<string, Map<PricingSettlementVersion, Array<{ value: number; sourceId: string }>>>();
     for (const row of lossRows) {
       if (row.tarifa !== normalizedTariff || row.perdidaFinal === null) {
         continue;
       }
       const hourKey = `${row.fecha}|${row.hora}`;
-      const versions = groups.get(hourKey) ?? new Map<PricingSettlementVersion, number[]>();
-      versions.set(row.version as PricingSettlementVersion, [...(versions.get(row.version as PricingSettlementVersion) ?? []), row.perdidaFinal]);
+      const versions = groups.get(hourKey) ?? new Map<PricingSettlementVersion, Array<{ value: number; sourceId: string }>>();
+      versions.set(row.version as PricingSettlementVersion, [...(versions.get(row.version as PricingSettlementVersion) ?? []), { value: row.perdidaFinal, sourceId: row.id }]);
       groups.set(hourKey, versions);
     }
 
@@ -71,14 +74,22 @@ export class RegulatedLossesService {
     for (const [hourKey, versions] of groups.entries()) {
       const [fecha, horaText] = hourKey.split("|");
       const candidates = [...versions.entries()].map(([version, values]) => {
-        const hourly = hourlyAverageFromValues(fecha, Number(horaText), "", values);
-        return { version, value: { value: hourly.valorPromedioHorario, status: hourly.status } };
+        const hourly = hourlyAverageFromValues(fecha, Number(horaText), "", values.map((item) => item.value));
+        return {
+          version,
+          value: {
+            value: hourly.valorPromedioHorario,
+            status: hourly.status,
+            sourceId: values.map((item) => item.sourceId).sort().join(",") || null
+          }
+        };
       });
       const latest = selectLatestAvailableVersion(candidates);
       result.set(hourKey, {
         value: latest.value?.value ?? null,
         version: latest.version,
-        status: latest.value?.status ?? "missing"
+        status: latest.value?.status ?? "missing",
+        sourceId: latest.value?.sourceId ?? null
       });
     }
 
@@ -87,10 +98,15 @@ export class RegulatedLossesService {
 }
 
 const PRISMA_PRICING_VERSIONS = [
+  ReeSettlementVersion.A1,
   ReeSettlementVersion.C1,
+  ReeSettlementVersion.A2,
   ReeSettlementVersion.C2,
+  ReeSettlementVersion.A3,
   ReeSettlementVersion.C3,
+  ReeSettlementVersion.A4,
   ReeSettlementVersion.C4,
+  ReeSettlementVersion.A5,
   ReeSettlementVersion.C5
 ];
 

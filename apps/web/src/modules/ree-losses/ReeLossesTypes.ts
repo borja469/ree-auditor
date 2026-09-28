@@ -1,6 +1,7 @@
 export type ReeLossesLoadSortKey =
   | "status"
   | "type"
+  | "kType"
   | "period"
   | "fileName"
   | "totalRecords"
@@ -8,4 +9,3 @@ export type ReeLossesLoadSortKey =
   | "invalidRecords"
   | "duplicatedRecords"
   | "importedAt";
-

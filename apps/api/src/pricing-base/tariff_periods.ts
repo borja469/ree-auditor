@@ -24,12 +24,12 @@ export function periodo30TD(row: Pick<PricingCalendarHour, "fecha" | "mes" | "di
   }
   const dayType = monthType30(row.mes);
   if (dayType === "high") {
-    return row.hora >= 18 && row.hora < 22 ? "P1" : row.hora >= 8 && row.hora < 24 ? "P2" : "P6";
+    return isSixPeriodPeakHour(row.hora) ? "P1" : row.hora >= 8 && row.hora < 24 ? "P2" : "P6";
   }
   if (dayType === "mid") {
-    return row.hora >= 18 && row.hora < 22 ? "P3" : row.hora >= 8 && row.hora < 24 ? "P4" : "P6";
+    return isSixPeriodPeakHour(row.hora) ? "P3" : row.hora >= 8 && row.hora < 24 ? "P4" : "P6";
   }
-  return row.hora >= 8 && row.hora < 24 ? "P5" : "P6";
+  return isSixPeriodPeakHour(row.hora) ? "P4" : row.hora >= 8 && row.hora < 24 ? "P5" : "P6";
 }
 
 export function periodo6XTD(row: Pick<PricingCalendarHour, "fecha" | "mes" | "diaSemana" | "hora">) {
@@ -37,7 +37,7 @@ export function periodo6XTD(row: Pick<PricingCalendarHour, "fecha" | "mes" | "di
     return "P6";
   }
   const season = monthSeason6X(row.mes);
-  if (row.hora >= 18 && row.hora < 22) {
+  if (isSixPeriodPeakHour(row.hora)) {
     return season.peak;
   }
   if (row.hora >= 8 && row.hora < 24) {
@@ -91,6 +91,10 @@ function monthSeason6X(month: number): { peak: string; shoulder: string } {
     return { peak: "P3", shoulder: "P4" };
   }
   return { peak: "P4", shoulder: "P5" };
+}
+
+function isSixPeriodPeakHour(hour: number) {
+  return (hour >= 9 && hour < 14) || (hour >= 18 && hour < 22);
 }
 
 function easterSunday(year: number) {

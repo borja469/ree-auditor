@@ -147,6 +147,8 @@ export class ReeLossesRegulatoryEngine implements OnModuleInit {
         hora: record.hora,
         cuartohora: record.cuartohora,
         version: metadata.version,
+        settlementType: metadata.settlementType,
+        settlementNumber: metadata.settlementNumber,
         tipoArchivo: metadata.tipoArchivo,
         tarifa,
         periodo,

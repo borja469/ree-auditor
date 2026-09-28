@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
+import { findSettlementCode, parseSettlementCode, type SettlementNumber, type SettlementType } from "../../common/settlements";
 import { splitDelimitedLine } from "../../imports/parsers/reganecu.parser";
 
 export interface ReeSeieMetadata {
   tipoArchivo: "SEIE";
   version: string;
+  settlementCode: string;
+  settlementType: SettlementType;
+  settlementNumber: SettlementNumber;
   fechaLiquidacion: Date;
   sujetoEic?: string;
   headerFields: string[];
@@ -72,13 +76,12 @@ export type ReeSeieField = (typeof SEIE_POSITIONAL_FIELDS)[number];
 
 const EXPECTED_COLUMNS = SEIE_POSITIONAL_FIELDS.length;
 const HEADER_PREFIX = /^SEIE/i;
-const VERSION_PATTERN = /(?:^|[_\-\s])(C[1-5])(?:[_\-\s]|$)/i;
 
 export function detectSeieDelimiter(content: string) {
   return content.includes(";") ? ";" : ",";
 }
 
-export function parseReeSeieMetadata(content: string, sourceFileName: string): ReeSeieMetadata {
+export function parseReeSeieMetadata(content: string, sourceFileName: string, options: { settlementCode?: string } = {}): ReeSeieMetadata {
   const nonEmptyLines = content
     .replace(/^\uFEFF/, "")
     .split(/\r?\n/)
@@ -115,10 +118,20 @@ export function parseReeSeieMetadata(content: string, sourceFileName: string): R
   if (!fechaLiquidacion) {
     throw new Error(`Fecha de liquidacion SEIE invalida en ${sourceFileName}.`);
   }
+  const settlement =
+    parseOptionalInputSettlement(options.settlementCode) ??
+    parseSettlementFromHeader(values) ??
+    findSettlementCode(sourceFileName);
+  if (!settlement) {
+    throw new Error(`Liquidacion SEIE no identificable en ${sourceFileName}. Debe informarse A1-A5 o C1-C5 en metadatos oficiales o nombre de fichero.`);
+  }
 
   return {
     tipoArchivo: "SEIE",
-    version: parseVersionFromName(sourceFileName) ?? "C1",
+    version: settlement.settlementCode,
+    settlementCode: settlement.settlementCode,
+    settlementType: settlement.settlementType,
+    settlementNumber: settlement.settlementNumber,
     fechaLiquidacion,
     headerFields: values,
     headerLineCount
@@ -349,8 +362,18 @@ function readFirstRecordDate(lines: string[]) {
   return undefined;
 }
 
-function parseVersionFromName(fileName: string) {
-  return VERSION_PATTERN.exec(fileName)?.[1]?.toUpperCase();
+function parseOptionalInputSettlement(value: string | undefined) {
+  return value ? parseSettlementCode(value) : null;
+}
+
+function parseSettlementFromHeader(values: string[]) {
+  for (const value of values) {
+    const parsed = findSettlementCode(value);
+    if (parsed) {
+      return parsed;
+    }
+  }
+  return null;
 }
 
 function buildUtcDate(year: number, month: number, day: number) {

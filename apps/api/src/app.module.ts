@@ -2,6 +2,7 @@ import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { AnnualReportModule } from "./annual-report/annual-report.module";
 import { AuthMiddleware } from "./auth/auth.middleware";
 import { AuthModule } from "./auth/auth.module";
+import { BillingDashboardModule } from "./billing-dashboard/billing-dashboard.module";
 import { EsiosModule } from "./esios/esios.module";
 import { ForecastModule } from "./forecast/forecast.module";
 import { GasMibgasModule } from "./gas-mibgas/gas-mibgas.module";
@@ -31,6 +32,7 @@ import { ReeSeieModule } from "./ree-seie/ree-seie.module";
     PrismaModule,
     HealthModule,
     AnnualReportModule,
+    BillingDashboardModule,
     ImportsModule,
     ReeLossesModule,
     OmieSiom2Module,

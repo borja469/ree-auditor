@@ -237,8 +237,8 @@ export function buildOmieMonthlyAnalysisKpis(analisis: OmieAnalisisMensualRespon
   return [
     { label: "Suma Profit", value: formatOmieProfit(analisis.kpis.sumaProfit), tone: omieProfitKpiTone(analisis.kpis.sumaProfit) },
     { label: "Vol. Total", value: `${formatOmieEnergy(analisis.kpis.volumenTotal)} MWh`, tone: "neutral" },
-    { label: "Energ�a Total", value: `${formatOmieEnergy(analisis.kpis.energiaTotal)} MWh`, tone: analisis.kpis.energiaTotal === null ? "warning" : "good" },
-    { label: "Profit Medio �/MWh", value: formatOmieProfitRate(analisis.kpis.profitMedioEurMWh), tone: omieProfitKpiTone(analisis.kpis.profitMedioEurMWh) }
+    { label: "Energía Total", value: `${formatOmieEnergy(analisis.kpis.energiaTotal)} MWh`, tone: analisis.kpis.energiaTotal === null ? "warning" : "good" },
+    { label: "Profit Medio €/MWh", value: formatOmieProfitRate(analisis.kpis.profitMedioEurMWh), tone: omieProfitKpiTone(analisis.kpis.profitMedioEurMWh) }
   ];
 }
 
@@ -375,7 +375,7 @@ export function exportTechnicalRows<T extends object>(name: string, columns: Arr
 
       downloadBlob(name, table.map((line) => line.map(csvCell).join(";")).join("\n"), "text/csv;charset=utf-8");
     },
-    { label: "Preparando exportaci�n" }
+    { label: "Preparando exportación" }
   );
 }
 

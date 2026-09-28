@@ -15,7 +15,7 @@ export class ReeLossesQueryDto {
   fechaFin?: string;
 
   @IsOptional()
-  @Matches(/^(A1|C[1-5])$/i)
+  @Matches(/^[AC][1-5]$/i)
   version?: string;
 
   @IsOptional()
@@ -25,6 +25,10 @@ export class ReeLossesQueryDto {
   @IsOptional()
   @Matches(/^P[1-6]$/i)
   periodo?: string;
+
+  @IsOptional()
+  @Matches(/^K(ESTIM|REAL)QH$/i)
+  tipoArchivo?: string;
 
   @IsOptional()
   @Transform(({ value }) => Number(value))

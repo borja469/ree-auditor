@@ -16,10 +16,19 @@ enum ReeFileType {
 enum ReeSettlementVersion {
   A1
   C1
+  A2
   C2
+  A3
   C3
+  A4
   C4
+  A5
   C5
+}
+
+enum ReeSettlementType {
+  A
+  C
 }
 
 enum ReeImportStatus {
@@ -86,6 +95,31 @@ enum AnnualReportRetributionType {
   REMIT
 }
 
+enum CmInvoiceProcessingStatus {
+  IMPORTED
+  PROCESSING
+  READY
+  WARNING
+  ERROR
+}
+
+enum CmInvoiceConsumptionSource {
+  F1
+  P1
+  F5D
+  P5D
+  PROFILE_FINAL
+  PROFILE_INTERMEDIATE
+  PROFILE_INITIAL
+  MISSING
+}
+
+enum CmInvoiceProfileType {
+  FINAL
+  INTERMEDIO
+  INICIAL
+}
+
 model ReeFile {
   id                 String               @id @default(uuid()) @db.Uuid
   fileName           String               @map("file_name")
@@ -93,6 +127,8 @@ model ReeFile {
   fileHash           String               @map("file_hash")
   tipoArchivo        ReeFileType          @map("tipo_archivo")
   version            ReeSettlementVersion
+  settlementType     ReeSettlementType    @map("settlement_type")
+  settlementNumber   Int                  @map("settlement_number")
   fechaLiquidacion   DateTime             @map("fecha_liquidacion") @db.Date
   sujetoEic          String               @map("sujeto_eic")
   encoding           String
@@ -112,6 +148,7 @@ model ReeFile {
   @@index([fileHash])
   @@index([tipoArchivo])
   @@index([version])
+  @@index([settlementType, settlementNumber])
   @@index([fechaLiquidacion])
   @@index([sujetoEic])
   @@index([importedAt])
@@ -158,6 +195,8 @@ model ReganecuRecord {
   file                          ReeFile              @relation(fields: [fileId], references: [id], onDelete: Cascade)
   tipoArchivo                   ReeFileType          @map("tipo_archivo")
   version                       ReeSettlementVersion
+  settlementType                ReeSettlementType    @map("settlement_type")
+  settlementNumber              Int                  @map("settlement_number")
   fechaLiquidacion              DateTime             @map("fecha_liquidacion") @db.Date
   sujetoEic                     String               @map("sujeto_eic")
   brp                           String?
@@ -197,6 +236,7 @@ model ReganecuRecord {
   @@index([fecha])
   @@index([fechaLiquidacion])
   @@index([version])
+  @@index([settlementType, settlementNumber])
   @@index([segmento])
   @@index([codigoApunte])
   @@index([codigoPrecio])
@@ -213,6 +253,8 @@ model ReganecuQhRecord {
   file                          ReeFile              @relation(fields: [fileId], references: [id], onDelete: Cascade)
   tipoArchivo                   ReeFileType          @map("tipo_archivo")
   version                       ReeSettlementVersion
+  settlementType                ReeSettlementType    @map("settlement_type")
+  settlementNumber              Int                  @map("settlement_number")
   fechaLiquidacion              DateTime             @map("fecha_liquidacion") @db.Date
   sujetoEic                     String               @map("sujeto_eic")
   brp                           String?
@@ -252,6 +294,7 @@ model ReganecuQhRecord {
   @@index([fecha])
   @@index([fechaLiquidacion])
   @@index([version])
+  @@index([settlementType, settlementNumber])
   @@index([segmento])
   @@index([codigoApunte])
   @@index([codigoPrecio])
@@ -412,6 +455,8 @@ model ReeKFactor {
   hora        Int
   cuartohora  Int
   version     ReeSettlementVersion
+  settlementType   ReeSettlementType    @map("settlement_type")
+  settlementNumber Int                  @map("settlement_number")
   tipoArchivo ReeKFactorFileType @map("tipo_archivo")
   tarifa      String
   periodo     String
@@ -420,12 +465,36 @@ model ReeKFactor {
 
   @@index([fecha])
   @@index([version])
+  @@index([settlementType, settlementNumber])
   @@index([tipoArchivo])
   @@index([tarifa])
   @@index([periodo])
   @@index([fecha, hora, cuartohora])
   @@index([fecha, hora, cuartohora, tarifa, periodo])
+  @@index([fecha, hora, cuartohora, version, tipoArchivo, tarifa, periodo], map: "ree_k_factor_identity_idx")
+  @@unique([fecha, hora, cuartohora, version, tipoArchivo, tarifa, periodo], map: "ree_k_factor_functional_unique")
   @@map("ree_k_factor")
+}
+
+model ReeKFactorDedupAudit {
+  deletedId        String             @id @map("deleted_id") @db.Uuid
+  keptId           String             @map("kept_id") @db.Uuid
+  fecha            DateTime           @db.Date
+  hora             Int
+  cuartohora       Int
+  version          ReeSettlementVersion
+  tipoArchivo      ReeKFactorFileType @map("tipo_archivo")
+  tarifa           String
+  periodo          String
+  valorK           Decimal            @map("valor_k") @db.Decimal(20, 10)
+  deletedCreatedAt DateTime           @map("deleted_created_at")
+  keptCreatedAt    DateTime           @map("kept_created_at")
+  cleanupAt        DateTime           @default(now()) @map("cleanup_at")
+
+  @@index([keptId])
+  @@index([fecha, version, tipoArchivo])
+  @@index([cleanupAt])
+  @@map("ree_k_factor_dedup_audit")
 }
 
 model ReeKFactorImport {
@@ -435,6 +504,8 @@ model ReeKFactorImport {
   fileHash          String?             @map("file_hash")
   tipoArchivo       ReeKFactorFileType? @map("tipo_archivo")
   version           ReeSettlementVersion?
+  settlementType    ReeSettlementType?  @map("settlement_type")
+  settlementNumber  Int?                @map("settlement_number")
   fechaInicio       DateTime?           @map("fecha_inicio") @db.Date
   fechaFin          DateTime?           @map("fecha_fin") @db.Date
   status            ReeImportStatus     @default(IMPORTED)
@@ -446,6 +517,7 @@ model ReeKFactorImport {
   duplicatedRecords Int                 @default(0) @map("duplicated_records")
 
   @@index([version])
+  @@index([settlementType, settlementNumber])
   @@index([tipoArchivo])
   @@index([fechaInicio])
   @@index([fechaFin])
@@ -683,6 +755,8 @@ model ReeSeieFile {
   fileHash           String           @map("file_hash")
   tipoArchivo        ReeFileType      @map("tipo_archivo")
   version            String
+  settlementType     ReeSettlementType @map("settlement_type")
+  settlementNumber   Int              @map("settlement_number")
   fechaLiquidacion   DateTime         @map("fecha_liquidacion") @db.Date
   sujetoEic          String?          @map("sujeto_eic")
   encoding           String
@@ -700,6 +774,7 @@ model ReeSeieFile {
   @@unique([fileHash])
   @@index([tipoArchivo])
   @@index([version])
+  @@index([settlementType, settlementNumber])
   @@index([fechaLiquidacion])
   @@index([sujetoEic])
   @@index([importedAt])
@@ -715,6 +790,8 @@ model ReeSeieRecord {
   hash                 String
   fechaCarga           DateTime        @default(now()) @map("fecha_carga")
   version              String
+  settlementType       ReeSettlementType @map("settlement_type")
+  settlementNumber     Int              @map("settlement_number")
   fechaLiquidacion     DateTime        @map("fecha_liquidacion") @db.Date
   sujetoEic            String?         @map("sujeto_eic")
   fecha                DateTime?       @db.Date
@@ -763,6 +840,7 @@ model ReeSeieRecord {
   @@index([uploadId])
   @@index([hash])
   @@index([fechaCarga])
+  @@index([settlementType, settlementNumber])
   @@index([fecha])
   @@index([fechaLiquidacion])
   @@index([codigo])
@@ -1449,6 +1527,8 @@ model ReeEsiosLqZipFile {
   id              String   @id @default(uuid()) @db.Uuid
   month           String   @db.VarChar(7)
   settlement      String   @db.VarChar(2)
+  settlementType  ReeSettlementType @map("settlement_type")
+  settlementNumber Int     @map("settlement_number")
   family          String   @db.VarChar(20)
   owner           String   @db.VarChar(40)
   messageId       String   @map("message_id") @db.VarChar(180)
@@ -1468,6 +1548,7 @@ model ReeEsiosLqZipFile {
 
   @@unique([month, settlement, family, owner], name: "ree_esios_lq_zip_latest_unique")
   @@index([month, settlement])
+  @@index([settlementType, settlementNumber])
   @@index([publicationDate])
   @@map("ree_esios_lq_zip_files")
 }
@@ -1845,4 +1926,285 @@ model MirConfig {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@map("mir_config")
+}
+
+model CmGisceConfig {
+  id                Int      @id @default(1)
+  baseUrl           String?  @map("base_url") @db.VarChar(1000)
+  username          String?  @db.VarChar(255)
+  passwordEncrypted String?  @map("password_encrypted") @db.Text
+  timeoutMs         Int      @default(60000) @map("timeout_ms")
+  invoiceDateField  String   @default("date_invoice") @map("invoice_date_field") @db.VarChar(120)
+  invoiceStartField String   @default("data_inici") @map("invoice_start_field") @db.VarChar(120)
+  invoiceEndField   String   @default("data_final") @map("invoice_end_field") @db.VarChar(120)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@map("cm_gisce_config")
+}
+
+model CmInvoiceImportBatch {
+  id              String   @id @default(uuid()) @db.Uuid
+  startedAt       DateTime @default(now()) @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+  executionTimeMs Int?     @map("execution_time_ms")
+  invoiceDateFrom DateTime @map("invoice_date_from") @db.Date
+  invoiceDateTo   DateTime @map("invoice_date_to") @db.Date
+  giscePages       Int      @default(0) @map("gisce_pages")
+  totalFound      Int      @default(0) @map("total_found")
+  processedCount   Int      @default(0) @map("processed_count")
+  createdCount    Int      @default(0) @map("created_count")
+  updatedCount    Int      @default(0) @map("updated_count")
+  unchangedCount  Int      @default(0) @map("unchanged_count")
+  errorCount      Int      @default(0) @map("error_count")
+  status          String   @default("RUNNING") @db.VarChar(30)
+  message         String?  @db.Text
+  createdAt       DateTime @default(now()) @map("created_at")
+  invoices        CmInvoice[]
+
+  @@index([startedAt])
+  @@index([invoiceDateFrom, invoiceDateTo])
+  @@index([status])
+  @@map("cm_invoice_import_batches")
+}
+
+model CmBillingJob {
+  id             String    @id @default(uuid()) @db.Uuid
+  type           String    @db.VarChar(40)
+  status         String    @default("QUEUED") @db.VarChar(30)
+  requestedBy    String?   @map("requested_by") @db.VarChar(120)
+  params         Json?
+  result         Json?
+  totalItems     Int       @default(0) @map("total_items")
+  processedItems Int       @default(0) @map("processed_items")
+  successCount   Int       @default(0) @map("success_count")
+  warningCount   Int       @default(0) @map("warning_count")
+  errorCount     Int       @default(0) @map("error_count")
+  currentItem    String?   @map("current_item") @db.VarChar(255)
+  message        String?   @db.Text
+  startedAt      DateTime? @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([type, status])
+  @@index([createdAt])
+  @@map("cm_billing_jobs")
+}
+
+model CmInvoice {
+  id               String                    @id @default(uuid()) @db.Uuid
+  gisceInvoiceId   Int                       @unique @map("gisce_invoice_id")
+  invoiceNumber    String?                   @map("invoice_number") @db.VarChar(120)
+  cupsGisceId      Int?                      @map("cups_gisce_id")
+  cups             String                    @db.VarChar(30)
+  polissaId        Int?                      @map("polissa_id")
+  polissaNumber    String?                   @map("polissa_number") @db.VarChar(120)
+  invoiceDate      DateTime?                 @map("invoice_date") @db.Date
+  periodStart      DateTime?                 @map("period_start") @db.Date
+  periodEnd        DateTime?                 @map("period_end") @db.Date
+  tariffCode       String?                   @map("tariff_code") @db.VarChar(20)
+  billedEnergyKwh  Decimal?                  @map("billed_energy_kwh") @db.Decimal(20, 6)
+  processingStatus CmInvoiceProcessingStatus @default(IMPORTED) @map("processing_status")
+  processingMessage String?                  @map("processing_message") @db.Text
+  expectedIntervals Int                      @default(0) @map("expected_intervals")
+  f1Intervals      Int                       @default(0) @map("f1_intervals")
+  f5dIntervals     Int                       @default(0) @map("f5d_intervals")
+  p1Intervals      Int                       @default(0) @map("p1_intervals")
+  p5dIntervals     Int                       @default(0) @map("p5d_intervals")
+  profiledIntervals Int                      @default(0) @map("profiled_intervals")
+  missingIntervals Int                       @default(0) @map("missing_intervals")
+  reconciliationIssues Json?                 @map("reconciliation_issues")
+  rawPayloadJson   Json                      @map("raw_payload_json")
+  importBatchId    String?                   @map("import_batch_id") @db.Uuid
+  importBatch      CmInvoiceImportBatch?     @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  updatedAt        DateTime                  @updatedAt @map("updated_at")
+  lines            CmInvoiceLine[]
+  f1Raw            CmInvoiceCurveF1Raw[]
+  f5dRaw           CmInvoiceCurveF5dRaw[]
+  p1Raw            CmInvoiceCurveP1Raw[]
+  p5dRaw           CmInvoiceCurveP5dRaw[]
+  curve            CmInvoiceConsumptionCurve[]
+
+  @@index([cups])
+  @@index([invoiceDate])
+  @@index([periodStart, periodEnd])
+  @@index([processingStatus])
+  @@index([importBatchId])
+  @@map("cm_invoices")
+}
+
+model CmInvoiceLine {
+  id            String    @id @default(uuid()) @db.Uuid
+  invoiceId     String    @map("invoice_id") @db.Uuid
+  invoice       CmInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  gisceLineId   Int       @unique @map("gisce_line_id")
+  accountId     Int?      @map("account_id")
+  accountName   String?   @map("account_name") @db.VarChar(255)
+  lineName      String?   @map("line_name") @db.VarChar(120)
+  quantity      Decimal?  @db.Decimal(24, 6)
+  priceUnit     Decimal?  @map("price_unit") @db.Decimal(24, 10)
+  priceSubtotal Decimal?  @map("price_subtotal") @db.Decimal(24, 6)
+  rawPayloadJson Json     @map("raw_payload_json")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([invoiceId])
+  @@index([accountName])
+  @@index([lineName])
+  @@map("cm_invoice_lines")
+}
+
+model CmInvoiceCurveF1Raw {
+  id            String    @id @default(uuid()) @db.Uuid
+  invoiceId     String    @map("invoice_id") @db.Uuid
+  invoice       CmInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  gisceSourceId Int       @map("gisce_source_id")
+  cups          String    @db.VarChar(30)
+  datetime      DateTime
+  ai            Decimal?  @db.Decimal(24, 6)
+  ao            Decimal?  @db.Decimal(24, 6)
+  r1            Decimal?  @db.Decimal(24, 6)
+  r2            Decimal?  @db.Decimal(24, 6)
+  r3            Decimal?  @db.Decimal(24, 6)
+  r4            Decimal?  @db.Decimal(24, 6)
+  measureType   Int?      @map("measure_type")
+  source        Int?
+  validated     Boolean?
+  gisceCreateAt DateTime? @map("gisce_create_at")
+  gisceUpdateAt DateTime? @map("gisce_update_at")
+  rawData       Json?     @map("raw_data")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@unique([invoiceId, gisceSourceId], map: "ux_cm_invoice_f1_raw_invoice_source")
+  @@index([invoiceId, datetime])
+  @@index([cups, datetime])
+  @@map("cm_invoice_curve_f1_raw")
+}
+
+model CmInvoiceCurveF5dRaw {
+  id            String    @id @default(uuid()) @db.Uuid
+  invoiceId     String    @map("invoice_id") @db.Uuid
+  invoice       CmInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  gisceSourceId Int       @map("gisce_source_id")
+  cups          String    @db.VarChar(30)
+  datetime      DateTime
+  ai            Decimal?  @db.Decimal(24, 6)
+  ao            Decimal?  @db.Decimal(24, 6)
+  aiFix         Boolean?  @map("ai_fix")
+  aoFix         Boolean?  @map("ao_fix")
+  bill          String?   @db.VarChar(120)
+  r1            Decimal?  @db.Decimal(24, 6)
+  r2            Decimal?  @db.Decimal(24, 6)
+  r3            Decimal?  @db.Decimal(24, 6)
+  r4            Decimal?  @db.Decimal(24, 6)
+  source        Int?
+  validated     Boolean?
+  gisceCreateAt DateTime? @map("gisce_create_at")
+  gisceUpdateAt DateTime? @map("gisce_update_at")
+  rawData       Json?     @map("raw_data")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@unique([invoiceId, gisceSourceId], map: "ux_cm_invoice_f5d_raw_invoice_source")
+  @@index([invoiceId, datetime])
+  @@index([cups, datetime])
+  @@map("cm_invoice_curve_f5d_raw")
+}
+
+model CmInvoiceCurveP1Raw {
+  id            String    @id @default(uuid()) @db.Uuid
+  invoiceId     String    @map("invoice_id") @db.Uuid
+  invoice       CmInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  gisceSourceId Int       @map("gisce_source_id")
+  cups          String    @db.VarChar(30)
+  datetime      DateTime
+  ai            Decimal?  @db.Decimal(24, 6)
+  ao            Decimal?  @db.Decimal(24, 6)
+  aiQuality     String?   @map("ai_quality") @db.VarChar(40)
+  aoQuality     String?   @map("ao_quality") @db.VarChar(40)
+  r1            Decimal?  @db.Decimal(24, 6)
+  r1Quality     String?   @map("r1_quality") @db.VarChar(40)
+  r2            Decimal?  @db.Decimal(24, 6)
+  r2Quality     String?   @map("r2_quality") @db.VarChar(40)
+  r3            Decimal?  @db.Decimal(24, 6)
+  r3Quality     String?   @map("r3_quality") @db.VarChar(40)
+  r4            Decimal?  @db.Decimal(24, 6)
+  r4Quality     String?   @map("r4_quality") @db.VarChar(40)
+  measureType   Int?      @map("measure_type")
+  source        Int?
+  type          String?   @db.VarChar(80)
+  season        Int?
+  validated     Boolean?
+  gisceCreateAt DateTime? @map("gisce_create_at")
+  gisceUpdateAt DateTime? @map("gisce_update_at")
+  rawData       Json?     @map("raw_data")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@unique([invoiceId, gisceSourceId], map: "ux_cm_invoice_p1_raw_invoice_source")
+  @@index([invoiceId, datetime])
+  @@index([cups, datetime])
+  @@map("cm_invoice_curve_p1_raw")
+}
+
+model CmInvoiceCurveP5dRaw {
+  id            String    @id @default(uuid()) @db.Uuid
+  invoiceId     String    @map("invoice_id") @db.Uuid
+  invoice       CmInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  gisceSourceId Int       @map("gisce_source_id")
+  cups          String    @db.VarChar(30)
+  datetime      DateTime
+  ai            Decimal?  @db.Decimal(24, 6)
+  ao            Decimal?  @db.Decimal(24, 6)
+  r1            Decimal?  @db.Decimal(24, 6)
+  r2            Decimal?  @db.Decimal(24, 6)
+  r3            Decimal?  @db.Decimal(24, 6)
+  r4            Decimal?  @db.Decimal(24, 6)
+  measureType   Int?      @map("measure_type")
+  source        Int?
+  type          String?   @db.VarChar(80)
+  season        Int?
+  validated     Boolean?
+  gisceCreateAt DateTime? @map("gisce_create_at")
+  gisceUpdateAt DateTime? @map("gisce_update_at")
+  rawData       Json?     @map("raw_data")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@unique([invoiceId, gisceSourceId], map: "ux_cm_invoice_p5d_raw_invoice_source")
+  @@index([invoiceId, datetime])
+  @@index([cups, datetime])
+  @@map("cm_invoice_curve_p5d_raw")
+}
+
+model CmInvoiceConsumptionCurve {
+  id                  String                    @id @default(uuid()) @db.Uuid
+  invoiceId           String                    @map("invoice_id") @db.Uuid
+  invoice             CmInvoice                 @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  cups                String                    @db.VarChar(30)
+  datetime            DateTime
+  resolutionMinutes   Int                       @map("resolution_minutes")
+  sourceResolutionMinutes Int?                   @map("source_resolution_minutes")
+  tariffPeriod        String                    @map("tariff_period") @db.VarChar(5)
+  consumptionMeterKwh Decimal?                  @map("consumption_meter_kwh") @db.Decimal(24, 6)
+  consumptionPfKwh    Decimal?                  @map("consumption_pf_kwh") @db.Decimal(24, 6)
+  consumptionBcKwh    Decimal?                  @map("consumption_bc_kwh") @db.Decimal(24, 6)
+  lossPercentage      Decimal?                  @map("loss_percentage") @db.Decimal(12, 6)
+  lossVersion         String?                   @map("loss_version") @db.VarChar(40)
+  lossSourceId        String?                   @map("loss_source_id") @db.Text
+  consumptionSource   CmInvoiceConsumptionSource @map("consumption_source")
+  profileType         CmInvoiceProfileType?     @map("profile_type")
+  profileVersionId    String?                   @map("profile_version_id") @db.VarChar(80)
+  profileRowId        String?                   @map("profile_row_id") @db.VarChar(80)
+  sourceRawId         String?                   @map("source_raw_id") @db.Uuid
+  validationStatus    String                    @default("OK") @map("validation_status") @db.VarChar(30)
+  validationMessage   String?                   @map("validation_message") @db.Text
+  createdAt           DateTime                  @default(now()) @map("created_at")
+  updatedAt           DateTime                  @updatedAt @map("updated_at")
+
+  @@unique([invoiceId, datetime], map: "ux_cm_invoice_curve_invoice_datetime")
+  @@index([invoiceId])
+  @@index([cups, datetime])
+  @@index([tariffPeriod])
+  @@index([consumptionSource])
+  @@map("cm_invoice_consumption_curve")
 }

@@ -53,14 +53,14 @@ void describe("Pricing base table", () => {
 
   void it("asigna periodos 3.0TD", () => {
     assert.equal(periodo30TD(row("2026-01-07", 1, 19, 1)), "P1");
-    assert.equal(periodo30TD(row("2026-04-07", 1, 12, 4)), "P5");
+    assert.equal(periodo30TD(row("2026-04-07", 1, 12, 4)), "P4");
     assert.equal(periodo30TD(row("2026-04-11", 6, 12, 4)), "P6");
   });
 
   void it("asigna periodos 6.XTD", () => {
     assert.equal(periodo6XTD(row("2026-01-07", 1, 19, 1)), "P1");
     assert.equal(periodo6XTD(row("2026-06-07", 0, 19, 6)), "P6");
-    assert.equal(periodo6XTD(row("2026-06-08", 1, 12, 6)), "P4");
+    assert.equal(periodo6XTD(row("2026-06-08", 1, 12, 6)), "P3");
   });
 
   void it("carga y une perfiles y OMIE", async () => {
@@ -277,16 +277,16 @@ void describe("Pricing base table", () => {
     assert.equal(toCurveProduct({ cod: "MJul-26", tipo: "Futuro", clase: "PEAK", periodo: null, entrega: null, precio: 54 }), null);
   });
 
-  void it("selecciona la version mas moderna disponible C5 a C1", () => {
+  void it("selecciona la liquidacion mas moderna con orden A1-C5", () => {
     const selected = get_latest_available_version(
       [
         { fecha: "2026-01-01", version: "C1", value: 1 },
-        { fecha: "2026-01-01", version: "C4", value: 4 },
-        { fecha: "2026-01-01", version: "C2", value: 2 }
+        { fecha: "2026-01-01", version: "A2", value: 2 },
+        { fecha: "2026-01-01", version: "C2", value: 3 }
       ],
       "2026-01-01"
     );
-    assert.deepEqual(selected, { value: 4, version: "C4" });
+    assert.deepEqual(selected, { value: 3, version: "C2" });
   });
 
   void it("valida la tabla final", () => {

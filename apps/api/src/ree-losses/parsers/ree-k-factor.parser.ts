@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { ReeKFactorFileType, ReeSettlementVersion } from "@prisma/client";
+import { parseSettlementCode, SETTLEMENT_CODES, type SettlementNumber, type SettlementType } from "../../common/settlements";
 
 export interface ReeKFactorMetadata {
   version: ReeSettlementVersion;
+  settlementType: SettlementType;
+  settlementNumber: SettlementNumber;
+  settlementCode: ReeSettlementVersion;
   tipoArchivo: ReeKFactorFileType;
   fechaInicio: Date;
   fechaFin: Date;
@@ -36,16 +40,14 @@ export interface ParsedReeKFactorResult {
 
 const FILE_NAME_PATTERNS = [
   {
-    regex: /((?:A1|C[1-5]))[_\-. ]*(kestimqh|krealqh)[_\-. ]*(\d{8})[_\-. ]*(\d{8})/i,
+    regex: /([AC][1-5])[_\-. ]*(kestimqh|krealqh)[_\-. ]*(\d{8})[_\-. ]*(\d{8})/i,
     groups: { version: 1, type: 2, start: 3, end: 4 }
   },
   {
-    regex: /(kestimqh|krealqh)[_\-. ]*((?:A1|C[1-5]))[_\-. ]*(\d{8})[_\-. ]*(\d{8})/i,
+    regex: /(kestimqh|krealqh)[_\-. ]*([AC][1-5])[_\-. ]*(\d{8})[_\-. ]*(\d{8})/i,
     groups: { type: 1, version: 2, start: 3, end: 4 }
   }
 ];
-const K_FACTOR_VERSIONS = ["A1", "C1", "C2", "C3", "C4", "C5"] as const;
-
 const K_FACTOR_FIELDS = ["fecha", "hora", "cuartohora", "tarifa", "periodo", "valorK"] as const;
 type KFactorField = (typeof K_FACTOR_FIELDS)[number];
 
@@ -77,8 +79,12 @@ export function parseKFactorFileMetadata(fileName: string, content: string): Ree
 
   if (patternMatch?.match) {
     const { match, pattern } = patternMatch;
+    const settlement = parseKFactorSettlement(match[pattern.groups.version]);
     return {
-      version: parseVersion(match[pattern.groups.version]),
+      version: settlement.settlementCode,
+      settlementCode: settlement.settlementCode,
+      settlementType: settlement.settlementType,
+      settlementNumber: settlement.settlementNumber,
       tipoArchivo: parseKFactorType(match[pattern.groups.type]),
       fechaInicio: parseCompactDate(match[pattern.groups.start]),
       fechaFin: parseCompactDate(match[pattern.groups.end])
@@ -91,7 +97,7 @@ export function parseKFactorFileMetadata(fileName: string, content: string): Ree
   }
 
   throw new Error(
-    `Nombre de fichero K no reconocido. Debe incluir version A1 o C1-C5, Kestimqh/Krealqh y rango YYYYMMDD_YYYYMMDD: ${fileName}`
+    `Nombre de fichero K no reconocido. Debe incluir version A1-A5 o C1-C5, Kestimqh/Krealqh y rango YYYYMMDD_YYYYMMDD: ${fileName}`
   );
 }
 
@@ -263,7 +269,7 @@ function parseKFactorLine({
 
 function parseContentMetadata(content: string): ReeKFactorMetadata | undefined {
   const text = content.split(/\r?\n/).slice(0, 30).join(" ");
-  const version = /(?:A1|C[1-5])/i.exec(text)?.[0];
+  const version = /[AC][1-5]/i.exec(text)?.[0];
   const type = /(kestimqh|krealqh)/i.exec(text)?.[1];
   const dates = [...text.matchAll(/(\d{8})/g)].map((match) => match[1]);
 
@@ -271,8 +277,12 @@ function parseContentMetadata(content: string): ReeKFactorMetadata | undefined {
     return undefined;
   }
 
+  const settlement = parseKFactorSettlement(version);
   return {
-    version: parseVersion(version),
+    version: settlement.settlementCode,
+    settlementCode: settlement.settlementCode,
+    settlementType: settlement.settlementType,
+    settlementNumber: settlement.settlementNumber,
     tipoArchivo: parseKFactorType(type),
     fechaInicio: parseCompactDate(dates[0]),
     fechaFin: parseCompactDate(dates[1])
@@ -383,12 +393,12 @@ function parseKFactorType(value: string) {
   return value.trim().toUpperCase() === "KREALQH" ? ReeKFactorFileType.KREALQH : ReeKFactorFileType.KESTIMQH;
 }
 
-function parseVersion(value: string) {
-  const version = value.trim().toUpperCase();
-  if (!(K_FACTOR_VERSIONS as readonly string[]).includes(version)) {
-    throw new Error(`Version K no valida: ${value}`);
+function parseKFactorSettlement(value: string) {
+  const settlement = parseSettlementCode(value);
+  if (!(SETTLEMENT_CODES as readonly string[]).includes(settlement.settlementCode)) {
+    throw new Error(`Liquidacion K no valida: ${value}`);
   }
-  return version as ReeSettlementVersion;
+  return settlement as ReturnType<typeof parseSettlementCode> & { settlementCode: ReeSettlementVersion };
 }
 
 function parseCompactDate(value: string) {

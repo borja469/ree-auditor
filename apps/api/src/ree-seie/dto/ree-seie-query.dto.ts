@@ -1,5 +1,6 @@
 import { Transform } from "class-transformer";
-import { IsIn, IsInt, IsOptional, IsString, Matches, Max, Min } from "class-validator";
+import { IsEnum, IsIn, IsInt, IsOptional, IsString, Matches, Max, Min } from "class-validator";
+import { ReeSettlementType } from "@prisma/client";
 
 export class ReeSeieQueryDto {
   @IsOptional()
@@ -48,6 +49,17 @@ export class ReeSeieQueryDto {
   @IsOptional()
   @IsString()
   version?: string;
+
+  @IsOptional()
+  @IsEnum(ReeSettlementType)
+  settlementType?: ReeSettlementType;
+
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  settlementNumber?: number;
 
   @IsOptional()
   @IsIn(["csv", "xlsx"])

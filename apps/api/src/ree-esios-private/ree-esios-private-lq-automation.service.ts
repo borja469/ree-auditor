@@ -51,6 +51,11 @@ export type ReeEsiosLqAutomationRunResponse = {
   errorMessage: string | null;
   results: Array<{
     family: "liquicomun" | "liqui-empresa";
+    settlementCode: string;
+    settlementType: "A" | "C";
+    settlementNumber: number;
+    settlementLabel: "Avance" | "Cierre";
+    month: string;
     requestedPublicationDate: string;
     messageId: string;
     code: string;
@@ -284,6 +289,8 @@ export class ReeEsiosPrivateLqAutomationService implements OnModuleInit, OnModul
       skippedFiles: run.skippedFiles,
       failedItems: run.failedItems,
       errorMessage: run.errorMessage
+      ,
+      settlements: summarizeRunSettlements(run.resultJson)
     }));
   }
 
@@ -314,7 +321,7 @@ export class ReeEsiosPrivateLqAutomationService implements OnModuleInit, OnModul
   }
 }
 
-function compactRunResults(rawResults: unknown[]) {
+export function compactRunResults(rawResults: unknown[]) {
   const compact: ReeEsiosLqAutomationRunResponse["results"] = [];
   for (const raw of rawResults) {
     if (!raw || typeof raw !== "object" || !Array.isArray((raw as { results?: unknown }).results)) {
@@ -326,6 +333,11 @@ function compactRunResults(rawResults: unknown[]) {
       }
       const result = item as {
         family: "liquicomun" | "liqui-empresa";
+        settlementCode?: string;
+        settlementType?: "A" | "C";
+        settlementNumber?: number;
+        settlementLabel?: "Avance" | "Cierre";
+        month?: string;
         requestedPublicationDate: string;
         selectedMessage: { messageId: string; code: string; messageDate: string | null };
         downloaded: { totalFiles: number };
@@ -333,6 +345,11 @@ function compactRunResults(rawResults: unknown[]) {
       };
       compact.push({
         family: result.family,
+        settlementCode: result.settlementCode ?? settlementCodeFromMessage(result.selectedMessage.messageId),
+        settlementType: result.settlementType ?? settlementTypeFromCode(settlementCodeFromMessage(result.selectedMessage.messageId)),
+        settlementNumber: result.settlementNumber ?? settlementNumberFromCode(settlementCodeFromMessage(result.selectedMessage.messageId)),
+        settlementLabel: result.settlementLabel ?? settlementLabelFromCode(settlementCodeFromMessage(result.selectedMessage.messageId)),
+        month: result.month ?? monthFromMessage(result.selectedMessage.messageId),
         requestedPublicationDate: result.requestedPublicationDate,
         messageId: result.selectedMessage.messageId,
         code: result.selectedMessage.code,
@@ -348,12 +365,58 @@ function compactRunResults(rawResults: unknown[]) {
   return compact;
 }
 
-function summarizeCompactResults(results: ReeEsiosLqAutomationRunResponse["results"]) {
+function settlementCodeFromMessage(messageId: string) {
+  return /^[AC][1-5]/i.exec(messageId)?.[0].toUpperCase() ?? "";
+}
+
+function settlementTypeFromCode(code: string): "A" | "C" {
+  return code.startsWith("A") ? "A" : "C";
+}
+
+function settlementNumberFromCode(code: string) {
+  const number = Number(code.slice(1, 2));
+  return Number.isFinite(number) ? number : 0;
+}
+
+function settlementLabelFromCode(code: string): "Avance" | "Cierre" {
+  return settlementTypeFromCode(code) === "A" ? "Avance" : "Cierre";
+}
+
+function monthFromMessage(messageId: string) {
+  const match = /_(\d{6})(?:\.|$)/.exec(messageId);
+  return match ? `${match[1].slice(0, 4)}-${match[1].slice(4, 6)}` : "";
+}
+
+export function summarizeCompactResults(results: ReeEsiosLqAutomationRunResponse["results"]) {
   return {
     importedFiles: results.reduce((sum, item) => sum + item.importedFiles, 0),
     skippedFiles: results.reduce((sum, item) => sum + item.skippedFiles, 0),
     failedItems: results.reduce((sum, item) => sum + item.failedFiles, 0)
   };
+}
+
+function summarizeRunSettlements(resultJson: Prisma.JsonValue | null) {
+  if (!Array.isArray(resultJson)) {
+    return [];
+  }
+  const settlements = new Set<string>();
+  for (const item of resultJson) {
+    if (item && typeof item === "object" && "settlementCode" in item) {
+      const value = (item as { settlementCode?: unknown }).settlementCode;
+      if (typeof value === "string" && value) {
+        settlements.add(value);
+      }
+    }
+  }
+  return [...settlements].sort((left, right) => settlementRankForAutomation(left) - settlementRankForAutomation(right));
+}
+
+function settlementRankForAutomation(code: string) {
+  const number = settlementNumberFromCode(code);
+  if (!number) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+  return (number - 1) * 2 + (settlementTypeFromCode(code) === "C" ? 1 : 0);
 }
 
 function serializeConfig(config: {

@@ -5,6 +5,7 @@ import type { LoadStatus } from "../../app-shell/AppShellTypes";
 import type { RowQuality, TechnicalKpi } from "../../components/technical-data-table/TechnicalDataTableTypes";
 import { downloadBlob } from "../../components/technical-data-table/TechnicalDataTableHelpers";
 import { withGlobalLoading } from "../../loading";
+import { settlementDefinition, sortSettlements } from "../../settlements";
 import type { ReeLossesLoadSortKey } from "./ReeLossesTypes";
 
 export const REE_LOSSES_VERSION_PALETTE = ["#64748b", "#2563eb", "#16a34a", "#7c3aed", "#f97316", "#0f766e"];
@@ -308,7 +309,7 @@ export function buildReeLossesHistoryKpis(files: ReeLossesImportFile[], latestIm
     { label: "Inválidos", value: totals.invalid.toLocaleString("es-ES"), detail: qualityLabel(totals.invalid, totals.records), tone: totals.invalid > 0 ? "danger" : "good" },
     { label: "Duplicados", value: totals.duplicated.toLocaleString("es-ES"), detail: qualityLabel(totals.duplicated, totals.records), tone: totals.duplicated > 0 ? "warning" : "good" },
     { label: "Última carga", value: latestFile ? formatDateTime(latestFile.importedAt) : "-", detail: latestImport ? `${latestImport.summary.recordsImported} registros importados` : "Sin carga en sesión", tone: "accent" },
-    { label: "Último periodo", value: latestPeriod ? formatMonthKeyLabel(latestPeriod) : "-", detail: latestFile?.version ?? "Sin periodo", tone: "info" }
+    { label: "Último periodo", value: latestPeriod ? formatMonthKeyLabel(latestPeriod) : "-", detail: latestFile ? settlementCodeOf(latestFile) : "Sin periodo", tone: "info" }
   ];
 }
 
@@ -321,7 +322,7 @@ export function buildReeLossesHistoryCharts(files: ReeLossesImportFile[]) {
 }
 
 export function buildReeLossesRowsScopeLabel(rows: ReeLossesRow[]) {
-  return `Periodo: ${formatReeLossesDateRange(rows.map((row) => row.fecha))} · Versiones: ${formatReeLossesVersionList(rows.map((row) => row.version))}`;
+  return `Periodo: ${formatReeLossesDateRange(rows.map((row) => row.fecha))} - Liquidaciones: ${formatReeLossesVersionList(rows.map((row) => row.settlementCode ?? row.version))}`;
 }
 
 export function buildReeLossesHeatmapScopeLabel(summary: ReeLossesAnalyticsSummary) {
@@ -329,17 +330,17 @@ export function buildReeLossesHeatmapScopeLabel(summary: ReeLossesAnalyticsSumma
     summary.heatmapRows.length > 0
       ? formatReeLossesDateRange(summary.heatmapRows.map((row) => row.fecha))
       : formatReeLossesMonthRange(summary.latestMonth ? [summary.latestMonth] : []);
-  return `Periodo: ${period} · Version: ${summary.latestVersion ?? "-"}`;
+  return `Periodo: ${period} - Liquidacion: ${summary.latestVersion ?? "-"}`;
 }
 
 export function buildReeLossesAnalyticsScopeLabel(summary: ReeLossesAnalyticsSummary) {
   const versions = summary.versionComparison.map((row) => row.label).filter((label) => label !== "BOE");
-  return `Periodo: ${formatReeLossesMonthRange(summary.months)} · Versiones: ${formatReeLossesVersionList(versions)}`;
+  return `Periodo: ${formatReeLossesMonthRange(summary.months)} - Liquidaciones: ${formatReeLossesVersionList(versions)}`;
 }
 
 export function buildReeLossesLatestAnnualScopeLabel(rows: ReeLossesAnnualSummaryRow[], fallbackMonths: string[]) {
   const months = rows.length > 0 ? rows.map((row) => row.mes) : fallbackMonths;
-  return `Periodo: ${formatReeLossesMonthRange(months)} · Versiones: ${formatReeLossesVersionList(rows.map((row) => row.version))} (ultima disponible por mes)`;
+  return `Periodo: ${formatReeLossesMonthRange(months)} - Liquidaciones: ${formatReeLossesVersionList(rows.map((row) => row.version))} (ultima disponible por mes)`;
 }
 
 function formatReeLossesDateRange(dates: string[]) {
@@ -363,8 +364,7 @@ function formatReeLossesMonthRange(months: string[]) {
 }
 
 function formatReeLossesVersionList(versions: Array<string | null | undefined>) {
-  const sorted = [...new Set(versions.filter((version): version is string => Boolean(version)))]
-    .sort((left, right) => left.localeCompare(right, "es", { numeric: true }));
+  const sorted = sortSettlements([...new Set(versions.filter((version): version is string => Boolean(version)))]);
   return sorted.length > 0 ? sorted.join(", ") : "-";
 }
 
@@ -396,6 +396,8 @@ function getReeLossesLoadSortValue(file: ReeLossesImportFile, sortKey: ReeLosses
     case "status":
       return getReeLossesLoadStatus(file);
     case "type":
+      return settlementCodeOf(file);
+    case "kType":
       return file.tipoArchivo ?? "";
     case "period":
       return file.fechaInicio ?? "";
@@ -440,7 +442,7 @@ export function exportReeLossesLoadCsv(name: string, files: ReeLossesImportFile[
     name,
     files.map((file) => ({
       estado: getReeLossesLoadStatus(file),
-      version: file.version ?? "",
+      liquidacion: settlementCodeOf(file),
       tipoFichero: file.tipoArchivo ?? "",
       periodo: getReeLossesImportPeriodLabel(file),
       archivo: file.fileName,
@@ -454,19 +456,55 @@ export function exportReeLossesLoadCsv(name: string, files: ReeLossesImportFile[
   );
 }
 
+export function settlementCodeOf(file: Pick<ReeLossesImportFile, "settlementCode" | "version">) {
+  return file.settlementCode ?? file.version ?? "";
+}
+
 export function buildReeLossesKpis(report: ReeLossesReport): TechnicalKpi[] {
   const kpis = report.kpis;
+  const activeK = formatActiveKFactorSource(kpis.versionActivaUtilizada);
   return [
     { label: "Perdida media", value: formatLossPercent(kpis.perdidaMedia), tone: lossTone(kpis.desviacionMediaVsBoe) },
-    { label: "Perdida maxima", value: formatLossPercent(kpis.perdidaMaxima) },
-    { label: "Perdida minima", value: formatLossPercent(kpis.perdidaMinima) },
+    { label: "K utilizado", value: activeK.value, meta: activeK.meta, tone: activeK.tone },
     { label: "Desv. media vs BOE", value: formatSignedLossPercent(kpis.desviacionMediaVsBoe), tone: lossTone(kpis.desviacionMediaVsBoe) },
-    { label: "Dias anomalos", value: formatNumber(kpis.diasAnomalos), tone: kpis.diasAnomalos > 0 ? "warning" : "good" },
+    { label: "Registros", value: formatNumber(report.rows.length), meta: formatReeLossesDateRange(report.rows.map((row) => row.fecha)) },
     { label: "Registros incompletos", value: formatNumber(kpis.registrosIncompletos), tone: kpis.registrosIncompletos > 0 ? "warning" : "good" },
-    { label: "Huecos detectados", value: formatNumber(kpis.huecosDetectados), tone: kpis.huecosDetectados > 0 ? "danger" : "good" },
-    { label: "Archivos procesados", value: formatNumber(kpis.archivosProcesados) },
-    { label: "Version activa", value: kpis.versionActivaUtilizada ?? "-" }
+    { label: "Huecos detectados", value: formatNumber(kpis.huecosDetectados), tone: kpis.huecosDetectados > 0 ? "danger" : "good" }
   ];
+}
+
+export function settlementDisplay(code?: string | null) {
+  if (!code) {
+    return "-";
+  }
+  const definition = settlementDefinition(code);
+  return definition ? `${definition.code} - ${definition.label}` : code;
+}
+
+export function settlementTone(code?: string | null) {
+  return settlementDefinition(code)?.settlementType === "A" ? "advance" : "close";
+}
+
+export function formatKFactorType(value?: string | null) {
+  if (value === "KREALQH") {
+    return "K real";
+  }
+  if (value === "KESTIMQH") {
+    return "K estimado";
+  }
+  return value ?? "-";
+}
+
+function formatActiveKFactorSource(value?: string | null): { value: string; meta?: string; tone?: TechnicalKpi["tone"] } {
+  if (!value) {
+    return { value: "-", meta: "Sin K aplicado" };
+  }
+  const [type, ...settlements] = value.split(" ");
+  return {
+    value: formatKFactorType(type),
+    meta: settlements.join(" "),
+    tone: type === "KREALQH" ? "good" : "warning"
+  };
 }
 
 export function buildReeLossesEvolutionOption(rows: ReeLossesRow[]): EChartsOption {
@@ -543,7 +581,7 @@ export function buildReeLossesSourceCompareOption(rows: ReeLossesRow[]): ECharts
 
 export function buildReeLossesVersionCompareOption(rows: ReeLossesRow[]): EChartsOption {
   const days = [...new Set(rows.map((row) => row.fecha))].sort();
-  const versions = [...new Set(rows.map((row) => row.version))].sort();
+  const versions = sortSettlements([...new Set(rows.map((row) => row.version))]);
   return {
     color: REE_LOSSES_VERSION_PALETTE,
     tooltip: { trigger: "axis", valueFormatter: (value) => (typeof value === "number" ? `${formatDecimalNumber(value, 2)}%` : String(value ?? "-")) },
@@ -627,7 +665,7 @@ export function pivotReeLossesAnnualRows(rows: ReeLossesAnnualSummaryRow[]) {
   return [...groups.values()]
     .map((row) => ({
       ...row,
-      versionLabel: [...row.versions].sort((left, right) => left.localeCompare(right, "es", { numeric: true })).join(", ")
+      versionLabel: sortSettlements([...row.versions]).join(", ")
     }))
     .sort((left, right) => left.mes.localeCompare(right.mes));
 }
@@ -658,15 +696,17 @@ export function buildReeLossesTotalsRow(rows: ReeLossesRow[]): Record<string, Re
     fecha: "MEDIA",
     hora: "",
     cuartohora: "",
+    liquidacion: "",
+    tipo: "",
     tarifa: "",
     periodo: "",
-    perdidaBoe: formatLossPercent(averageNumbers(rows.map((row) => row.perdidaBoe))),
     factorK: formatFactor(averageNumbers(rows.map((row) => row.factorKAplicado))),
+    perdidaBoe: formatLossPercent(averageNumbers(rows.map((row) => row.perdidaBoe))),
     perdidaFinal: formatLossPercent(averageNumbers(rows.map((row) => row.perdidaFinal))),
     diferenciaVsBoe: formatLossPercent(averageNumbers(rows.map((row) => row.diferenciaVsBoe))),
     diferenciaPct: formatSignedLossPercent(averageNumbers(rows.map((row) => row.diferenciaPct))),
-    tipo: "",
-    version: "",
+    kestim: formatFactor(averageNumbers(rows.map((row) => row.kestimValorK))),
+    kreal: formatFactor(averageNumbers(rows.map((row) => row.krealValorK))),
     versionBoe: "",
     anomalias: `${rows.filter((row) => row.anomalies.length > 0).length} anomalias`
   };

@@ -79,6 +79,27 @@ export class ReeEsiosPrivateController {
     });
   }
 
+  @Post("lq/monthly-pair/process")
+  processLqMonthlyPair(@Body() body: {
+    from?: string;
+    to?: string;
+    month?: string;
+    settlement?: string;
+    owner?: string;
+    liquicomun?: boolean;
+    liquiEmpresa?: boolean;
+  }) {
+    return this.lqService.downloadMonthlyPair({
+      from: body.from ?? "",
+      to: body.to ?? "",
+      month: body.month ?? "",
+      settlement: body.settlement ?? "",
+      owner: body.owner,
+      liquicomun: body.liquicomun,
+      liquiEmpresa: body.liquiEmpresa
+    });
+  }
+
   @Get("lq/zip-catalog")
   lqZipCatalog(@Query("monthsBack") monthsBack?: string, @Query("owner") owner?: string, @Query("all") all?: string) {
     return this.lqService.zipCatalogMatrix(Number(monthsBack ?? 15), owner, all === "true" || all === "1");
@@ -117,13 +138,13 @@ export class ReeEsiosPrivateController {
   }
 
   @Post("lq/liquicomun/sync-range")
-  syncLiquicomunRange(@Body() body: { from?: string; to?: string }) {
-    return this.lqService.syncLiquicomunRange(body.from ?? "", body.to ?? "");
+  syncLiquicomunRange(@Body() body: { from?: string; to?: string; settlementFilter?: string }) {
+    return this.lqService.syncLiquicomunRange(body.from ?? "", body.to ?? "", body.settlementFilter);
   }
 
   @Post("lq/liqui-empresa/sync-range")
-  syncLiquiEmpresaRange(@Body() body: { from?: string; to?: string; owner?: string }) {
-    return this.lqService.syncLiquiEmpresaRange(body.from ?? "", body.to ?? "", body.owner);
+  syncLiquiEmpresaRange(@Body() body: { from?: string; to?: string; owner?: string; settlementFilter?: string }) {
+    return this.lqService.syncLiquiEmpresaRange(body.from ?? "", body.to ?? "", body.owner, body.settlementFilter);
   }
 
   @Get("lq/automation")

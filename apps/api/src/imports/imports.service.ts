@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { MedperFileType, Prisma, ReeFileType, ReeImportStatus, ReeSettlementVersion } from "@prisma/client";
 import { createHash } from "node:crypto";
+import { compareSettlements, latestSettlementCode, parseSettlementCode } from "../common/settlements";
 import { PrismaService } from "../prisma/prisma.service";
 import { ListRecordsDto } from "./dto/list-records.dto";
 import { LiquidationAnalysisQueryDto } from "./dto/liquidation-analysis-query.dto";
@@ -57,6 +58,8 @@ const FILE_SELECT = {
   fileHash: true,
   tipoArchivo: true,
   version: true,
+  settlementType: true,
+  settlementNumber: true,
   fechaLiquidacion: true,
   sujetoEic: true,
   encoding: true,
@@ -182,6 +185,8 @@ type MonthlyConsumptionAggregateRow = {
 type SummaryGroup = {
   fechaLiquidacion: Date;
   version: ReeSettlementVersion;
+  settlementType: string;
+  settlementNumber: number;
   segmento: string | null;
   records: number;
   sums: {
@@ -193,6 +198,8 @@ type SummaryGroup = {
 type QhSummaryAccumulator = {
   fechaLiquidacion: Date;
   version: ReeSettlementVersion;
+  settlementType: string;
+  settlementNumber: number;
   segmento: string | null;
   records: number;
   importeEur: number;
@@ -817,7 +824,7 @@ export class ImportsService {
         ) distinct_options
         WHERE value IS NOT NULL
           AND btrim(value) <> ''
-          AND upper(btrim(value)) ~ '^C[1-5]$'
+          AND upper(btrim(value)) ~ '^[AC][1-5]$'
         ORDER BY value
       `
     ).then(normalizeTextOptionRows);
@@ -854,7 +861,7 @@ export class ImportsService {
         ) version_options
         WHERE month IS NOT NULL
           AND version IS NOT NULL
-          AND upper(btrim(version)) ~ '^C[1-5]$'
+          AND upper(btrim(version)) ~ '^[AC][1-5]$'
         GROUP BY month, version
       `
     );
@@ -872,7 +879,7 @@ export class ImportsService {
     return [...byMonth.entries()]
       .map(([month, versions]) => ({
         month,
-        version: latestSortedVersion(versions)
+        version: latestSettlementCode(versions) ?? latestSortedVersion(versions)
       }))
       .sort((left, right) => right.month.localeCompare(left.month));
   }
@@ -1414,7 +1421,7 @@ export class ImportsService {
   async settlementSummary(query: SettlementQueryDto) {
     const hourly = await runWithPrismaRetry(() =>
       this.prisma.reganecuRecord.groupBy({
-        by: ["fechaLiquidacion", "version", "segmento"] as const,
+        by: ["fechaLiquidacion", "version", "settlementType", "settlementNumber", "segmento"] as const,
         where: buildReganecuWhere(query),
         orderBy: [{ fechaLiquidacion: "asc" }, { version: "asc" }, { segmento: "asc" }],
         _count: {
@@ -1817,7 +1824,7 @@ export class ImportsService {
   async compareVersions(query: SettlementQueryDto) {
     const [hourly, qh] = await this.prisma.$transaction([
       this.prisma.reganecuRecord.groupBy({
-        by: ["version", "fechaLiquidacion", "segmento", "codigoPrecio", "codigoApunte"] as const,
+        by: ["version", "settlementType", "settlementNumber", "fechaLiquidacion", "segmento", "codigoPrecio", "codigoApunte"] as const,
         where: buildReganecuWhere(query),
         orderBy: [
           { fechaLiquidacion: "asc" },
@@ -1835,7 +1842,7 @@ export class ImportsService {
         }
       }),
       this.prisma.reganecuQhRecord.groupBy({
-        by: ["version", "fechaLiquidacion", "segmento", "codigoPrecio", "codigoApunte"] as const,
+        by: ["version", "settlementType", "settlementNumber", "fechaLiquidacion", "segmento", "codigoPrecio", "codigoApunte"] as const,
         where: buildReganecuQhWhere(query),
         orderBy: [
           { fechaLiquidacion: "asc" },
@@ -1892,6 +1899,8 @@ export class ImportsService {
           fileHash,
           tipoArchivo: metadata.tipoArchivo,
           version: metadata.version,
+          settlementType: metadata.settlementType,
+          settlementNumber: metadata.settlementNumber,
           fechaLiquidacion: metadata.fechaLiquidacion,
           sujetoEic: metadata.sujetoEic,
           encoding: sourceFile.encoding,
@@ -2259,6 +2268,8 @@ export class ImportsService {
         id: true,
         fechaLiquidacion: true,
         version: true,
+        settlementType: true,
+        settlementNumber: true,
         segmento: true,
         fecha: true,
         hora: true,
@@ -2287,6 +2298,8 @@ export class ImportsService {
         group = {
           fechaLiquidacion: record.fechaLiquidacion,
           version: record.version,
+          settlementType: record.settlementType,
+          settlementNumber: record.settlementNumber,
           segmento: record.segmento,
           records: 0,
           importeEur: 0,
@@ -2328,6 +2341,9 @@ export class ImportsService {
     return [...groups.values()].map((group) => ({
       fechaLiquidacion: group.fechaLiquidacion,
       version: group.version,
+      settlementCode: group.version,
+      settlementType: group.settlementType,
+      settlementNumber: group.settlementNumber,
       segmento: group.segmento,
       records: group.records,
       sums: {
@@ -2410,6 +2426,8 @@ function toCommonRow(fileId: string, metadata: ReeFileMetadata, record: ParsedA1
     fileId,
     tipoArchivo: metadata.tipoArchivo,
     version: metadata.version,
+    settlementType: metadata.settlementType,
+    settlementNumber: metadata.settlementNumber,
     fechaLiquidacion: metadata.fechaLiquidacion,
     sujetoEic: metadata.sujetoEic,
     brp: record.brp,
@@ -3119,9 +3137,13 @@ function formatMedperqhAccumulatorGroup(group: {
 }
 
 function emptyLiquidationAnalysisRow(fecha: Date | null, version: ReeSettlementVersion) {
+  const settlement = parseSettlementCode(version);
   return {
     fecha: dateKey(fecha),
     version,
+    settlementCode: version,
+    settlementType: settlement.settlementType,
+    settlementNumber: settlement.settlementNumber,
     medidasRecords: 0,
     reganecuRecords: 0,
     reganecuQhRecords: 0,
@@ -3143,6 +3165,9 @@ function formatLiquidationAnalysisRow(row: ReturnType<typeof emptyLiquidationAna
     fecha: row.fecha,
     diaSemana: weekdayNumber(row.fecha),
     version: row.version,
+    settlementCode: row.settlementCode,
+    settlementType: row.settlementType,
+    settlementNumber: row.settlementNumber,
     medidasRecords: row.medidasRecords,
     reganecuRecords: row.reganecuRecords,
     reganecuQhRecords: row.reganecuQhRecords,
@@ -3272,6 +3297,8 @@ function buildFileWhere(query: SettlementQueryDto): Prisma.ReeFileWhereInput {
   return {
     fechaLiquidacion: dateRange,
     version: query.version,
+    settlementType: query.settlementType,
+    settlementNumber: query.settlementNumber,
     sujetoEic: query.sujeto?.toUpperCase()
   };
 }
@@ -3321,6 +3348,8 @@ function buildRecordWhere(query: SettlementQueryDto) {
 
   return {
     version: query.version,
+    settlementType: query.settlementType,
+    settlementNumber: query.settlementNumber,
     sujetoEic: query.sujeto?.toUpperCase(),
     segmento: query.segmento,
     codigoApunte: query.codigoApunte,
@@ -3580,6 +3609,11 @@ function buildMonthRangeFromKey(monthKey: string, offsetMonths: number) {
 
 function sortMedperVersions(values: string[]) {
   return [...values].sort((left, right) => {
+    const settlementCompare = compareKnownSettlements(left, right);
+    if (settlementCompare !== null) {
+      return settlementCompare;
+    }
+
     const leftMatch = /^([A-Z]+)(\d+)$/.exec(left);
     const rightMatch = /^([A-Z]+)(\d+)$/.exec(right);
     const leftPrefix = leftMatch?.[1] ?? left;
@@ -3602,6 +3636,16 @@ function sortMedperVersions(values: string[]) {
 function latestSortedVersion(values: string[]) {
   const sorted = sortMedperVersions([...new Set(values)]);
   return sorted[sorted.length - 1] ?? values[0] ?? "";
+}
+
+function compareKnownSettlements(left: string, right: string) {
+  try {
+    parseSettlementCode(left);
+    parseSettlementCode(right);
+    return compareSettlements(left, right);
+  } catch {
+    return null;
+  }
 }
 
 function normalizeMonthOptionRows(rows: MonthOptionRow[]) {
@@ -3751,6 +3795,7 @@ function toIsoDate(value: Date) {
 function formatGroup(group: any) {
   return {
     ...group,
+    settlementCode: group.version,
     records: group._count._all,
     sums: group._sum
   };
@@ -3759,6 +3804,7 @@ function formatGroup(group: any) {
 function formatComparisonGroup(group: any) {
   return {
     ...group,
+    settlementCode: group.version,
     records: group._count._all,
     energiaMwh: group._sum.energiaMwh,
     importeEur: group._sum.importeEur
@@ -3864,7 +3910,8 @@ function latestCorrectVersion(rows: DownloadCenterAggregateDbRow[]) {
 }
 
 function compareVersionLabels(left: string, right: string) {
-  return Number(left.replace(/\D/g, "")) - Number(right.replace(/\D/g, ""));
+  const settlementCompare = compareKnownSettlements(left, right);
+  return settlementCompare ?? Number(left.replace(/\D/g, "")) - Number(right.replace(/\D/g, ""));
 }
 
 function latestLoad(rows: DownloadCenterAggregateDbRow[]) {

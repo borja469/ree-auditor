@@ -229,7 +229,7 @@ function resolveSixPeriodWorkingDay(temporada: "alta" | "media-alta" | "media" |
     return "P6";
   }
 
-  const peak = (hora >= 11 && hora <= 15) || (hora >= 19 && hora <= 22);
+  const peak = (hora >= 10 && hora <= 14) || (hora >= 19 && hora <= 22);
   if (temporada === "alta") {
     return peak ? "P1" : "P2";
   }

@@ -1,9 +1,13 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { ReeFileType, ReeSettlementVersion } from "@prisma/client";
+import { parseSettlementCode, type SettlementNumber, type SettlementType } from "../../common/settlements";
 
 export interface ReeFileMetadata {
   version: ReeSettlementVersion;
+  settlementCode: ReeSettlementVersion;
+  settlementType: SettlementType;
+  settlementNumber: SettlementNumber;
   tipoArchivo: ReeFileType;
   fechaLiquidacion: Date;
   sujetoEic: string;
@@ -56,7 +60,7 @@ export interface ParsedRecordResult {
   error?: ParseIssue;
 }
 
-const FILE_NAME_PATTERN = /^(C[1-5])_?(reganecuQH|reganecu)_?(\d{8})_([A-Z0-9]+)/i;
+const FILE_NAME_PATTERN = /^([AC][1-5])_?(reganecuQH|reganecu)_?(\d{8})_([A-Z0-9]+)/i;
 const IMPORTE_TOLERANCE = 0.01;
 const PRICE_ANOMALY_THRESHOLD_EUR_MWH = 10000;
 
@@ -124,12 +128,16 @@ export function parseReeFileMetadata(fileName: string): ReeFileMetadata {
 
   if (!match) {
     throw new Error(
-      `Nombre de fichero no reconocido. Debe seguir el patron C1-C5 + reganecu/reganecuQH + fecha YYYYMMDD + sujeto EIC: ${fileName}`
+      `Nombre de fichero no reconocido. Debe seguir el patron A1-A5/C1-C5 + reganecu/reganecuQH + fecha YYYYMMDD + sujeto EIC: ${fileName}`
     );
   }
+  const settlement = parseSettlementCode(match[1]);
 
   return {
-    version: match[1].toUpperCase() as ReeSettlementVersion,
+    version: settlement.settlementCode as ReeSettlementVersion,
+    settlementCode: settlement.settlementCode as ReeSettlementVersion,
+    settlementType: settlement.settlementType,
+    settlementNumber: settlement.settlementNumber,
     tipoArchivo: match[2].toLowerCase() === "reganecuqh" ? ReeFileType.REGANECUQH : ReeFileType.REGANECU,
     fechaLiquidacion: parseCompactDate(match[3]),
     sujetoEic: match[4].toUpperCase()

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
-import { ReeSettlementVersion } from "@prisma/client";
+import { ReeKFactorFileType, ReeSettlementVersion } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { compareSettlements, settlementRank } from "../common/settlements";
 import { ReeLossesAnalyticsEngine } from "./analytics-engine.service";
 import { ReeLossesQueryDto } from "./dto/ree-losses-query.dto";
 import { ReeKFactorImporter } from "./k-factor-importer.service";
@@ -19,7 +20,7 @@ import {
 const FILTER_OPTIONS_CACHE_MS = 60000;
 const PRISMA_POOL_RETRIES = 3;
 const BOE_OPEN_END = new Date(Date.UTC(9999, 11, 31));
-const REE_LOSSES_VERSIONS = ["A1", "C1", "C2", "C3", "C4", "C5"] as const;
+const REE_LOSSES_VERSIONS = ["A1", "C1", "A2", "C2", "A3", "C3", "A4", "C4", "A5", "C5"] as const;
 
 @Injectable()
 export class ReeLossesService {
@@ -55,6 +56,9 @@ export class ReeLossesService {
       fileHash: item.fileHash,
       tipoArchivo: item.tipoArchivo,
       version: item.version,
+      settlementCode: item.version,
+      settlementType: item.settlementType,
+      settlementNumber: item.settlementNumber,
       fechaInicio: item.fechaInicio ? toIsoDate(item.fechaInicio) : null,
       fechaFin: item.fechaFin ? toIsoDate(item.fechaFin) : null,
       status: item.status,
@@ -89,7 +93,7 @@ export class ReeLossesService {
           WHERE version IS NOT NULL
           ORDER BY value
         `
-      ).then(normalizeTextOptionRows),
+      ).then((rows) => sortSettlementOptions(normalizeTextOptionRows(rows))),
       runWithPrismaRetry(() =>
         this.prisma.$queryRaw<MonthOptionRow[]>`
           SELECT to_char(fecha, 'YYYY-MM') AS month
@@ -143,11 +147,12 @@ export class ReeLossesService {
     }
 
     const version = normalizeVersion(query.version);
+    const tipoArchivo = normalizeKFactorFileType(query.tipoArchivo) ?? undefined;
     const tarifa = normalizeTarifa(query.tarifa);
     const periodo = normalizePeriodo(query.periodo);
     const context = await this.regulatoryEngine.buildPeriodContext();
     const [kFactors, boeLosses] = await Promise.all([
-      this.loadKFactors({ dateRange, version, tarifa, periodo }),
+      this.loadKFactors({ dateRange, version, tipoArchivo, tarifa, periodo }),
       this.regulatoryEngine.loadBoeLosses()
     ]);
     const analysis = this.analyticsEngine.buildReport({
@@ -166,6 +171,7 @@ export class ReeLossesService {
         fechaInicio: toIsoDate(dateRange.gte),
         fechaFin: toIsoDate(new Date(Date.UTC(dateRange.lt.getUTCFullYear(), dateRange.lt.getUTCMonth(), dateRange.lt.getUTCDate() - 1))),
         version,
+        tipoArchivo,
         tarifa,
         periodo
       },
@@ -219,11 +225,13 @@ export class ReeLossesService {
   private loadKFactors({
     dateRange,
     version,
+    tipoArchivo,
     tarifa,
     periodo
   }: {
     dateRange: DateRange;
     version?: ReeSettlementVersion;
+    tipoArchivo?: ReeKFactorFileType;
     tarifa?: string;
     periodo?: string;
   }) {
@@ -231,6 +239,7 @@ export class ReeLossesService {
       where: {
         fecha: dateRange,
         version,
+        tipoArchivo,
         tarifa,
         periodo
       },
@@ -264,6 +273,8 @@ export class ReeLossesService {
     const rows = await runWithPrismaRetry(() =>
       this.prisma.$queryRaw<Array<{
         version: string;
+        settlementType: string | null;
+        settlementNumber: number | null;
         tipoArchivo: string;
         fechaInicio: Date;
         fechaFin: Date;
@@ -272,6 +283,8 @@ export class ReeLossesService {
       }>>`
         SELECT
           version::text AS "version",
+          min(settlement_type::text) AS "settlementType",
+          min(settlement_number)::int AS "settlementNumber",
           tipo_archivo::text AS "tipoArchivo",
           min(fecha) AS "fechaInicio",
           max(fecha) AS "fechaFin",
@@ -297,6 +310,9 @@ export class ReeLossesService {
         fileHash: null,
         tipoArchivo,
         version,
+        settlementCode: version,
+        settlementType: normalizeSettlementType(row.settlementType),
+        settlementNumber: normalizeSettlementNumber(row.settlementNumber),
         fechaInicio,
         fechaFin,
         status: "IMPORTED" as const,
@@ -482,19 +498,11 @@ function normalizeVersion(value?: string) {
 }
 
 function compareVersionAsc(left: string, right: string) {
-  return versionRank(left) - versionRank(right);
+  return compareSettlements(left, right);
 }
 
 function compareVersionDesc(left: string, right: string) {
-  return versionRank(right) - versionRank(left);
-}
-
-function versionRank(value: string) {
-  if (value === "A1") {
-    return 0;
-  }
-  const match = /^C([1-5])$/.exec(value);
-  return match ? Number(match[1]) : 0;
+  return settlementRank(right) - settlementRank(left);
 }
 
 function monthKey(value: string) {
@@ -570,6 +578,18 @@ function normalizeTextOptionRows(rows: DistinctTextOptionRow[]) {
   return [...new Set(rows.map((row) => row.value?.trim()).filter(isNonEmptyString))].sort((left, right) =>
     left.localeCompare(right, "es", { numeric: true, sensitivity: "base" })
   );
+}
+
+function sortSettlementOptions(values: string[]) {
+  return [...values].sort(compareSettlements);
+}
+
+function normalizeSettlementType(value?: string | null) {
+  return value === "A" || value === "C" ? value : null;
+}
+
+function normalizeSettlementNumber(value?: number | null) {
+  return Number.isInteger(value) && value && value >= 1 && value <= 5 ? value : null;
 }
 
 function isNonEmptyString(value: string | null | undefined): value is string {

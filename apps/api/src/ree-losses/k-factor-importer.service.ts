@@ -81,23 +81,30 @@ export class ReeKFactorImporter {
 
     validateTemporalConsistency(rows, errors, sourceFile.name);
 
-    const duplicateKeys = countDuplicateKeys(rows.map(kFactorIdentityKey));
+    const inFileDuplicateKeys = countDuplicateKeys(rows.map(kFactorIdentityKey));
+    const existingKeys = await this.loadExistingKFactorKeys(rows, metadataResult.metadata);
+    const rowsToInsert = rows.filter((row) => !existingKeys.has(kFactorIdentityKey(row)));
+    const skippedExistingRecords = rows.length - rowsToInsert.length;
     let imported = 0;
-    for (const batch of chunk(rows, INSERT_BATCH_SIZE)) {
+    for (const batch of chunk(rowsToInsert, INSERT_BATCH_SIZE)) {
       const result = await this.prisma.reeKFactor.createMany({
         data: batch.map((row) => ({
           fecha: normalizeDateOnly(row.fecha),
           hora: row.hora,
           cuartohora: row.cuartohora,
           version: row.version,
+          settlementType: row.settlementType,
+          settlementNumber: row.settlementNumber,
           tipoArchivo: row.tipoArchivo,
           tarifa: row.tarifa,
           periodo: row.periodo,
           valorK: row.valorK.toFixed(10)
-        }))
+        })),
+        skipDuplicates: true
       });
       imported += result.count;
     }
+    const skippedByDatabase = rowsToInsert.length - imported;
 
     return this.persistImportResult({
       fileName: sourceFile.name,
@@ -109,7 +116,7 @@ export class ReeKFactorImporter {
       recordsImported: imported,
       validRecords: rows.length,
       invalidRecords: errors.length,
-      duplicatedRecords: duplicateKeys,
+      duplicatedRecords: inFileDuplicateKeys + skippedExistingRecords + skippedByDatabase,
       errors: errors.slice(0, 100).map((error) => ({
         sourceFileName: error.sourceFileName,
         lineNumber: error.lineNumber,
@@ -126,6 +133,8 @@ export class ReeKFactorImporter {
         fileHash: sourceFile ? createHash("sha256").update(sourceFile.buffer).digest("hex") : undefined,
         tipoArchivo: metadata?.tipoArchivo ?? result.tipoArchivo ?? undefined,
         version: metadata?.version ?? result.version ?? undefined,
+        settlementType: metadata?.settlementType,
+        settlementNumber: metadata?.settlementNumber,
         fechaInicio: metadata?.fechaInicio ? normalizeDateOnly(metadata.fechaInicio) : result.fechaInicio ? new Date(`${result.fechaInicio}T00:00:00.000Z`) : undefined,
         fechaFin: metadata?.fechaFin ? normalizeDateOnly(metadata.fechaFin) : result.fechaFin ? new Date(`${result.fechaFin}T00:00:00.000Z`) : undefined,
         status: result.status === "IMPORTED" ? "IMPORTED" : "FAILED",
@@ -142,10 +151,40 @@ export class ReeKFactorImporter {
       id: created.id,
       tipoArchivo: created.tipoArchivo,
       version: created.version,
+      settlementType: created.settlementType,
+      settlementNumber: created.settlementNumber,
       fechaInicio: created.fechaInicio ? toIsoDate(created.fechaInicio) : null,
       fechaFin: created.fechaFin ? toIsoDate(created.fechaFin) : null,
       importedAt: created.importedAt.toISOString()
     };
+  }
+
+  private async loadExistingKFactorKeys(rows: NormalizedKFactorInput[], metadata: ReeKFactorMetadata) {
+    if (rows.length === 0) {
+      return new Set<string>();
+    }
+    const dates = rows.map((row) => normalizeDateOnly(row.fecha).getTime());
+    const fechaInicio = new Date(Math.min(...dates));
+    const fechaFin = new Date(Math.max(...dates));
+    const existing = await this.prisma.reeKFactor.findMany({
+      where: {
+        fecha: { gte: fechaInicio, lte: fechaFin },
+        version: metadata.version,
+        tipoArchivo: metadata.tipoArchivo,
+        tarifa: { in: [...new Set(rows.map((row) => row.tarifa))] },
+        periodo: { in: [...new Set(rows.map((row) => row.periodo))] }
+      },
+      select: {
+        fecha: true,
+        hora: true,
+        cuartohora: true,
+        version: true,
+        tipoArchivo: true,
+        tarifa: true,
+        periodo: true
+      }
+    });
+    return new Set(existing.map(kFactorIdentityKey));
   }
 }
 
@@ -284,8 +323,8 @@ function countDuplicateKeys(keys: string[]) {
   return [...counts.values()].reduce((sum, count) => sum + Math.max(count - 1, 0), 0);
 }
 
-function kFactorIdentityKey(row: { fecha: Date; hora: number; cuartohora: number; version: string; tarifa: string; periodo: string }) {
-  return [toIsoDate(row.fecha), row.hora, row.cuartohora, row.version, row.tarifa, row.periodo].join("|");
+export function kFactorIdentityKey(row: { fecha: Date; hora: number; cuartohora: number; version: string; tipoArchivo: string; tarifa: string; periodo: string }) {
+  return [toIsoDate(row.fecha), row.hora, row.cuartohora, row.version, row.tipoArchivo, row.tarifa, row.periodo].join("|");
 }
 
 function normalizeDateOnly(value: Date) {

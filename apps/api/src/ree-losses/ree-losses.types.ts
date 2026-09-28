@@ -1,4 +1,4 @@
-import { Prisma, ReeKFactorFileType, ReeSettlementVersion } from "@prisma/client";
+import { Prisma, ReeKFactorFileType, ReeSettlementType, ReeSettlementVersion } from "@prisma/client";
 import { PeriodRule } from "./period-engine";
 
 export type ImportResultStatus = "IMPORTED" | "FAILED";
@@ -55,6 +55,8 @@ export type ImportResult = {
   status: ImportResultStatus;
   tipoArchivo?: ReeKFactorFileType | null;
   version?: ReeSettlementVersion | null;
+  settlementType?: ReeSettlementType | null;
+  settlementNumber?: number | null;
   fechaInicio?: string | null;
   fechaFin?: string | null;
   importedAt?: string;
@@ -79,6 +81,8 @@ export type NormalizedKFactorInput = {
   hora: number;
   cuartohora: number;
   version: ReeSettlementVersion;
+  settlementType: ReeSettlementType;
+  settlementNumber: number;
   tipoArchivo: ReeKFactorFileType;
   tarifa: string;
   periodo: string;
@@ -107,6 +111,9 @@ export type LossReportRow = {
   diferenciaPct: number | null;
   tipoFicheroUtilizado: string;
   version: string;
+  settlementCode: string;
+  settlementType: string;
+  settlementNumber: number;
   versionBoe: string | null;
   kestimValorK: number | null;
   krealValorK: number | null;

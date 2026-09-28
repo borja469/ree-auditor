@@ -60,6 +60,9 @@ export function activeSidebarGroupKeys(section: Section): SidebarGroupKey[] {
   if (isPricingSection(section)) {
     return ["pricing"];
   }
+  if (isDashboardSection(section)) {
+    return ["dashboards"];
+  }
   if (isGasSection(section)) {
     return ["gas"];
   }
@@ -103,7 +106,7 @@ export function activeSidebarItemKeys(section: Section): string[] {
   if (isMercadoSection(section)) {
     return ["mercado-forecast-menu"];
   }
-  if (isPricingSection(section)) {
+  if (isPricingSection(section) || isDashboardSection(section)) {
     return [];
   }
   if (section === "gasMibgas") {
@@ -151,6 +154,10 @@ export function isEsiosSection(section: Section) {
 
 export function isPricingSection(section: Section) {
   return section === "pricingBase" || section === "pricingMeff" || section === "pricingHedges" || section === "pricingMir";
+}
+
+export function isDashboardSection(section: Section) {
+  return section === "billingDashboard";
 }
 
 export function isMercadoSection(section: Section) {

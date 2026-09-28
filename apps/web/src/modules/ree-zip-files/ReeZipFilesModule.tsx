@@ -1,17 +1,34 @@
-import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { ChevronDown, ChevronRight, Download, RefreshCw } from "lucide-react";
 import {
   downloadReeLqZipCatalogPair,
   getReeLqZipCatalog,
+  type ReeLqMessageSummary,
   type ReeLqMonthlyMatrixCell,
   type ReeLqMonthlyMatrixResponse,
   type ReeLqSettlement
 } from "../../api";
 import { downloadBlob } from "../../components/technical-data-table/TechnicalDataTableHelpers";
+import { REE_SETTLEMENT_CODES, settlementLabel } from "../../settlements";
 
 type Notice = { tone: "success" | "error" | "info"; text: string };
+type FamilyFilter = "" | "liquicomun" | "liqui-empresa";
+type StatusFilter = "" | "complete" | "partial" | "empty";
+type CatalogHistoryRow = {
+  id: string;
+  month: string;
+  settlement: ReeLqSettlement;
+  settlementType: string;
+  family: "liquicomun" | "liqui-empresa";
+  owner: string;
+  publicationDate: string | null;
+  downloadedAt: string | null;
+  status: "Descargado";
+  records: string;
+  message: ReeLqMessageSummary;
+  cell: ReeLqMonthlyMatrixCell;
+};
 
-const REE_LQ_SETTLEMENTS: ReeLqSettlement[] = ["A1", "C1", "C2", "C3", "C4", "C5"];
 const DEFAULT_OWNER = "STROM";
 
 export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) {
@@ -19,6 +36,11 @@ export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) 
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice>();
   const [openYears, setOpenYears] = useState<Set<string>>(() => new Set([String(new Date().getFullYear())]));
+  const [monthFilter, setMonthFilter] = useState("");
+  const [settlementFilter, setSettlementFilter] = useState<ReeLqSettlement | "">("");
+  const [familyFilter, setFamilyFilter] = useState<FamilyFilter>("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("");
+
   const visibleMatrix: ReeLqMonthlyMatrixResponse = matrix ?? {
     source: "REE_ESIOS",
     service: "ServicioLQ",
@@ -26,10 +48,23 @@ export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) 
     to: "",
     owner: DEFAULT_OWNER,
     months: [],
-    settlements: REE_LQ_SETTLEMENTS,
+    settlements: REE_SETTLEMENT_CODES,
     cells: []
   };
-  const yearGroups = buildYearGroups(visibleMatrix.months);
+  const filteredMonths = useMemo(
+    () => visibleMatrix.months.filter((month) => !monthFilter || month === monthFilter),
+    [monthFilter, visibleMatrix.months]
+  );
+  const filteredSettlements = useMemo(
+    () => REE_SETTLEMENT_CODES.filter((settlement) => !settlementFilter || settlement === settlementFilter),
+    [settlementFilter]
+  );
+  const filteredCells = useMemo(
+    () => filterCells(visibleMatrix, filteredMonths, filteredSettlements, familyFilter, statusFilter),
+    [familyFilter, filteredMonths, filteredSettlements, statusFilter, visibleMatrix]
+  );
+  const yearGroups = buildYearGroups(filteredMonths);
+  const historyRows = useMemo(() => buildHistoryRows(filteredCells, familyFilter), [familyFilter, filteredCells]);
 
   useEffect(() => {
     void loadMatrix({ silent: true });
@@ -66,7 +101,7 @@ export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) 
       downloadBlob(result.fileName, result.blob, "application/zip");
       setNotice({ tone: "success", text: `ZIP descargado: ${result.fileName}.` });
     } catch (error) {
-      setNotice({ tone: "error", text: error instanceof Error ? error.message : "No se pudo descargar el ZIP." });
+      setNotice({ tone: "error", text: error instanceof Error ? error.message : "No se pudo descargar el ZIP local." });
     } finally {
       setBusyKey(null);
     }
@@ -78,7 +113,7 @@ export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) 
         <div>
           <span className="ops-eyebrow">Liquidaciones REE</span>
           <strong>Ficheros ZIP</strong>
-          <span>{`Hist\u00f3rico local por a\u00f1o. Sujeto ${DEFAULT_OWNER}. Descarga los ZIPs com\u00fan y empresa guardados en el servidor.`}</span>
+          <span>{`Historico local por anio. Sujeto ${DEFAULT_OWNER}. Cada celda conserva la ultima publicacion local conocida de la liquidacion.`}</span>
         </div>
         <button className="ops-primary-button" disabled={disabled || Boolean(busyKey)} onClick={() => void loadMatrix()} type="button">
           <RefreshCw size={16} />
@@ -86,11 +121,42 @@ export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) 
         </button>
       </div>
 
+      <div className="ree-zip-toolbar">
+        <label>
+          Periodo
+          <input type="month" value={monthFilter} onChange={(event) => setMonthFilter(event.target.value)} />
+        </label>
+        <label>
+          Liquidacion
+          <select value={settlementFilter} onChange={(event) => setSettlementFilter(event.target.value as ReeLqSettlement | "")}>
+            <option value="">Todas</option>
+            {REE_SETTLEMENT_CODES.map((settlement) => <option key={settlement} value={settlement}>{settlement} - {settlementLabel(settlement)}</option>)}
+          </select>
+        </label>
+        <label>
+          Familia
+          <select value={familyFilter} onChange={(event) => setFamilyFilter(event.target.value as FamilyFilter)}>
+            <option value="">Todas</option>
+            <option value="liquicomun">Comun</option>
+            <option value="liqui-empresa">Empresa</option>
+          </select>
+        </label>
+        <label>
+          Estado
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+            <option value="">Todos</option>
+            <option value="complete">Descargado comun+empresa</option>
+            <option value="partial">Descarga parcial</option>
+            <option value="empty">No disponible</option>
+          </select>
+        </label>
+      </div>
+
       {notice && <div className={`status-message ree-zip-notice ${notice.tone}`}>{notice.text}</div>}
 
       <div className="ree-zip-matrix-panel">
-        {!matrix && <div className="ree-zip-empty">{"Mostrando todo el hist\u00f3rico local disponible. Actualiza ZIPs locales desde Centro de cargas para alimentar esta matriz."}</div>}
-        {matrix && yearGroups.length === 0 && <div className="ree-zip-empty">{"No hay ZIPs locales guardados todav\u00eda."}</div>}
+        {!matrix && <div className="ree-zip-empty">Mostrando todo el historico local disponible. Actualiza ZIPs locales desde Centro de cargas para alimentar esta matriz.</div>}
+        {matrix && yearGroups.length === 0 && <div className="ree-zip-empty">No hay ZIPs locales para los filtros seleccionados.</div>}
         {yearGroups.map((group) => (
           <YearMatrix
             busyKey={busyKey}
@@ -101,8 +167,62 @@ export function ReeZipFilesModule({ disabled = false }: { disabled?: boolean }) 
             matrix={visibleMatrix}
             onDownload={downloadCell}
             onToggle={() => toggleYear(group.year, setOpenYears)}
+            settlements={filteredSettlements}
           />
         ))}
+      </div>
+
+      <div className="ree-zip-history-panel">
+        <div className="ops-table-head">
+          <div>
+            <strong>Historico local de publicaciones</strong>
+            <span>{historyRows.length} publicacion(es) descargadas en el servidor</span>
+          </div>
+        </div>
+        <div className="table-scroll">
+          <table className="ree-zip-history-table">
+            <thead>
+              <tr>
+                <th>Periodo</th>
+                <th>Liquidacion</th>
+                <th>Tipo</th>
+                <th>Familia</th>
+                <th>Sujeto / Owner</th>
+                <th>Fecha publicacion</th>
+                <th>Fecha descarga</th>
+                <th>Estado</th>
+                <th>Registros</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody>
+              {historyRows.length === 0 && (
+                <tr>
+                  <td colSpan={10}><div className="empty-state">Sin publicaciones descargadas para los filtros seleccionados.</div></td>
+                </tr>
+              )}
+              {historyRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{formatMonth(row.month)}</td>
+                  <td><strong>{row.settlement}</strong></td>
+                  <td>{row.settlementType}</td>
+                  <td>{familyLabel(row.family)}</td>
+                  <td>{row.owner}</td>
+                  <td>{formatShortDate(row.publicationDate)}</td>
+                  <td>{formatDateTime(row.downloadedAt)}</td>
+                  <td><span className="ops-status-badge valid">{row.status}</span></td>
+                  <td>{row.records}</td>
+                  <td>
+                    <button disabled={disabled || busyKey === `${row.month}-${row.settlement}`} onClick={() => void downloadCell(row.cell)} type="button">
+                      <Download size={13} />
+                      ZIP
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
   );
@@ -115,7 +235,8 @@ function YearMatrix({
   isOpen,
   matrix,
   onDownload,
-  onToggle
+  onToggle,
+  settlements
 }: {
   busyKey: string | null;
   disabled: boolean;
@@ -124,6 +245,7 @@ function YearMatrix({
   matrix: ReeLqMonthlyMatrixResponse;
   onDownload: (cell: ReeLqMonthlyMatrixCell) => Promise<void>;
   onToggle: () => void;
+  settlements: ReeLqSettlement[];
 }) {
   const cellCount = countCellsWithZips(matrix, group.months);
   return (
@@ -136,9 +258,9 @@ function YearMatrix({
       </button>
       {isOpen && (
         <div className="ree-zip-matrix-scroll">
-          <div className="ree-zip-matrix-grid" style={{ gridTemplateColumns: `96px repeat(${REE_LQ_SETTLEMENTS.length}, minmax(156px, 1fr))` }}>
+          <div className="ree-zip-matrix-grid" style={{ gridTemplateColumns: `96px repeat(${settlements.length}, minmax(156px, 1fr))` }}>
             <div className="ree-zip-matrix-header">Mes</div>
-            {REE_LQ_SETTLEMENTS.map((settlement) => (
+            {settlements.map((settlement) => (
               <div className="ree-zip-matrix-header" key={settlement}>{settlement}</div>
             ))}
             {group.months.map((month) => (
@@ -149,6 +271,7 @@ function YearMatrix({
                 matrix={matrix}
                 month={month}
                 onDownload={onDownload}
+                settlements={settlements}
               />
             ))}
           </div>
@@ -163,27 +286,24 @@ function MatrixRow({
   disabled,
   matrix,
   month,
-  onDownload
+  onDownload,
+  settlements
 }: {
   busyKey: string | null;
   disabled: boolean;
   matrix: ReeLqMonthlyMatrixResponse;
   month: string;
   onDownload: (cell: ReeLqMonthlyMatrixCell) => Promise<void>;
+  settlements: ReeLqSettlement[];
 }) {
   return (
     <>
       <div className="ree-zip-matrix-month">{formatMonth(month)}</div>
-      {REE_LQ_SETTLEMENTS.map((settlement) => {
-        const cell = matrix.cells.find((item) => item.month === month && item.settlement === settlement) ?? {
-          month,
-          settlement,
-          liquicomun: null,
-          liquiEmpresa: null
-        };
+      {settlements.map((settlement) => {
+        const cell = matrix.cells.find((item) => item.month === month && item.settlement === settlement) ?? emptyCell(month, settlement);
         const hasAny = Boolean(cell.liquicomun || cell.liquiEmpresa);
         const isComplete = Boolean(cell.liquicomun && cell.liquiEmpresa);
-        const statusLabel = hasAny ? (isComplete ? "Completa" : "Parcial") : "Sin publicar";
+        const statusLabel = hasAny ? (isComplete ? "Descargado" : "Parcial") : "No disponible";
         const statusTone = hasAny ? (isComplete ? "complete" : "partial") : "empty";
         const key = `${month}-${settlement}`;
         return (
@@ -192,7 +312,7 @@ function MatrixRow({
               <span className={`ree-zip-matrix-status ${statusTone}`}>{statusLabel}</span>
             </div>
             <div className="ree-zip-matrix-files">
-              <MatrixFileBadge label={"Com\u00fan"} message={cell.liquicomun} />
+              <MatrixFileBadge label="Comun" message={cell.liquicomun} />
               <MatrixFileBadge label="Empresa" message={cell.liquiEmpresa} />
             </div>
             {hasAny && (
@@ -208,7 +328,7 @@ function MatrixRow({
   );
 }
 
-function MatrixFileBadge({ label, message }: { label: string; message: ReeLqMonthlyMatrixCell["liquicomun"] }) {
+function MatrixFileBadge({ label, message }: { label: string; message: ReeLqMessageSummary | null }) {
   if (!message) {
     return (
       <span className="ree-zip-matrix-file missing">
@@ -222,13 +342,77 @@ function MatrixFileBadge({ label, message }: { label: string; message: ReeLqMont
       <b>{label}</b>
       <small>
         {formatVersion(message.fileVersion)}
-        {" \u00b7 "}
+        {" · "}
         {formatShortDate(message.publicationDate)}
-        {" \u00b7 "}
+        {" · "}
         {message.code || "-"}
       </small>
     </span>
   );
+}
+
+function filterCells(matrix: ReeLqMonthlyMatrixResponse, months: string[], settlements: ReeLqSettlement[], family: FamilyFilter, status: StatusFilter) {
+  const cells = [];
+  for (const month of months) {
+    for (const settlement of settlements) {
+      const cell = matrix.cells.find((item) => item.month === month && item.settlement === settlement) ?? emptyCell(month, settlement);
+      const hasCommon = Boolean(cell.liquicomun);
+      const hasEmpresa = Boolean(cell.liquiEmpresa);
+      const visibleByFamily = !family || (family === "liquicomun" ? hasCommon : hasEmpresa);
+      const cellStatus: StatusFilter = hasCommon && hasEmpresa ? "complete" : hasCommon || hasEmpresa ? "partial" : "empty";
+      if (visibleByFamily && (!status || cellStatus === status)) {
+        cells.push(cell);
+      }
+    }
+  }
+  return cells;
+}
+
+function buildHistoryRows(cells: ReeLqMonthlyMatrixCell[], familyFilter: FamilyFilter): CatalogHistoryRow[] {
+  const rows: CatalogHistoryRow[] = [];
+  for (const cell of cells) {
+    if ((!familyFilter || familyFilter === "liquicomun") && cell.liquicomun) {
+      rows.push(historyRow(cell, "liquicomun", cell.liquicomun));
+    }
+    if ((!familyFilter || familyFilter === "liqui-empresa") && cell.liquiEmpresa) {
+      rows.push(historyRow(cell, "liqui-empresa", cell.liquiEmpresa));
+    }
+  }
+  return rows.sort((left, right) =>
+    right.month.localeCompare(left.month) ||
+    REE_SETTLEMENT_CODES.indexOf(left.settlement) - REE_SETTLEMENT_CODES.indexOf(right.settlement) ||
+    left.family.localeCompare(right.family)
+  );
+}
+
+function historyRow(cell: ReeLqMonthlyMatrixCell, family: "liquicomun" | "liqui-empresa", message: ReeLqMessageSummary): CatalogHistoryRow {
+  return {
+    id: `${cell.month}-${cell.settlement}-${family}`,
+    month: cell.month,
+    settlement: cell.settlement,
+    settlementType: settlementLabel(cell.settlement),
+    family,
+    owner: family === "liquicomun" ? "REE" : "STROM",
+    publicationDate: message.publicationDate,
+    downloadedAt: message.downloadedAt ?? null,
+    status: "Descargado",
+    records: "-",
+    message,
+    cell
+  };
+}
+
+function emptyCell(month: string, settlement: ReeLqSettlement): ReeLqMonthlyMatrixCell {
+  return {
+    month,
+    settlement,
+    settlementCode: settlement,
+    settlementType: settlement.startsWith("A") ? "A" : "C",
+    settlementNumber: Number(settlement.slice(1, 2)),
+    settlementLabel: settlementLabel(settlement),
+    liquicomun: null,
+    liquiEmpresa: null
+  };
 }
 
 function formatVersion(value: number | null | undefined) {
@@ -243,9 +427,21 @@ function formatShortDate(value: string | null | undefined) {
   return day && month && year ? `${day}/${month}/${year.slice(-2)}` : value;
 }
 
+function formatDateTime(value: string | null | undefined) {
+  if (!value) {
+    return "-";
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("es-ES", { dateStyle: "short", timeStyle: "short" });
+}
+
 function formatMonth(value: string) {
   const [year, month] = value.split("-");
   return month && year ? `${month}/${year}` : value;
+}
+
+function familyLabel(value: "liquicomun" | "liqui-empresa") {
+  return value === "liquicomun" ? "Comun" : "Empresa";
 }
 
 type YearGroup = { year: string; months: string[] };

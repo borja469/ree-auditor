@@ -1,0 +1,3 @@
+ALTER TABLE "cm_invoice_import_batches"
+  ADD COLUMN IF NOT EXISTS "gisce_pages" INTEGER NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS "processed_count" INTEGER NOT NULL DEFAULT 0;

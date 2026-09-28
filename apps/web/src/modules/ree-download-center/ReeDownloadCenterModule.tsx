@@ -19,6 +19,7 @@ import {
   getImportFileDetail,
   getImportFileErrorsCsv,
   getImportFileLogs,
+  processReeLqMonthlyPair,
   reprocessImportFile,
   runReeLqAutomationNow,
   saveReeLqAutomationConfig,
@@ -33,12 +34,15 @@ import {
   type ReeLqAutomationConfig,
   type ReeLqAutomationRunHistoryRow,
   type ReeLqAutomationRunResponse,
+  type ReeLqSettlementFilter,
   type ReeLqSyncRangeResult,
+  type ReeLqSettlement,
   type ReeLossesImportFile,
   type ReeSeieFile
 } from "../../api";
 import type { ImportMode } from "../../app-shell/AppShellTypes";
 import { downloadBlob } from "../../components/technical-data-table/TechnicalDataTableHelpers";
+import { REE_SETTLEMENT_CODES, settlementLabel } from "../../settlements";
 
 type UnifiedStatus = "correct" | "error" | "pending" | "incomplete" | "duplicated" | "warning";
 type ReeDownloadModule = "REGANECU" | "MEDPER" | "K REE" | "SEIE";
@@ -105,6 +109,12 @@ type ReeDownloadCenterProps = {
 const MODULE_OPTIONS: ReeDownloadModule[] = ["REGANECU", "SEIE", "MEDPER", "K REE"];
 const STATUS_OPTIONS: UnifiedStatus[] = ["correct", "error", "pending", "incomplete", "duplicated", "warning"];
 const REQUIRED_MEDPER_VERSIONS = ["C3", "C4", "C5"];
+const REE_LQ_SETTLEMENT_FILTERS: Array<{ value: ReeLqSettlementFilter; label: string }> = [
+  { value: "ALL", label: "Todas" },
+  { value: "ADVANCES", label: "Avances" },
+  { value: "CLOSURES", label: "Cierres" },
+  ...REE_SETTLEMENT_CODES.map((code) => ({ value: code, label: `${code} - ${settlementLabel(code)}` }))
+];
 
 const STATUS_LABELS: Record<UnifiedStatus, string> = {
   correct: "Correcto",
@@ -161,8 +171,13 @@ export function ReeDownloadCenterModule({
   const [actionModal, setActionModal] = useState<ActionModal>();
   const [reeLqFrom, setReeLqFrom] = useState(() => new Date().toISOString().slice(0, 10));
   const [reeLqTo, setReeLqTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reeLqSettlementFilter, setReeLqSettlementFilter] = useState<ReeLqSettlementFilter>("ALL");
+  const [reeLqMonth, setReeLqMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [reeLqSettlement, setReeLqSettlement] = useState<ReeLqSettlement>("A1");
+  const [reeLqIncludeCommon, setReeLqIncludeCommon] = useState(true);
+  const [reeLqIncludeEmpresa, setReeLqIncludeEmpresa] = useState(true);
   const [reeLqOwner, setReeLqOwner] = useState("STROM");
-  const [reeLqBusy, setReeLqBusy] = useState<"liquicomun" | "liqui-empresa" | null>(null);
+  const [reeLqBusy, setReeLqBusy] = useState<"liquicomun" | "liqui-empresa" | "monthly-pair" | null>(null);
   const [reeLqResult, setReeLqResult] = useState<ReeLqSyncRangeResult>();
   const [reeLqAutomation, setReeLqAutomation] = useState<ReeLqAutomationConfig>(DEFAULT_REE_LQ_AUTOMATION);
   const [reeLqAutomationRuns, setReeLqAutomationRuns] = useState<ReeLqAutomationRunHistoryRow[]>([]);
@@ -369,13 +384,42 @@ export function ReeDownloadCenterModule({
     setActionMessage(undefined);
     try {
       const result = family === "liquicomun"
-        ? await syncReeLqLiquicomunRange(reeLqFrom, reeLqTo)
-        : await syncReeLqLiquiEmpresaRange(reeLqFrom, reeLqTo, reeLqOwner);
+        ? await syncReeLqLiquicomunRange(reeLqFrom, reeLqTo, reeLqSettlementFilter)
+        : await syncReeLqLiquiEmpresaRange(reeLqFrom, reeLqTo, reeLqOwner, reeLqSettlementFilter);
       setReeLqResult(result);
       await onRefresh();
       setActionMessage({ tone: "success", text: summarizeReeLqSyncResult(result) });
     } catch (error) {
       setActionMessage({ tone: "error", text: error instanceof Error ? error.message : "No se pudo completar la sincronizacion REE/eSIOS." });
+    } finally {
+      setReeLqBusy(null);
+    }
+  }
+
+  async function processSelectedReeLqSettlement() {
+    setReeLqBusy("monthly-pair");
+    setActionMessage(undefined);
+    try {
+      const result = await processReeLqMonthlyPair({
+        from: reeLqFrom,
+        to: reeLqTo,
+        month: reeLqMonth,
+        settlement: reeLqSettlement,
+        owner: reeLqOwner,
+        liquicomun: reeLqIncludeCommon,
+        liquiEmpresa: reeLqIncludeEmpresa
+      });
+      await onRefresh();
+      const imported = result.results.reduce((sum, item) => sum + item.selectedFiles.filter((file) => file.status === "IMPORTED").length, 0);
+      const skipped = result.results.reduce((sum, item) => sum + item.selectedFiles.filter((file) => file.status === "SKIPPED").length, 0);
+      const failed = result.results.reduce((sum, item) => sum + item.selectedFiles.filter((file) => file.status === "FAILED").length, 0);
+      const missing = result.missing.length ? ` Faltan: ${result.missing.join(", ")}.` : "";
+      setActionMessage({
+        tone: failed > 0 ? "error" : "success",
+        text: `${result.settlementCode} ${formatMonth(result.month)}: ${imported} fichero(s) importados, ${skipped} omitidos, ${failed} errores.${missing}`
+      });
+    } catch (error) {
+      setActionMessage({ tone: "error", text: error instanceof Error ? error.message : `No se pudo procesar ${reeLqSettlement} ${formatMonth(reeLqMonth)}.` });
     } finally {
       setReeLqBusy(null);
     }
@@ -500,31 +544,73 @@ export function ReeDownloadCenterModule({
       )}
 
       <div className="ree-lq-download-panel">
-        <div>
-          <span className="ops-eyebrow">REE/eSIOS ServicioLQ</span>
-          <strong>Sincronizacion por publicaciones</strong>
-          <small>Barre publicaciones REE y actualiza todos los meses/versiones publicados en el rango. Empresa procesa C1-C5; K REE procesa A1 y C1-C5.</small>
+        <div className="ree-lq-sync-row">
+          <div className="ree-lq-sync-copy">
+            <span className="ops-eyebrow">REE/eSIOS ServicioLQ</span>
+            <strong>Sincronizacion por publicaciones</strong>
+            <small>Barre publicaciones REE y actualiza todos los periodos publicados en el rango. El mes de liquidacion se detecta desde cada publicacion.</small>
+          </div>
+          <div className="ree-lq-sync-controls">
+            <label>
+              Publicacion desde
+              <input type="date" value={reeLqFrom} onChange={(event) => setReeLqFrom(event.target.value)} />
+            </label>
+            <label>
+              Publicacion hasta
+              <input type="date" value={reeLqTo} onChange={(event) => setReeLqTo(event.target.value)} />
+            </label>
+            <label>
+              Sujeto
+              <input value={reeLqOwner} onChange={(event) => setReeLqOwner(event.target.value.toUpperCase())} />
+            </label>
+            <label>
+              Liquidaciones
+              <select value={reeLqSettlementFilter} onChange={(event) => setReeLqSettlementFilter(event.target.value as ReeLqSettlementFilter)}>
+                {REE_LQ_SETTLEMENT_FILTERS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <div className="ree-lq-action-group">
+              <button disabled={disabled || Boolean(reeLqBusy)} onClick={() => void runReeLqSync("liquicomun")} type="button">
+                <Download size={16} />
+                {reeLqBusy === "liquicomun" ? "Sincronizando" : "Sincronizar K REE"}
+              </button>
+              <button disabled={disabled || Boolean(reeLqBusy)} onClick={() => void runReeLqSync("liqui-empresa")} type="button">
+                <Download size={16} />
+                {reeLqBusy === "liqui-empresa" ? "Sincronizando" : "Sincronizar empresa"}
+              </button>
+            </div>
+          </div>
         </div>
-        <label>
-          Publicacion desde
-          <input type="date" value={reeLqFrom} onChange={(event) => setReeLqFrom(event.target.value)} />
-        </label>
-        <label>
-          Publicacion hasta
-          <input type="date" value={reeLqTo} onChange={(event) => setReeLqTo(event.target.value)} />
-        </label>
-        <label>
-          Sujeto
-          <input value={reeLqOwner} onChange={(event) => setReeLqOwner(event.target.value.toUpperCase())} />
-        </label>
-        <button disabled={disabled || Boolean(reeLqBusy)} onClick={() => void runReeLqSync("liquicomun")} type="button">
-          <Download size={16} />
-          {reeLqBusy === "liquicomun" ? "Sincronizando" : "Sincronizar K REE"}
-        </button>
-        <button disabled={disabled || Boolean(reeLqBusy)} onClick={() => void runReeLqSync("liqui-empresa")} type="button">
-          <Download size={16} />
-          {reeLqBusy === "liqui-empresa" ? "Sincronizando" : "Sincronizar liquidacion empresa"}
-        </button>
+        <div className="ree-lq-manual-pair">
+          <span>Proceso puntual por mes</span>
+          <label>
+            Mes liquidacion
+            <input type="month" value={reeLqMonth} onChange={(event) => setReeLqMonth(event.target.value)} />
+          </label>
+          <label>
+            Liquidacion
+            <select value={reeLqSettlement} onChange={(event) => setReeLqSettlement(event.target.value as ReeLqSettlement)}>
+              {REE_SETTLEMENT_CODES.map((code) => <option key={code} value={code}>{code} - {settlementLabel(code)}</option>)}
+            </select>
+          </label>
+          <div className="ree-lq-family-toggle" aria-label="Familias ServicioLQ">
+            <span>Familias</span>
+            <label>
+              <input checked={reeLqIncludeCommon} onChange={(event) => setReeLqIncludeCommon(event.target.checked)} type="checkbox" />
+              Comun
+            </label>
+            <label>
+              <input checked={reeLqIncludeEmpresa} onChange={(event) => setReeLqIncludeEmpresa(event.target.checked)} type="checkbox" />
+              Empresa
+            </label>
+          </div>
+          <div className="ree-lq-action-group">
+            <button disabled={disabled || Boolean(reeLqBusy) || (!reeLqIncludeCommon && !reeLqIncludeEmpresa)} onClick={() => void processSelectedReeLqSettlement()} type="button">
+              <Download size={16} />
+              {reeLqBusy === "monthly-pair" ? "Procesando" : `Procesar ${reeLqSettlement}`}
+            </button>
+          </div>
+        </div>
         {reeLqResult && (
           <div className="ree-lq-result">
             <span>{summarizeReeLqSyncResult(reeLqResult)}</span>
@@ -596,7 +682,7 @@ export function ReeDownloadCenterModule({
               type="checkbox"
               onChange={(event) => patchReeLqAutomation({ syncLiquiEmpresa: event.target.checked })}
             />
-            Empresa C1-C5
+            Empresa A1-C5
           </label>
           <label className="ree-lq-check">
             <input
@@ -605,7 +691,7 @@ export function ReeDownloadCenterModule({
               type="checkbox"
               onChange={(event) => patchReeLqAutomation({ syncLiquicomun: event.target.checked })}
             />
-            K REE A1/C1-C5
+            K REE A1-C5
           </label>
           <button disabled={disabled || Boolean(reeLqAutomationBusy)} onClick={() => void saveReeLqAutomation()} type="button">
             <Clipboard size={16} />

@@ -130,10 +130,15 @@ export class PricingRegulatedCostsLoader {
 }
 
 const PRISMA_PRICING_VERSIONS = [
+  ReeSettlementVersion.A1,
   ReeSettlementVersion.C1,
+  ReeSettlementVersion.A2,
   ReeSettlementVersion.C2,
+  ReeSettlementVersion.A3,
   ReeSettlementVersion.C3,
+  ReeSettlementVersion.A4,
   ReeSettlementVersion.C4,
+  ReeSettlementVersion.A5,
   ReeSettlementVersion.C5
 ];
 

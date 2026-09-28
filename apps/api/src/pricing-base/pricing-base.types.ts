@@ -1,5 +1,5 @@
 export type PricingBaseStatus = "ok" | "partial" | "missing";
-export type PricingSettlementVersion = "C1" | "C2" | "C3" | "C4" | "C5";
+export type PricingSettlementVersion = "A1" | "C1" | "A2" | "C2" | "A3" | "C3" | "A4" | "C4" | "A5" | "C5";
 export type PricingProfileSource = "REE_PROFILE" | "UNIT_PROFILE";
 
 export type PricingProfileTariff = "2.0TD" | "3.0TD" | "3.0TDVE" | "6.1TD";

@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma, ReeKFactor, ReeKFactorFileType, ReeSettlementVersion } from "@prisma/client";
+import { compareSettlements } from "../common/settlements";
 import {
   eachDate,
   expectedQuarterHourCount,
@@ -83,6 +84,9 @@ export class ReeLossesAnalyticsEngine {
         diferenciaPct: calculated.diferenciaPct,
         tipoFicheroUtilizado: row.tipoArchivo,
         version: row.version,
+        settlementCode: row.version,
+        settlementType: row.settlementType,
+        settlementNumber: row.settlementNumber,
         versionBoe: calculated.versionBoe,
         kestimValorK: row.kestimValorK,
         krealValorK: row.krealValorK,
@@ -111,6 +115,8 @@ function selectPriorityKFactors(rows: ReeKFactor[]): SelectedKFactor[] {
         hora: selected.hora,
         cuartohora: selected.cuartohora,
         version: selected.version,
+        settlementType: selected.settlementType,
+        settlementNumber: selected.settlementNumber,
         tipoArchivo: selected.tipoArchivo,
         tarifa: selected.tarifa,
         periodo: selected.periodo,
@@ -274,7 +280,7 @@ function buildKpis(rows: LossReportRow[], gaps: ReturnType<typeof detectMissingG
   const anomalousDays = new Set(rows.filter((row) => row.anomalies.length > 0).map((row) => row.fecha));
   const incompleteRows = rows.filter((row) => row.anomalies.includes("dato_incompleto")).length;
   const activeTypes = [...new Set(rows.map((row) => row.tipoFicheroUtilizado))];
-  const activeVersions = [...new Set(rows.map((row) => row.version))].sort();
+  const activeVersions = [...new Set(rows.map((row) => row.version))].sort(compareSettlements);
 
   return {
     perdidaMedia: average(finalValues),
@@ -348,7 +354,7 @@ function compareSelectedKFactor(left: SelectedKFactor, right: SelectedKFactor) {
     left.cuartohora - right.cuartohora ||
     left.tarifa.localeCompare(right.tarifa, "es", { numeric: true }) ||
     left.periodo.localeCompare(right.periodo, "es", { numeric: true }) ||
-    left.version.localeCompare(right.version)
+    compareSettlements(left.version, right.version)
   );
 }
 
@@ -359,7 +365,7 @@ function compareLossRows(left: LossReportRow, right: LossReportRow) {
     left.cuartohora - right.cuartohora ||
     left.tarifa.localeCompare(right.tarifa, "es", { numeric: true }) ||
     left.periodo.localeCompare(right.periodo, "es", { numeric: true }) ||
-    left.version.localeCompare(right.version)
+    compareSettlements(left.version, right.version)
   );
 }
 

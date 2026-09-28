@@ -1,0 +1,2 @@
+ALTER TABLE "cm_billing_jobs"
+ADD COLUMN IF NOT EXISTS "warning_count" INTEGER NOT NULL DEFAULT 0;
