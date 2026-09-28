@@ -215,7 +215,7 @@ export class OmieAnalisisService {
 
   async obtenerAnalisisMensual(year: number, month: number): Promise<OmieAnalisisMensualResponse> {
     const range = buildMonthRange(year, month);
-    const [priceRows, programRows, transactionRows] = await Promise.all([
+    const [priceRows, programRows, programDownloadRows, transactionRows] = await Promise.all([
       this.prisma.omiePrice.findMany({
         where: {
           OR: [
@@ -256,6 +256,25 @@ export class OmieAnalisisService {
           energiaMWh: true
         }
       }),
+      this.prisma.omieDownload.findMany({
+        where: {
+          fechaPrograma: {
+            gte: range.start,
+            lt: range.end
+          },
+          tipoDocumento: OmieTipoDocumento.PVD,
+          sesion: null,
+          version: DEFAULT_VERSION,
+          uOfertante: STROM_UOFERTANTE,
+          estado: OmieDownloadEstado.PROCESADO
+        },
+        select: {
+          tipoDocumento: true,
+          fechaPrograma: true,
+          sesion: true,
+          registros: true
+        }
+      }),
       this.prisma.omieTransactionStaging.findMany({
         where: {
           diaContrato: {
@@ -275,7 +294,7 @@ export class OmieAnalisisService {
     ]);
 
     const prices = buildPriceMap(priceRows);
-    const programs = buildProgramMap(programRows);
+    const programs = buildProgramMap(programRows, programDownloadRows);
     const xbidTransactions = buildXbidTransactionMap(transactionRows);
     const periodos: OmieAnalisisMensualPeriodo[] = [];
 
@@ -941,6 +960,13 @@ type ProgramMapRow = {
   energiaMWh: Prisma.Decimal;
 };
 
+type ProgramDownloadMapRow = {
+  tipoDocumento: OmieTipoDocumento;
+  fechaPrograma: Date;
+  sesion: string | null;
+  registros: number;
+};
+
 export type TransactionMapRow = {
   diaContrato: Date;
   rawPayloadJson: Prisma.JsonValue;
@@ -965,7 +991,7 @@ function buildPriceMap(rows: PriceMapRow[]) {
   return map;
 }
 
-function buildProgramMap(rows: ProgramMapRow[]) {
+function buildProgramMap(rows: ProgramMapRow[], downloads: ProgramDownloadMapRow[] = []) {
   const map = new Map<string, number>();
   for (const row of rows) {
     const rawValue = decimalToNumber(row.energiaMWh);
@@ -974,7 +1000,23 @@ function buildProgramMap(rows: ProgramMapRow[]) {
       map.set(buildValueKey(formatDateOnly(row.fechaPrograma), row.periodo, session), normalizeProgramValue(session, rawValue));
     }
   }
+  for (const download of downloads) {
+    if (!isProcessedEmptyPvdDownload(download)) {
+      continue;
+    }
+    const fecha = formatDateOnly(download.fechaPrograma);
+    for (let periodo = 1; periodo <= PERIODS_PER_DAY; periodo += 1) {
+      const key = buildValueKey(fecha, periodo, "MD");
+      if (!map.has(key)) {
+        map.set(key, 0);
+      }
+    }
+  }
   return map;
+}
+
+function isProcessedEmptyPvdDownload(download: ProgramDownloadMapRow) {
+  return download.tipoDocumento === OmieTipoDocumento.PVD && download.sesion === null && download.registros === 0;
 }
 
 function getPriceSession(tipoPrecio: OmieTipoPrecio, sesion: string | null): OperativeSession | null {
