@@ -9,11 +9,15 @@ CREATE TABLE IF NOT EXISTS "ree_k_factor_dedup_audit" (
   "tarifa" TEXT NOT NULL,
   "periodo" TEXT NOT NULL,
   "valor_k" DECIMAL(20,10) NOT NULL,
+  "kept_valor_k" DECIMAL(20,10) NOT NULL,
   "deleted_created_at" TIMESTAMP(3) NOT NULL,
   "kept_created_at" TIMESTAMP(3) NOT NULL,
   "cleanup_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "ree_k_factor_dedup_audit_pkey" PRIMARY KEY ("deleted_id")
 );
+
+ALTER TABLE "ree_k_factor_dedup_audit"
+  ADD COLUMN IF NOT EXISTS "kept_valor_k" DECIMAL(20,10);
 
 DO $$
 DECLARE
@@ -31,31 +35,30 @@ BEGIN
       tipo_archivo,
       tarifa,
       periodo,
-      COUNT(DISTINCT valor_k) AS valor_k_values,
       COUNT(DISTINCT settlement_type) AS settlement_type_values,
       COUNT(DISTINCT settlement_number) AS settlement_number_values
     FROM ree_k_factor
     GROUP BY fecha, hora, cuartohora, version, tipo_archivo, tarifa, periodo
     HAVING COUNT(*) > 1
   ) duplicated
-  WHERE valor_k_values > 1
-     OR settlement_type_values > 1
+  WHERE settlement_type_values > 1
      OR settlement_number_values > 1;
 
   IF unsafe_groups > 0 THEN
-    RAISE EXCEPTION 'ree_k_factor contiene % grupos duplicados con diferencias funcionales. Saneamiento abortado.', unsafe_groups;
+    RAISE EXCEPTION 'ree_k_factor contiene % grupos duplicados con diferencias de identidad settlement. Saneamiento abortado.', unsafe_groups;
   END IF;
 
   WITH ranked AS (
     SELECT
       id,
       FIRST_VALUE(id) OVER functional_window AS kept_id,
+      FIRST_VALUE(valor_k) OVER functional_window AS kept_valor_k,
       FIRST_VALUE(created_at) OVER functional_window AS kept_created_at,
       ROW_NUMBER() OVER functional_window AS row_number
     FROM ree_k_factor
     WINDOW functional_window AS (
       PARTITION BY fecha, hora, cuartohora, version, tipo_archivo, tarifa, periodo
-      ORDER BY created_at ASC, id ASC
+      ORDER BY created_at DESC, id DESC
     )
   )
   INSERT INTO "ree_k_factor_dedup_audit" (
@@ -69,6 +72,7 @@ BEGIN
     "tarifa",
     "periodo",
     "valor_k",
+    "kept_valor_k",
     "deleted_created_at",
     "kept_created_at",
     "cleanup_at"
@@ -84,6 +88,7 @@ BEGIN
     k.tarifa,
     k.periodo,
     k.valor_k,
+    ranked.kept_valor_k,
     k.created_at,
     ranked.kept_created_at,
     CURRENT_TIMESTAMP

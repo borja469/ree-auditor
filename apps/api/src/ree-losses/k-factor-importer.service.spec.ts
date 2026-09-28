@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import { kFactorIdentityKey } from "./k-factor-importer.service";
+import { kFactorIdentityKey, kFactorPublicationRevision } from "./k-factor-importer.service";
 
 void describe("REE K factor idempotency key", () => {
   const base = {
@@ -53,5 +53,17 @@ void describe("REE K factor idempotency key", () => {
     const left = { ...base, version: "A1", valorK: 1.1 };
     const right = { ...base, version: "A1", valorK: 1.2 };
     assert.equal(kFactorIdentityKey(left), kFactorIdentityKey(right));
+  });
+});
+
+void describe("REE K factor publication revision", () => {
+  void it("reads ServicioLQ ZIP publication suffixes", () => {
+    assert.equal(kFactorPublicationRevision("REE_ESIOS_A1_liquicomun_202610.1.zip"), 1);
+    assert.equal(kFactorPublicationRevision("REE_ESIOS_A1_liquicomun_202610.24.zip"), 24);
+  });
+
+  void it("does not infer a publication revision from source file names", () => {
+    assert.equal(kFactorPublicationRevision("A1_Kestimqh_20261001_20261031"), null);
+    assert.equal(kFactorPublicationRevision(undefined), null);
   });
 });

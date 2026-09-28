@@ -487,6 +487,7 @@ model ReeKFactorDedupAudit {
   tarifa           String
   periodo          String
   valorK           Decimal            @map("valor_k") @db.Decimal(20, 10)
+  keptValorK       Decimal            @map("kept_valor_k") @db.Decimal(20, 10)
   deletedCreatedAt DateTime           @map("deleted_created_at")
   keptCreatedAt    DateTime           @map("kept_created_at")
   cleanupAt        DateTime           @default(now()) @map("cleanup_at")

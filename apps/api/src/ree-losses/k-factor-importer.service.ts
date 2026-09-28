@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { createHash } from "node:crypto";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -18,6 +19,7 @@ type ImportSourcePlan = {
 };
 
 const INSERT_BATCH_SIZE = 5000;
+type KFactorPersistenceClient = PrismaService | Prisma.TransactionClient;
 
 @Injectable()
 export class ReeKFactorImporter {
@@ -81,52 +83,76 @@ export class ReeKFactorImporter {
 
     validateTemporalConsistency(rows, errors, sourceFile.name);
 
-    const inFileDuplicateKeys = countDuplicateKeys(rows.map(kFactorIdentityKey));
-    const existingKeys = await this.loadExistingKFactorKeys(rows, metadataResult.metadata);
-    const rowsToInsert = rows.filter((row) => !existingKeys.has(kFactorIdentityKey(row)));
-    const skippedExistingRecords = rows.length - rowsToInsert.length;
-    let imported = 0;
-    for (const batch of chunk(rowsToInsert, INSERT_BATCH_SIZE)) {
-      const result = await this.prisma.reeKFactor.createMany({
-        data: batch.map((row) => ({
-          fecha: normalizeDateOnly(row.fecha),
-          hora: row.hora,
-          cuartohora: row.cuartohora,
-          version: row.version,
-          settlementType: row.settlementType,
-          settlementNumber: row.settlementNumber,
-          tipoArchivo: row.tipoArchivo,
-          tarifa: row.tarifa,
-          periodo: row.periodo,
-          valorK: row.valorK.toFixed(10)
-        })),
-        skipDuplicates: true
-      });
-      imported += result.count;
-    }
-    const skippedByDatabase = rowsToInsert.length - imported;
+    return this.prisma.$transaction(async (tx) => {
+      const inFileDuplicateKeys = countDuplicateKeys(rows.map(kFactorIdentityKey));
+      const publicationRevision = kFactorPublicationRevision(sourceFile.containerName ?? sourceFile.name);
+      const publicationPlan = await this.preparePublicationReplacement(tx, rows, metadataResult.metadata, publicationRevision);
+      if (publicationPlan.skipImport) {
+        return this.persistImportResult({
+          fileName: sourceFile.name,
+          status: errors.length > 0 && rows.length === 0 ? "FAILED" : "IMPORTED",
+          tipoArchivo: metadataResult.metadata.tipoArchivo,
+          version: metadataResult.metadata.version,
+          fechaInicio: toIsoDate(metadataResult.metadata.fechaInicio),
+          fechaFin: toIsoDate(metadataResult.metadata.fechaFin),
+          recordsImported: 0,
+          validRecords: rows.length,
+          invalidRecords: errors.length,
+          duplicatedRecords: inFileDuplicateKeys + rows.length,
+          errors: errors.slice(0, 100).map((error) => ({
+            sourceFileName: error.sourceFileName,
+            lineNumber: error.lineNumber,
+            message: error.message
+          }))
+        }, sourceFile, metadataResult.metadata, tx);
+      }
 
-    return this.persistImportResult({
-      fileName: sourceFile.name,
-      status: errors.length > 0 && imported === 0 ? "FAILED" : "IMPORTED",
-      tipoArchivo: metadataResult.metadata.tipoArchivo,
-      version: metadataResult.metadata.version,
-      fechaInicio: toIsoDate(metadataResult.metadata.fechaInicio),
-      fechaFin: toIsoDate(metadataResult.metadata.fechaFin),
-      recordsImported: imported,
-      validRecords: rows.length,
-      invalidRecords: errors.length,
-      duplicatedRecords: inFileDuplicateKeys + skippedExistingRecords + skippedByDatabase,
-      errors: errors.slice(0, 100).map((error) => ({
-        sourceFileName: error.sourceFileName,
-        lineNumber: error.lineNumber,
+      const existingKeys = await this.loadExistingKFactorKeys(tx, rows, metadataResult.metadata);
+      const rowsToInsert = rows.filter((row) => !existingKeys.has(kFactorIdentityKey(row)));
+      const skippedExistingRecords = rows.length - rowsToInsert.length;
+      let imported = 0;
+      for (const batch of chunk(rowsToInsert, INSERT_BATCH_SIZE)) {
+        const result = await tx.reeKFactor.createMany({
+          data: batch.map((row) => ({
+            fecha: normalizeDateOnly(row.fecha),
+            hora: row.hora,
+            cuartohora: row.cuartohora,
+            version: row.version,
+            settlementType: row.settlementType,
+            settlementNumber: row.settlementNumber,
+            tipoArchivo: row.tipoArchivo,
+            tarifa: row.tarifa,
+            periodo: row.periodo,
+            valorK: row.valorK.toFixed(10)
+          })),
+          skipDuplicates: true
+        });
+        imported += result.count;
+      }
+      const skippedByDatabase = rowsToInsert.length - imported;
+
+      return this.persistImportResult({
+        fileName: sourceFile.name,
+        status: errors.length > 0 && imported === 0 ? "FAILED" : "IMPORTED",
+        tipoArchivo: metadataResult.metadata.tipoArchivo,
+        version: metadataResult.metadata.version,
+        fechaInicio: toIsoDate(metadataResult.metadata.fechaInicio),
+        fechaFin: toIsoDate(metadataResult.metadata.fechaFin),
+        recordsImported: imported,
+        validRecords: rows.length,
+        invalidRecords: errors.length,
+        duplicatedRecords: inFileDuplicateKeys + skippedExistingRecords + skippedByDatabase,
+        errors: errors.slice(0, 100).map((error) => ({
+          sourceFileName: error.sourceFileName,
+          lineNumber: error.lineNumber,
           message: error.message
         }))
-    }, sourceFile, metadataResult.metadata);
+      }, sourceFile, metadataResult.metadata, tx);
+    }, { timeout: 120000 });
   }
 
-  private async persistImportResult(result: ImportResult, sourceFile?: SourceFile, metadata?: ReeKFactorMetadata): Promise<ImportResult> {
-    const created = await this.prisma.reeKFactorImport.create({
+  private async persistImportResult(result: ImportResult, sourceFile?: SourceFile, metadata?: ReeKFactorMetadata, client: KFactorPersistenceClient = this.prisma): Promise<ImportResult> {
+    const created = await client.reeKFactorImport.create({
       data: {
         fileName: result.fileName,
         containerFileName: sourceFile?.containerName,
@@ -159,14 +185,59 @@ export class ReeKFactorImporter {
     };
   }
 
-  private async loadExistingKFactorKeys(rows: NormalizedKFactorInput[], metadata: ReeKFactorMetadata) {
+  private async preparePublicationReplacement(client: KFactorPersistenceClient, rows: NormalizedKFactorInput[], metadata: ReeKFactorMetadata, publicationRevision: number | null) {
+    if (rows.length === 0 || publicationRevision === null) {
+      return { skipImport: false };
+    }
+
+    const latestImportedRevision = await this.latestImportedPublicationRevision(client, metadata);
+    if (latestImportedRevision !== null && latestImportedRevision >= publicationRevision) {
+      return { skipImport: true };
+    }
+
+    await client.reeKFactor.deleteMany({
+      where: {
+        fecha: {
+          gte: normalizeDateOnly(metadata.fechaInicio),
+          lte: normalizeDateOnly(metadata.fechaFin)
+        },
+        version: metadata.version,
+        tipoArchivo: metadata.tipoArchivo
+      }
+    });
+
+    return { skipImport: false };
+  }
+
+  private async latestImportedPublicationRevision(client: KFactorPersistenceClient, metadata: ReeKFactorMetadata) {
+    const imports = await client.reeKFactorImport.findMany({
+      where: {
+        tipoArchivo: metadata.tipoArchivo,
+        version: metadata.version,
+        fechaInicio: normalizeDateOnly(metadata.fechaInicio),
+        fechaFin: normalizeDateOnly(metadata.fechaFin),
+        status: "IMPORTED"
+      },
+      select: {
+        containerFileName: true,
+        fileName: true
+      }
+    });
+
+    const revisions = imports
+      .map((item) => kFactorPublicationRevision(item.containerFileName ?? item.fileName))
+      .filter((revision): revision is number => revision !== null);
+    return revisions.length > 0 ? Math.max(...revisions) : null;
+  }
+
+  private async loadExistingKFactorKeys(client: KFactorPersistenceClient, rows: NormalizedKFactorInput[], metadata: ReeKFactorMetadata) {
     if (rows.length === 0) {
       return new Set<string>();
     }
     const dates = rows.map((row) => normalizeDateOnly(row.fecha).getTime());
     const fechaInicio = new Date(Math.min(...dates));
     const fechaFin = new Date(Math.max(...dates));
-    const existing = await this.prisma.reeKFactor.findMany({
+    const existing = await client.reeKFactor.findMany({
       where: {
         fecha: { gte: fechaInicio, lte: fechaFin },
         version: metadata.version,
@@ -325,6 +396,11 @@ function countDuplicateKeys(keys: string[]) {
 
 export function kFactorIdentityKey(row: { fecha: Date; hora: number; cuartohora: number; version: string; tipoArchivo: string; tarifa: string; periodo: string }) {
   return [toIsoDate(row.fecha), row.hora, row.cuartohora, row.version, row.tipoArchivo, row.tarifa, row.periodo].join("|");
+}
+
+export function kFactorPublicationRevision(fileName: string | undefined | null) {
+  const match = fileName?.match(/\.(\d+)\.zip$/i);
+  return match ? Number.parseInt(match[1], 10) : null;
 }
 
 function normalizeDateOnly(value: Date) {
