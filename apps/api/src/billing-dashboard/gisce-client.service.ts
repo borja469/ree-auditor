@@ -11,6 +11,9 @@ const GISCE_INVOICE_SCHEMA = [
   "number",
   "cups_id.name",
   "polissa_id.name",
+  "llista_preu.name",
+  "llista_preu.compatible_invoicing_modes.id",
+  "llista_preu.compatible_invoicing_modes.name",
   "invoice_line.name",
   "invoice_line.quantity",
   "invoice_line.price_unit",
@@ -456,6 +459,13 @@ type GisceNamedItem = {
   [key: string]: unknown;
 };
 
+export type GiscePriceListItem = {
+  id?: number;
+  name?: string;
+  compatible_invoicing_modes?: GisceNamedItem[] | null;
+  [key: string]: unknown;
+} | false | null;
+
 export type GisceInvoiceLineItem = {
   id?: number;
   account_id?: GisceMany2One;
@@ -479,6 +489,7 @@ export type GisceInvoiceItem = {
   type?: string;
   tarifa_acces_id?: GisceMany2One;
   tarifa?: string;
+  llista_preu?: GiscePriceListItem;
   [key: string]: unknown;
 };
 

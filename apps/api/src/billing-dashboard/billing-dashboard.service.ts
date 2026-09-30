@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { CmInvoiceConsumptionSource, CmInvoiceProfileType, CmInvoiceProcessingStatus, Prisma } from "@prisma/client";
+import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceMarginStatus, CmInvoiceProfileType, CmInvoiceProcessingStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { buildPricingCalendarRange, getMadridParts } from "../pricing-base/calendar_builder";
 import { resolvePricingPeriod } from "../pricing-base/pricing_period_adapter";
@@ -7,6 +7,8 @@ import { RegulatedLossesService } from "../ree-losses/regulated-losses.service";
 import { ReeLossesRegulatoryEngine } from "../ree-losses/regulatory-engine.service";
 import { normalizePeriodo, normalizeTarifa } from "../ree-losses/period-engine";
 import { GisceClientService, GisceConfigInput, GisceF1Item, GisceF5dItem, GisceInvoiceItem, GisceInvoiceLineItem, GisceP1Item, GisceP5dItem } from "./gisce-client.service";
+import { BillingDashboardCostsService } from "./billing-dashboard-costs.service";
+import { costComponentNature, type CostComponent, type CostNature } from "./billing-dashboard-costs.service";
 
 const ENERGY_ACCOUNT_NAME = "Tarifas Acceso / Energia";
 const PROFILE_TARIFF_COLUMNS: Record<string, "profile20td" | "profile30td" | "profile30tdve" | "profile61td"> = {
@@ -29,7 +31,10 @@ const BILLING_JOB_ACTIVE_STATUSES = ["QUEUED", "RUNNING"];
 const BILLING_JOB_PROCESS_BATCH_SIZE = 5;
 const BILLING_PROCESS_PENDING_STATUSES = [CmInvoiceProcessingStatus.IMPORTED, CmInvoiceProcessingStatus.WARNING];
 
-type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING";
+type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS";
+type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
+const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V1";
+const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
 
 @Injectable()
 export class BillingDashboardService {
@@ -37,7 +42,8 @@ export class BillingDashboardService {
     private readonly prisma: PrismaService,
     private readonly gisce: GisceClientService,
     private readonly regulatoryEngine: ReeLossesRegulatoryEngine,
-    private readonly lossesService: RegulatedLossesService
+    private readonly lossesService: RegulatedLossesService,
+    private readonly costsService: BillingDashboardCostsService
   ) {}
 
   metadata() {
@@ -71,6 +77,8 @@ export class BillingDashboardService {
       ...(typeof query.invoiceNumber === "string" && query.invoiceNumber.trim() ? { invoiceNumber: { contains: query.invoiceNumber.trim(), mode: "insensitive" } } : {}),
       ...(typeof query.polissa === "string" && query.polissa.trim() ? { polissaNumber: { contains: query.polissa.trim(), mode: "insensitive" } } : {}),
       ...(typeof query.tariff === "string" && query.tariff.trim() ? { tariffCode: { equals: query.tariff.trim(), mode: "insensitive" } } : {}),
+      ...(typeof query.priceListName === "string" && query.priceListName.trim() ? { priceListName: { contains: query.priceListName.trim(), mode: "insensitive" } } : {}),
+      ...(typeof query.invoicingMode === "string" && query.invoicingMode.trim() ? { compatibleInvoicingModes: { some: { name: { equals: query.invoicingMode.trim(), mode: "insensitive" } } } } : {}),
       ...(typeof query.status === "string" && query.status.trim() ? { processingStatus: query.status.trim() as CmInvoiceProcessingStatus } : {})
     };
     if (typeof query.search === "string" && query.search.trim()) {
@@ -94,16 +102,21 @@ export class BillingDashboardService {
     if (query.withIssues === "true") where.reconciliationIssues = { not: Prisma.JsonNull };
     if (query.withIssues === "false") where.reconciliationIssues = { equals: Prisma.JsonNull };
     const orderBy = invoiceOrderBy(sort, direction);
-    const [total, rows] = await Promise.all([
-      this.prisma.cmInvoice.count({ where }),
-      this.prisma.cmInvoice.findMany({
-        where,
-        orderBy,
-        skip,
-        take,
-        include: { lines: true }
-      })
-    ]);
+    const economicQuery = isEconomicInvoiceQuery(query, sort);
+    const baseRows = await this.prisma.cmInvoice.findMany({
+      where,
+      orderBy,
+      skip: economicQuery ? 0 : skip,
+      take: economicQuery ? 5000 : take,
+      include: { lines: true }
+    });
+    let enrichedRows = await this.enrichInvoiceRows(baseRows);
+    if (economicQuery) {
+      enrichedRows = filterEconomicInvoiceRows(enrichedRows, query);
+      sortEconomicInvoiceRows(enrichedRows, sort, direction);
+    }
+    const total = economicQuery ? enrichedRows.length : await this.prisma.cmInvoice.count({ where });
+    const rows = economicQuery ? enrichedRows.slice(skip, skip + take) : enrichedRows;
 
     return {
       total,
@@ -111,22 +124,19 @@ export class BillingDashboardService {
       pageSize: take,
       hasNext: skip + rows.length < total,
       summary: await this.invoiceSummary(where),
-      rows: rows.map((invoice) => ({
-        ...invoiceRow(invoice),
-        energyByPeriod: summarizeInvoiceEnergy(invoice.lines),
-        issueCount: issueCount(invoice.reconciliationIssues)
-      }))
+      rows
     };
   }
 
   async invoiceDetail(id: string) {
-    const invoice = await this.prisma.cmInvoice.findUnique({ where: { id }, include: { lines: true, curve: { orderBy: { datetime: "asc" } } } });
+    const invoice = await this.prisma.cmInvoice.findUnique({ where: { id }, include: { lines: true, compatibleInvoicingModes: { orderBy: { name: "asc" } }, curve: { orderBy: { datetime: "asc" } } } });
     if (!invoice) throw new NotFoundException("Factura no encontrada.");
     const energyByPeriod = summarizeInvoiceEnergy(invoice.lines);
     const curveByPeriod = summarizeCurveByPeriod(invoice.curve);
     return {
       ...invoiceRow(invoice),
       energyByPeriod,
+      compatibleInvoicingModes: invoice.compatibleInvoicingModes.map(invoicingModeRow),
       lines: invoice.lines.map((line) => ({
         id: line.id,
         accountId: line.accountId,
@@ -201,6 +211,14 @@ export class BillingDashboardService {
     return jobs.map(billingJobRow);
   }
 
+  async listInvoicingModes() {
+    const rows = await this.prisma.cmInvoiceInvoicingMode.groupBy({
+      by: ["externalId", "name"],
+      orderBy: { name: "asc" }
+    });
+    return rows.map((row) => ({ id: row.externalId, name: row.name }));
+  }
+
   async startImportJob(dateFrom: string, dateTo: string, requestedBy?: string) {
     assertDate(dateFrom, "dateFrom");
     assertDate(dateTo, "dateTo");
@@ -236,6 +254,115 @@ export class BillingDashboardService {
     });
     void this.runProcessPendingJob(job.id, batchSize);
     return billingJobRow(job);
+  }
+
+  async startCalculateMarginsJob(dateFrom: string, dateTo: string, mode: MarginJobMode = "PENDING_ONLY", requestedBy?: string) {
+    assertDate(dateFrom, "dateFrom");
+    assertDate(dateTo, "dateTo");
+    const normalizedMode: MarginJobMode = mode === "RECALCULATE" ? "RECALCULATE" : "PENDING_ONLY";
+    const active = await this.findActiveJob("CALCULATE_MARGINS");
+    if (active) return billingJobRow(active);
+    const job = await this.prisma.cmBillingJob.create({
+      data: {
+        type: "CALCULATE_MARGINS",
+        status: "QUEUED",
+        requestedBy: text(requestedBy),
+        params: { dateFrom, dateTo, mode: normalizedMode },
+        message: "Calculo de costes y margenes en cola."
+      }
+    });
+    void this.runCalculateMarginsJob(job.id, dateFrom, dateTo, normalizedMode);
+    return billingJobRow(job);
+  }
+
+  async calculateInvoiceMargin(invoiceId: string, mode: MarginJobMode = "RECALCULATE") {
+    const invoice = await this.prisma.cmInvoice.findUnique({ where: { id: invoiceId }, include: { lines: true } });
+    if (!invoice) throw new NotFoundException("Factura no encontrada.");
+    const outcome = await this.calculateAndStoreMarginSnapshot(invoice, mode === "PENDING_ONLY" ? "PENDING_ONLY" : "RECALCULATE");
+    const snapshot = await this.prisma.cmInvoiceMarginSnapshot.findFirst({
+      where: { invoiceId },
+      orderBy: [{ calculatedAt: "desc" }, { createdAt: "desc" }]
+    });
+    return {
+      outcome,
+      snapshot: snapshot ? marginSnapshotRow(snapshot) : null
+    };
+  }
+
+  async calculateInvoiceCostsAndMargin(invoiceId: string, mode: MarginJobMode = "RECALCULATE") {
+    const costs = await this.costsService.calculateCosts(invoiceId);
+    const invoice = await this.prisma.cmInvoice.findUnique({ where: { id: invoiceId }, include: { lines: true } });
+    if (!invoice) throw new NotFoundException("Factura no encontrada.");
+    const outcome = await this.calculateAndStoreMarginSnapshot(invoice, mode === "PENDING_ONLY" ? "PENDING_ONLY" : "RECALCULATE", costs.latestRun?.id ?? undefined);
+    const snapshot = await this.prisma.cmInvoiceMarginSnapshot.findFirst({
+      where: { invoiceId, ...(costs.latestRun?.id ? { costRunId: costs.latestRun.id } : {}) },
+      orderBy: [{ calculatedAt: "desc" }, { createdAt: "desc" }]
+    });
+    return {
+      costs,
+      margin: {
+        outcome,
+        snapshot: snapshot ? marginSnapshotRow(snapshot) : null
+      }
+    };
+  }
+
+  private async enrichInvoiceRows(invoices: Array<Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>>) {
+    const invoiceIds = invoices.map((invoice) => invoice.id);
+    const [costRuns, margins, curveTotals] = invoiceIds.length
+      ? await Promise.all([
+          this.prisma.cmInvoiceCostRun.findMany({
+            where: { invoiceId: { in: invoiceIds } },
+            orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }]
+          }),
+          this.prisma.cmInvoiceMarginSnapshot.findMany({
+            where: { invoiceId: { in: invoiceIds } },
+            orderBy: [{ calculatedAt: "desc" }, { createdAt: "desc" }]
+          }),
+          this.prisma.cmInvoiceConsumptionCurve.groupBy({
+            by: ["invoiceId"],
+            where: { invoiceId: { in: invoiceIds } },
+            _sum: { consumptionPfKwh: true, consumptionBcKwh: true }
+          })
+        ])
+      : [[], [], []] as const;
+    const latestCostRunByInvoice = new Map<string, (typeof costRuns)[number]>();
+    for (const run of costRuns) if (!latestCostRunByInvoice.has(run.invoiceId)) latestCostRunByInvoice.set(run.invoiceId, run);
+    const latestMarginByInvoice = new Map<string, (typeof margins)[number]>();
+    for (const margin of margins) if (!latestMarginByInvoice.has(margin.invoiceId)) latestMarginByInvoice.set(margin.invoiceId, margin);
+    const curveTotalsByInvoice = new Map(curveTotals.map((row) => [row.invoiceId, row]));
+    return invoices.map((invoice) => {
+      const costRun = latestCostRunByInvoice.get(invoice.id) ?? null;
+      const margin = latestMarginByInvoice.get(invoice.id) ?? null;
+      const curveTotal = curveTotalsByInvoice.get(invoice.id);
+      const lineSummary = summarizeInvoiceLineConcepts(invoice.lines);
+      const curveIssueCount = issueCount(invoice.reconciliationIssues);
+      const costIssueCount = costRun?.incidentsCount ?? 0;
+      const marginIssueCount = margin?.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0;
+      return {
+        ...invoiceRow(invoice),
+        energyByPeriod: summarizeInvoiceEnergy(invoice.lines),
+        issueCount: curveIssueCount,
+        curveIssueCount,
+        costIssueCount,
+        marginIssueCount,
+        totalIssueCount: curveIssueCount + costIssueCount + marginIssueCount,
+        pfTotalKwh: decimalToNumber(curveTotal?._sum.consumptionPfKwh),
+        bcTotalKwh: decimalToNumber(curveTotal?._sum.consumptionBcKwh),
+        curveSummaryText: curveSummaryText(invoice),
+        costRunId: costRun?.id ?? null,
+        costStatus: costRun?.status ?? null,
+        totalCostEur: decimalToNumber(costRun?.totalCostEur),
+        associatedRevenueEur: decimalToNumber(margin?.associatedRevenueEur),
+        associatedCostEur: decimalToNumber(margin?.associatedCostEur),
+        marginEur: decimalToNumber(margin?.marginEur),
+        marginEurMwh: decimalToNumber(margin?.marginEurMwh),
+        marginStatus: margin?.marginStatus ?? null,
+        marginCalculatedAt: margin?.calculatedAt.toISOString() ?? null,
+        globalStatus: deriveGlobalStatus(invoice.processingStatus, costRun, margin),
+        invoiceAssociatedRevenueEur: lineSummary.associatedRevenueEur
+      };
+    });
   }
 
   private async invoiceSummary(where: Prisma.CmInvoiceWhereInput) {
@@ -652,6 +779,177 @@ export class BillingDashboardService {
     }
   }
 
+  private async runCalculateMarginsJob(jobId: string, dateFrom: string, dateTo: string, mode: MarginJobMode) {
+    const from = parseDateOnly(dateFrom);
+    const to = parseDateOnly(dateTo);
+    const counters = { processedItems: 0, successCount: 0, warningCount: 0, errorCount: 0 };
+    const result = { totalFound: 0, processedCount: 0, ok: 0, warnings: 0, errors: 0, withoutCurve: 0, withoutCosts: 0, withoutPf: 0, withoutMappedConcepts: 0 };
+    const queue = await this.prisma.cmInvoice.findMany({
+      where: { invoiceDate: { gte: from, lte: to } },
+      orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
+      include: { lines: true }
+    });
+    result.totalFound = queue.length;
+    await this.prisma.cmBillingJob.update({
+      where: { id: jobId },
+      data: { status: "RUNNING", startedAt: new Date(), totalItems: queue.length, message: "Calculando costes y margenes por rango de fecha factura." }
+    });
+    try {
+      for (const invoice of queue) {
+        try {
+          const outcome = await this.calculateCostsAndStoreMarginSnapshot(invoice, mode);
+          counters.processedItems += 1;
+          result.processedCount += outcome.processed ? 1 : 0;
+          if (outcome.code === "OK") { counters.successCount += 1; result.ok += 1; }
+          if (outcome.code === "WARNING") { counters.warningCount += 1; result.warnings += 1; }
+          if (outcome.code === "WITHOUT_CURVE") result.withoutCurve += 1;
+          if (outcome.code === "WITHOUT_COSTS") result.withoutCosts += 1;
+          if (outcome.code === "WITHOUT_PF") result.withoutPf += 1;
+          if (outcome.code === "WITHOUT_MAPPED_CONCEPTS") result.withoutMappedConcepts += 1;
+        } catch (error) {
+          counters.processedItems += 1;
+          counters.errorCount += 1;
+          result.errors += 1;
+        }
+        await this.prisma.cmBillingJob.update({
+          where: { id: jobId },
+          data: {
+            ...counters,
+            currentItem: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId),
+            result: result as unknown as Prisma.InputJsonValue,
+            message: `Costes y margenes procesados: ${counters.processedItems} / ${queue.length}.`
+          }
+        });
+      }
+      await this.prisma.cmBillingJob.update({
+        where: { id: jobId },
+        data: {
+          status: counters.errorCount ? "ERROR" : "SUCCESS",
+          ...counters,
+          result: result as unknown as Prisma.InputJsonValue,
+          message: `Calculo de costes y margenes finalizado. OK: ${result.ok}. Warnings: ${result.warnings}. Sin curva: ${result.withoutCurve}. Sin costes: ${result.withoutCosts}.`,
+          finishedAt: new Date()
+        }
+      });
+    } catch (error) {
+      await this.failJob(jobId, error, counters);
+    }
+  }
+
+  private async calculateCostsAndStoreMarginSnapshot(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, mode: MarginJobMode) {
+    if (invoice.processingStatus !== CmInvoiceProcessingStatus.READY && invoice.processingStatus !== CmInvoiceProcessingStatus.WARNING) return { code: "WITHOUT_CURVE", processed: false };
+    if (invoice.expectedIntervals <= 0) return { code: "WITHOUT_CURVE", processed: false };
+    if (mode === "PENDING_ONLY") {
+      const latestCostRun = await this.prisma.cmInvoiceCostRun.findFirst({ where: { invoiceId: invoice.id }, orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }] });
+      if (latestCostRun) {
+        const currentSnapshot = await this.prisma.cmInvoiceMarginSnapshot.findUnique({
+          where: { invoiceId_costRunId_calculationVersion: { invoiceId: invoice.id, costRunId: latestCostRun.id, calculationVersion: MARGIN_CALCULATION_VERSION } }
+        });
+        if (currentSnapshot) return { code: currentSnapshot.marginStatus === CmInvoiceMarginStatus.WARNING ? "WARNING" : "OK", processed: false };
+      }
+    }
+    const costs = await this.costsService.calculateCosts(invoice.id);
+    return this.calculateAndStoreMarginSnapshot(invoice, "RECALCULATE", costs.latestRun?.id ?? undefined);
+  }
+
+  private async calculateAndStoreMarginSnapshot(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, mode: MarginJobMode, costRunId?: string) {
+    if (invoice.processingStatus !== CmInvoiceProcessingStatus.READY && invoice.processingStatus !== CmInvoiceProcessingStatus.WARNING) return { code: "WITHOUT_CURVE", processed: false };
+    if (invoice.expectedIntervals <= 0) return { code: "WITHOUT_CURVE", processed: false };
+    const costRun = costRunId
+      ? await this.prisma.cmInvoiceCostRun.findUnique({ where: { id: costRunId } })
+      : await this.prisma.cmInvoiceCostRun.findFirst({ where: { invoiceId: invoice.id }, orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }] });
+    if (!costRun) return { code: "WITHOUT_COSTS", processed: false };
+    const currentSnapshot = await this.prisma.cmInvoiceMarginSnapshot.findUnique({
+      where: { invoiceId_costRunId_calculationVersion: { invoiceId: invoice.id, costRunId: costRun.id, calculationVersion: MARGIN_CALCULATION_VERSION } }
+    });
+    if (mode === "PENDING_ONLY" && currentSnapshot) return { code: currentSnapshot.marginStatus === CmInvoiceMarginStatus.WARNING ? "WARNING" : "OK", processed: false };
+    const margin = await this.buildMarginSnapshot(invoice, costRun);
+    if (!margin.hasMappedConcepts) return { code: "WITHOUT_MAPPED_CONCEPTS", processed: false };
+    await this.prisma.cmInvoiceMarginSnapshot.upsert({
+      where: { invoiceId_costRunId_calculationVersion: { invoiceId: invoice.id, costRunId: costRun.id, calculationVersion: MARGIN_CALCULATION_VERSION } },
+      create: {
+        invoiceId: invoice.id,
+        costRunId: costRun.id,
+        calculationVersion: MARGIN_CALCULATION_VERSION,
+        marginStatus: margin.status,
+        calculatedAt: new Date(),
+        associatedRevenueEur: decimalOrNull(margin.associatedRevenueEur),
+        associatedCostEur: decimalOrNull(margin.associatedCostEur),
+        marginEur: decimalOrNull(margin.marginEur),
+        marginEurMwh: decimalOrNull(margin.marginEurMwh),
+        pfTotalKwh: decimalOrNull(margin.pfTotalKwh),
+        warnings: margin.warnings as unknown as Prisma.InputJsonValue,
+        detailsJson: margin.details as unknown as Prisma.InputJsonValue
+      },
+      update: {
+        marginStatus: margin.status,
+        calculatedAt: new Date(),
+        associatedRevenueEur: decimalOrNull(margin.associatedRevenueEur),
+        associatedCostEur: decimalOrNull(margin.associatedCostEur),
+        marginEur: decimalOrNull(margin.marginEur),
+        marginEurMwh: decimalOrNull(margin.marginEurMwh),
+        pfTotalKwh: decimalOrNull(margin.pfTotalKwh),
+        warnings: margin.warnings as unknown as Prisma.InputJsonValue,
+        detailsJson: margin.details as unknown as Prisma.InputJsonValue
+      }
+    });
+    if (margin.status === CmInvoiceMarginStatus.NOT_AVAILABLE && margin.warnings.includes("PF_NOT_AVAILABLE")) return { code: "WITHOUT_PF", processed: true };
+    return { code: margin.status === CmInvoiceMarginStatus.WARNING ? "WARNING" : "OK", processed: true };
+  }
+
+  private async buildMarginSnapshot(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, costRun: { id: string; incidentsCount: number; status: CmInvoiceCostRunStatus }) {
+    const [components, powerComponents, curve] = await Promise.all([
+      this.prisma.cmInvoiceIntervalCostComponent.findMany({
+        where: { intervalCost: { costRunId: costRun.id }, status: "OK", costEur: { not: null } },
+        select: { componentCode: true, costEur: true }
+      }),
+      this.prisma.cmInvoicePowerCostComponent.findMany({
+        where: { costRunId: costRun.id, status: "OK", costEur: { not: null } },
+        select: { componentCode: true, costEur: true }
+      }),
+      this.prisma.cmInvoiceConsumptionCurve.aggregate({ where: { invoiceId: invoice.id }, _sum: { consumptionPfKwh: true } })
+    ]);
+    const costsByNature: Record<CostNature, number> = { ENERGY: 0, POWER: 0 };
+    for (const component of components) costsByNature[costComponentNature(component.componentCode as CostComponent)] += Number(component.costEur ?? 0);
+    for (const component of powerComponents) costsByNature[costComponentNature(component.componentCode as CostComponent)] += Number(component.costEur ?? 0);
+    const lineSummary = summarizeInvoiceLineConcepts(invoice.lines);
+    const pfTotalKwh = decimalToNumber(curve._sum.consumptionPfKwh);
+    const pfMwh = pfTotalKwh && pfTotalKwh > 0 ? pfTotalKwh / 1000 : null;
+    const warnings: string[] = [];
+    let associatedRevenueEur = 0;
+    let associatedCostEur = 0;
+    let marginEur = 0;
+    const rows = lineSummary.rows.map((row) => {
+      const mapping = marginConceptMapping(row.concept);
+      if (!mapping) return { ...row, costEur: null, differenceEur: null, nature: null };
+      const costEur = mapping === "ADJUSTMENT" ? 0 : costsByNature[mapping];
+      const differenceEur = row.amount - costEur;
+      associatedRevenueEur += row.amount;
+      associatedCostEur += costEur;
+      marginEur += differenceEur;
+      return { ...row, costEur, differenceEur, nature: mapping === "ADJUSTMENT" ? "ENERGY" : mapping };
+    });
+    if (!lineSummary.hasMappedConcepts) warnings.push("NO_ASSOCIATED_CONCEPTS");
+    if (!pfMwh) warnings.push("PF_NOT_AVAILABLE");
+    if (costRun.incidentsCount > 0 || costRun.status !== CmInvoiceCostRunStatus.COMPLETED) warnings.push("COSTS_WITH_WARNINGS");
+    const status = !lineSummary.hasMappedConcepts || !pfMwh
+      ? CmInvoiceMarginStatus.NOT_AVAILABLE
+      : warnings.includes("COSTS_WITH_WARNINGS")
+        ? CmInvoiceMarginStatus.WARNING
+        : CmInvoiceMarginStatus.READY;
+    return {
+      status,
+      associatedRevenueEur,
+      associatedCostEur,
+      marginEur,
+      marginEurMwh: pfMwh ? marginEur / pfMwh : null,
+      pfTotalKwh,
+      warnings,
+      hasMappedConcepts: lineSummary.hasMappedConcepts,
+      details: { rows, costsByNature, costRunId: costRun.id }
+    };
+  }
+
   private async failJob(jobId: string, error: unknown, counters?: { processedItems: number; successCount: number; warningCount?: number; errorCount: number }) {
     await this.prisma.cmBillingJob.update({
       where: { id: jobId },
@@ -670,6 +968,7 @@ export class BillingDashboardService {
     if (gisceInvoiceId === null) throw new Error("Factura GISCE sin id.");
     const fields = await this.gisce.invoiceFieldNames();
     const current = await this.prisma.cmInvoice.findUnique({ where: { gisceInvoiceId }, include: { lines: true } });
+    const priceList = normalizeGiscePriceList(item.llista_preu);
     const normalized = {
       gisceInvoiceId,
       invoiceNumber: text(item.number),
@@ -681,6 +980,8 @@ export class BillingDashboardService {
       periodStart: parseNullableDate(item[fields.invoiceStartField] ?? item.data_inici ?? item.data_inicial),
       periodEnd: parseNullableDate(item[fields.invoiceEndField] ?? item.data_final),
       tariffCode: normalizeTarifa(many2oneName(item.tarifa_acces_id) ?? text(item.tarifa)) ?? text(many2oneName(item.tarifa_acces_id) ?? item.tarifa),
+      priceListId: priceList.priceListId,
+      priceListName: priceList.priceListName,
       billedEnergyKwh: decimalOrNull(summarizeGisceInvoiceEnergy(item.invoice_line ?? [])),
       rawPayloadJson: item as Prisma.InputJsonValue,
       importBatchId: batchId
@@ -697,6 +998,8 @@ export class BillingDashboardService {
       periodStart: dateOnly(normalized.periodStart),
       periodEnd: dateOnly(normalized.periodEnd),
       tariffCode: normalized.tariffCode,
+      priceListId: normalized.priceListId,
+      priceListName: normalized.priceListName,
       billedEnergyKwh: normalized.billedEnergyKwh?.toString() ?? null
     };
     const comparable = JSON.stringify(comparablePayload);
@@ -711,15 +1014,31 @@ export class BillingDashboardService {
       periodStart: dateOnly(current.periodStart),
       periodEnd: dateOnly(current.periodEnd),
       tariffCode: current.tariffCode,
+      priceListId: current.priceListId,
+      priceListName: current.priceListName,
       billedEnergyKwh: current.billedEnergyKwh?.toString() ?? null
     }) : null;
     const invoice = await this.prisma.cmInvoice.upsert({
       where: { gisceInvoiceId },
       create: normalized,
-      update: comparable === previous ? { importBatchId: batchId, rawPayloadJson: item as Prisma.InputJsonValue } : { ...normalized, processingStatus: CmInvoiceProcessingStatus.IMPORTED, processingMessage: null }
+      update: comparable === previous
+        ? { importBatchId: batchId, rawPayloadJson: item as Prisma.InputJsonValue, priceListId: normalized.priceListId, priceListName: normalized.priceListName }
+        : current && onlyCommercialMetadataChanged(comparablePayload, JSON.parse(previous ?? "{}"))
+          ? { importBatchId: batchId, rawPayloadJson: item as Prisma.InputJsonValue, priceListId: normalized.priceListId, priceListName: normalized.priceListName }
+          : { ...normalized, processingStatus: CmInvoiceProcessingStatus.IMPORTED, processingMessage: null }
     });
+    await this.syncInvoiceInvoicingModes(invoice.id, priceList.compatibleInvoicingModes);
     for (const line of item.invoice_line ?? []) await this.upsertLine(invoice.id, line);
     return current ? comparable === previous ? "unchanged" : "updated" : "created";
+  }
+
+  private async syncInvoiceInvoicingModes(invoiceId: string, modes: Array<{ externalId: number; name: string }>) {
+    await this.prisma.cmInvoiceInvoicingMode.deleteMany({ where: { invoiceId } });
+    if (modes.length === 0) return;
+    await this.prisma.cmInvoiceInvoicingMode.createMany({
+      data: modes.map((mode) => ({ invoiceId, externalId: mode.externalId, name: mode.name })),
+      skipDuplicates: true
+    });
   }
 
   private async upsertLine(invoiceId: string, line: GisceInvoiceLineItem) {
@@ -933,6 +1252,8 @@ function invoiceRow(invoice: {
   periodStart: Date | null;
   periodEnd: Date | null;
   tariffCode: string | null;
+  priceListId?: number | null;
+  priceListName?: string | null;
   processingStatus: CmInvoiceProcessingStatus;
   processingMessage: string | null;
   expectedIntervals: number;
@@ -956,6 +1277,8 @@ function invoiceRow(invoice: {
     periodStart: dateOnly(invoice.periodStart),
     periodEnd: dateOnly(invoice.periodEnd),
     tariffCode: invoice.tariffCode,
+    priceListId: invoice.priceListId ?? null,
+    priceListName: invoice.priceListName ?? null,
     processingStatus: invoice.processingStatus,
     processingMessage: invoice.processingMessage,
     billedEnergyKwh: decimalToNumber(invoice.billedEnergyKwh),
@@ -973,6 +1296,10 @@ function invoiceRow(invoice: {
     profilePct: pct(invoice.profiledIntervals, invoice.expectedIntervals),
     realCoveragePct: pct(real, invoice.expectedIntervals)
   };
+}
+
+function invoicingModeRow(row: { externalId: number; name: string }) {
+  return { id: row.externalId, name: row.name };
 }
 
 function billingJobRow(job: {
@@ -1012,6 +1339,36 @@ function billingJobRow(job: {
     finishedAt: job.finishedAt?.toISOString() ?? null,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString()
+  };
+}
+
+function marginSnapshotRow(snapshot: {
+  id: string;
+  invoiceId: string;
+  costRunId: string;
+  calculationVersion: string;
+  marginStatus: CmInvoiceMarginStatus;
+  calculatedAt: Date;
+  associatedRevenueEur: Prisma.Decimal | null;
+  associatedCostEur: Prisma.Decimal | null;
+  marginEur: Prisma.Decimal | null;
+  marginEurMwh: Prisma.Decimal | null;
+  pfTotalKwh: Prisma.Decimal | null;
+  warnings: Prisma.JsonValue | null;
+}) {
+  return {
+    id: snapshot.id,
+    invoiceId: snapshot.invoiceId,
+    costRunId: snapshot.costRunId,
+    calculationVersion: snapshot.calculationVersion,
+    marginStatus: snapshot.marginStatus,
+    calculatedAt: snapshot.calculatedAt.toISOString(),
+    associatedRevenueEur: decimalToNumber(snapshot.associatedRevenueEur),
+    associatedCostEur: decimalToNumber(snapshot.associatedCostEur),
+    marginEur: decimalToNumber(snapshot.marginEur),
+    marginEurMwh: decimalToNumber(snapshot.marginEurMwh),
+    pfTotalKwh: decimalToNumber(snapshot.pfTotalKwh),
+    warnings: Array.isArray(snapshot.warnings) ? snapshot.warnings : []
   };
 }
 
@@ -1068,6 +1425,113 @@ function summarizeInvoiceEnergy(lines: Array<{ accountName: string | null; lineN
   return output;
 }
 
+function lineConcept(line: { accountName: string | null; lineName: string | null }) {
+  if (!line.lineName) return "-";
+  if (/^P[1-6]$/i.test(line.lineName) && line.accountName?.includes("/")) return line.accountName.split("/").pop()?.trim() || line.lineName;
+  return line.lineName;
+}
+
+function summarizeInvoiceLineConcepts(lines: Array<{ accountName: string | null; lineName: string | null; priceSubtotal: Prisma.Decimal | null }>) {
+  const groups = new Map<string, { concept: string; amount: number }>();
+  let associatedRevenueEur = 0;
+  let hasMappedConcepts = false;
+  for (const line of lines) {
+    const concept = lineConcept(line);
+    const amount = Number(line.priceSubtotal ?? 0);
+    const current = groups.get(concept) ?? { concept, amount: 0 };
+    current.amount += amount;
+    groups.set(concept, current);
+  }
+  for (const row of groups.values()) {
+    if (marginConceptMapping(row.concept)) {
+      hasMappedConcepts = true;
+      associatedRevenueEur += row.amount;
+    }
+  }
+  return { rows: [...groups.values()], associatedRevenueEur, hasMappedConcepts };
+}
+
+function marginConceptMapping(concept: string): CostNature | "ADJUSTMENT" | null {
+  const key = invoiceConceptKey(concept);
+  if (key === "ENERGIA") return "ENERGY";
+  if (key === "POTENCIA") return "POWER";
+  if (key === invoiceConceptKey(NETWORK_SYSTEM_ADJUSTMENT_CONCEPT)) return "ADJUSTMENT";
+  return null;
+}
+
+function invoiceConceptKey(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toUpperCase();
+}
+
+function curveSummaryText(invoice: { expectedIntervals: number; f1Intervals: number; p1Intervals: number; f5dIntervals: number; p5dIntervals: number; profiledIntervals: number }) {
+  const rows = [
+    ["F1", invoice.f1Intervals],
+    ["TgP1", invoice.p1Intervals],
+    ["F5D", invoice.f5dIntervals],
+    ["P5D", invoice.p5dIntervals],
+    ["Perfil", invoice.profiledIntervals]
+  ] as const;
+  const parts = rows.filter(([, count]) => count > 0).map(([label, count]) => `${label} ${pct(count, invoice.expectedIntervals).toLocaleString("es-ES", { maximumFractionDigits: 2 })}%`);
+  return parts.length ? parts.join(" · ") : "-";
+}
+
+function deriveGlobalStatus(
+  curveStatus: CmInvoiceProcessingStatus,
+  costRun: { status: CmInvoiceCostRunStatus; incidentsCount: number } | null,
+  margin: { marginStatus: CmInvoiceMarginStatus } | null
+) {
+  if (curveStatus !== CmInvoiceProcessingStatus.READY && curveStatus !== CmInvoiceProcessingStatus.WARNING) return "CURVE_PENDING";
+  if (!costRun) return "READY_FOR_COSTS";
+  if (costRun.status === CmInvoiceCostRunStatus.ERROR || costRun.incidentsCount > 0 || costRun.status === CmInvoiceCostRunStatus.WARNING) return "COSTS_WARNING";
+  if (!margin) return "READY_FOR_MARGIN";
+  if (margin.marginStatus === CmInvoiceMarginStatus.WARNING) return "MARGIN_WARNING";
+  if (margin.marginStatus === CmInvoiceMarginStatus.READY) return "MARGIN_OK";
+  return "READY_FOR_MARGIN";
+}
+
+function isEconomicInvoiceQuery(query: Record<string, unknown>, sort: string) {
+  return ["pf", "costs", "margin", "marginEurMwh", "globalStatus"].includes(sort)
+    || text(query.marginStatus) !== null
+    || numeric(query.marginEurMin) !== null
+    || numeric(query.marginEurMax) !== null
+    || numeric(query.marginEurMwhMin) !== null
+    || numeric(query.marginEurMwhMax) !== null
+    || text(query.hasAnyIssues) !== null;
+}
+
+function filterEconomicInvoiceRows<T extends { marginStatus: string | null; marginEur: number | null; marginEurMwh: number | null; totalIssueCount: number }>(rows: T[], query: Record<string, unknown>) {
+  const marginStatus = text(query.marginStatus);
+  const minMargin = numeric(query.marginEurMin);
+  const maxMargin = numeric(query.marginEurMax);
+  const minMarginMwh = numeric(query.marginEurMwhMin);
+  const maxMarginMwh = numeric(query.marginEurMwhMax);
+  const hasAnyIssues = text(query.hasAnyIssues);
+  return rows.filter((row) => {
+    if (marginStatus && row.marginStatus !== marginStatus) return false;
+    if (minMargin !== null && (row.marginEur === null || row.marginEur < minMargin)) return false;
+    if (maxMargin !== null && (row.marginEur === null || row.marginEur > maxMargin)) return false;
+    if (minMarginMwh !== null && (row.marginEurMwh === null || row.marginEurMwh < minMarginMwh)) return false;
+    if (maxMarginMwh !== null && (row.marginEurMwh === null || row.marginEurMwh > maxMarginMwh)) return false;
+    if (hasAnyIssues === "true" && row.totalIssueCount <= 0) return false;
+    if (hasAnyIssues === "false" && row.totalIssueCount > 0) return false;
+    return true;
+  });
+}
+
+function sortEconomicInvoiceRows<T extends Record<string, unknown>>(rows: T[], sort: string, direction: "asc" | "desc") {
+  const field = sort === "pf" ? "pfTotalKwh" : sort === "costs" ? "totalCostEur" : sort === "margin" ? "marginEur" : sort === "marginEurMwh" ? "marginEurMwh" : sort === "globalStatus" ? "globalStatus" : null;
+  if (!field) return;
+  const sign = direction === "asc" ? 1 : -1;
+  rows.sort((left, right) => {
+    const a = left[field];
+    const b = right[field];
+    if (a === null || a === undefined) return 1;
+    if (b === null || b === undefined) return -1;
+    if (typeof a === "number" && typeof b === "number") return (a - b) * sign;
+    return String(a).localeCompare(String(b)) * sign;
+  });
+}
+
 function summarizeGisceInvoiceEnergy(lines: GisceInvoiceLineItem[]) {
   return round(Object.values(summarizeInvoiceEnergy(lines.map((line) => ({
     accountName: many2oneName(line.account_id),
@@ -1075,6 +1539,35 @@ function summarizeGisceInvoiceEnergy(lines: GisceInvoiceLineItem[]) {
     quantity: decimalOrNull(numeric(line.quantity)),
     priceUnit: decimalOrNull(numeric(line.price_unit))
   })))).reduce((sum, value) => sum + value, 0), 6);
+}
+
+export function normalizeGiscePriceList(value: GisceInvoiceItem["llista_preu"]) {
+  if (!value || typeof value !== "object") return { priceListId: null as number | null, priceListName: null as string | null, compatibleInvoicingModes: [] as Array<{ externalId: number; name: string }> };
+  const modes = Array.isArray(value.compatible_invoicing_modes) ? value.compatible_invoicing_modes : [];
+  const seen = new Set<number>();
+  return {
+    priceListId: integer(value.id),
+    priceListName: text(value.name),
+    compatibleInvoicingModes: modes.map((mode) => {
+      const externalId = integer(mode?.id);
+      const name = text(mode?.name);
+      return externalId !== null && name ? { externalId, name } : null;
+    }).filter((mode): mode is { externalId: number; name: string } => {
+      if (!mode || seen.has(mode.externalId)) return false;
+      seen.add(mode.externalId);
+      return true;
+    })
+  };
+}
+
+function onlyCommercialMetadataChanged(next: Record<string, unknown>, previous: Record<string, unknown>) {
+  const ignored = new Set(["priceListId", "priceListName"]);
+  const keys = new Set([...Object.keys(next), ...Object.keys(previous)]);
+  for (const key of keys) {
+    if (ignored.has(key)) continue;
+    if (JSON.stringify(next[key]) !== JSON.stringify(previous[key])) return false;
+  }
+  return true;
 }
 
 function dateRange(field: "invoiceDate", from: unknown, to: unknown): Prisma.CmInvoiceWhereInput {

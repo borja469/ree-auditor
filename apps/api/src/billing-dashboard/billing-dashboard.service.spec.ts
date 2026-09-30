@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CmInvoiceConsumptionSource } from "@prisma/client";
-import { inferSourceResolutionMinutes, normalizeMeasuresToQuarterHour, selectMeasureCandidate, type CurveIssue, type NormalizedMeasureCandidate } from "./billing-dashboard.service";
+import { inferSourceResolutionMinutes, normalizeGiscePriceList, normalizeMeasuresToQuarterHour, selectMeasureCandidate, type CurveIssue, type NormalizedMeasureCandidate } from "./billing-dashboard.service";
 
 function candidate(consumption: number): NormalizedMeasureCandidate {
   return {
@@ -20,6 +20,33 @@ describe("Billing dashboard curve source priority", () => {
     assert.equal(selectMeasureCandidate(undefined, undefined, candidate(3), candidate(4)).source, CmInvoiceConsumptionSource.F5D);
     assert.equal(selectMeasureCandidate(undefined, undefined, undefined, candidate(4)).source, CmInvoiceConsumptionSource.P5D);
     assert.equal(selectMeasureCandidate(undefined, undefined, undefined, undefined).source, CmInvoiceConsumptionSource.MISSING);
+  });
+});
+
+describe("Billing dashboard GISCE price list metadata", () => {
+  it("imports price list id, name and one compatible invoicing mode", () => {
+    const result = normalizeGiscePriceList({
+      id: 4366,
+      name: "PASS_THROUGH_RENOVACION",
+      compatible_invoicing_modes: [{ id: 2, name: "Indexada" }]
+    });
+    assert.equal(result.priceListId, 4366);
+    assert.equal(result.priceListName, "PASS_THROUGH_RENOVACION");
+    assert.deepEqual(result.compatibleInvoicingModes, [{ externalId: 2, name: "Indexada" }]);
+  });
+
+  it("keeps several compatible modes and unknown names without hardcoded enum", () => {
+    const result = normalizeGiscePriceList({
+      id: 10,
+      name: "LISTA_X",
+      compatible_invoicing_modes: [{ id: 2, name: "Indexada" }, { id: 7, name: "ATR" }, { id: 99, name: "Modo futuro" }]
+    });
+    assert.deepEqual(result.compatibleInvoicingModes.map((mode) => mode.name), ["Indexada", "ATR", "Modo futuro"]);
+  });
+
+  it("supports empty arrays and null price list without fallbacks", () => {
+    assert.deepEqual(normalizeGiscePriceList({ id: 1, name: "SIN_MODOS", compatible_invoicing_modes: [] }).compatibleInvoicingModes, []);
+    assert.deepEqual(normalizeGiscePriceList(null), { priceListId: null, priceListName: null, compatibleInvoicingModes: [] });
   });
 });
 

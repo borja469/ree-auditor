@@ -120,6 +120,59 @@ enum CmInvoiceProfileType {
   INICIAL
 }
 
+enum CmInvoiceCostRunStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  WARNING
+  ERROR
+}
+
+enum CmInvoiceIntervalCostStatus {
+  OK
+  WARNING
+  ERROR
+}
+
+enum CmInvoiceCostComponentCode {
+  OMIE_MD
+  CAD
+  PC3
+  BS3
+  RAD3
+  RETH
+  PC3_CONFIG
+  EFIH
+  TOLLS_CHARGES_ENERGY
+  TOLLS_CHARGES_POWER
+  BONO_SOCIAL
+  OTROS
+  IMU
+}
+
+enum CmInvoiceCostEnergyBasis {
+  BC
+  PF
+  ECONOMIC_AMOUNT
+  CONTRACTED_POWER
+}
+
+enum CmInvoiceMarginStatus {
+  READY
+  WARNING
+  NOT_AVAILABLE
+}
+
+enum RegulatedPriceCode {
+  RETH
+  EFIH
+  PC3
+  TOLLS_CHARGES
+  BONO_SOCIAL
+  OTROS
+  IMU
+}
+
 model ReeFile {
   id                 String               @id @default(uuid()) @db.Uuid
   fileName           String               @map("file_name")
@@ -2005,6 +2058,8 @@ model CmInvoice {
   periodStart      DateTime?                 @map("period_start") @db.Date
   periodEnd        DateTime?                 @map("period_end") @db.Date
   tariffCode       String?                   @map("tariff_code") @db.VarChar(20)
+  priceListId      Int?                      @map("price_list_id")
+  priceListName    String?                   @map("price_list_name") @db.VarChar(255)
   billedEnergyKwh  Decimal?                  @map("billed_energy_kwh") @db.Decimal(20, 6)
   processingStatus CmInvoiceProcessingStatus @default(IMPORTED) @map("processing_status")
   processingMessage String?                  @map("processing_message") @db.Text
@@ -2022,18 +2077,40 @@ model CmInvoice {
   createdAt        DateTime                  @default(now()) @map("created_at")
   updatedAt        DateTime                  @updatedAt @map("updated_at")
   lines            CmInvoiceLine[]
+  compatibleInvoicingModes CmInvoiceInvoicingMode[]
   f1Raw            CmInvoiceCurveF1Raw[]
   f5dRaw           CmInvoiceCurveF5dRaw[]
   p1Raw            CmInvoiceCurveP1Raw[]
   p5dRaw           CmInvoiceCurveP5dRaw[]
   curve            CmInvoiceConsumptionCurve[]
+  costRuns         CmInvoiceCostRun[]
+  marginSnapshots  CmInvoiceMarginSnapshot[]
+  intervalCosts    CmInvoiceIntervalCost[]
+  powerCostComponents CmInvoicePowerCostComponent[]
 
   @@index([cups])
   @@index([invoiceDate])
   @@index([periodStart, periodEnd])
   @@index([processingStatus])
+  @@index([priceListName])
   @@index([importBatchId])
   @@map("cm_invoices")
+}
+
+model CmInvoiceInvoicingMode {
+  id          String    @id @default(uuid()) @db.Uuid
+  invoiceId   String    @map("invoice_id") @db.Uuid
+  invoice     CmInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  externalId  Int       @map("external_id")
+  name        String    @db.VarChar(120)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  @@unique([invoiceId, externalId], map: "ux_cm_invoice_invoicing_modes_invoice_external")
+  @@index([invoiceId])
+  @@index([externalId])
+  @@index([name])
+  @@map("cm_invoice_invoicing_modes")
 }
 
 model CmInvoiceLine {
@@ -2201,6 +2278,7 @@ model CmInvoiceConsumptionCurve {
   validationMessage   String?                   @map("validation_message") @db.Text
   createdAt           DateTime                  @default(now()) @map("created_at")
   updatedAt           DateTime                  @updatedAt @map("updated_at")
+  intervalCosts       CmInvoiceIntervalCost[]
 
   @@unique([invoiceId, datetime], map: "ux_cm_invoice_curve_invoice_datetime")
   @@index([invoiceId])
@@ -2208,4 +2286,303 @@ model CmInvoiceConsumptionCurve {
   @@index([tariffPeriod])
   @@index([consumptionSource])
   @@map("cm_invoice_consumption_curve")
+}
+
+model CmInvoiceCostRun {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  invoiceId             String                 @map("invoice_id") @db.Uuid
+  invoice               CmInvoice              @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  status                CmInvoiceCostRunStatus @default(PENDING)
+  startedAt             DateTime               @default(now()) @map("started_at")
+  completedAt           DateTime?              @map("completed_at")
+  calculationVersion    String                 @default("PHASE2_ENERGY_COSTS_V1") @map("calculation_version") @db.VarChar(80)
+  totalOmieEur          Decimal?               @map("total_omie_eur") @db.Decimal(24, 10)
+  totalLiquidationsEur  Decimal?               @map("total_liquidations_eur") @db.Decimal(24, 10)
+  totalRegulatedEur     Decimal?               @map("total_regulated_eur") @db.Decimal(24, 10)
+  totalConfiguredEur    Decimal?               @map("total_configured_eur") @db.Decimal(24, 10)
+  totalTollsChargesEur  Decimal?               @map("total_tolls_charges_eur") @db.Decimal(24, 10)
+  totalTollsChargesPowerEur Decimal?            @map("total_tolls_charges_power_eur") @db.Decimal(24, 10)
+  totalDerivedEur       Decimal?               @map("total_derived_eur") @db.Decimal(24, 10)
+  totalCostEur          Decimal?               @map("total_cost_eur") @db.Decimal(24, 10)
+  intervalsCount        Int                    @default(0) @map("intervals_count")
+  okIntervalsCount      Int                    @default(0) @map("ok_intervals_count")
+  warningIntervalsCount Int                    @default(0) @map("warning_intervals_count")
+  errorIntervalsCount   Int                    @default(0) @map("error_intervals_count")
+  incidentsCount        Int                    @default(0) @map("incidents_count")
+  summaryJson           Json?                  @map("summary_json")
+  message               String?                @db.Text
+  createdAt             DateTime               @default(now()) @map("created_at")
+  intervalCosts         CmInvoiceIntervalCost[]
+  powerCostComponents   CmInvoicePowerCostComponent[]
+  marginSnapshots       CmInvoiceMarginSnapshot[]
+
+  @@index([invoiceId, startedAt])
+  @@index([status])
+  @@map("cm_invoice_cost_runs")
+}
+
+model CmInvoiceMarginSnapshot {
+  id                    String                @id @default(uuid()) @db.Uuid
+  invoiceId             String                @map("invoice_id") @db.Uuid
+  invoice               CmInvoice             @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  costRunId             String                @map("cost_run_id") @db.Uuid
+  costRun               CmInvoiceCostRun      @relation(fields: [costRunId], references: [id], onDelete: Cascade)
+  calculationVersion    String                @map("calculation_version") @db.VarChar(80)
+  marginStatus          CmInvoiceMarginStatus @map("margin_status")
+  calculatedAt          DateTime              @default(now()) @map("calculated_at")
+  associatedRevenueEur  Decimal?              @map("associated_revenue_eur") @db.Decimal(24, 10)
+  associatedCostEur     Decimal?              @map("associated_cost_eur") @db.Decimal(24, 10)
+  marginEur             Decimal?              @map("margin_eur") @db.Decimal(24, 10)
+  marginEurMwh          Decimal?              @map("margin_eur_mwh") @db.Decimal(24, 10)
+  pfTotalKwh            Decimal?              @map("pf_total_kwh") @db.Decimal(24, 9)
+  warnings              Json?
+  detailsJson           Json?                 @map("details_json")
+  createdAt             DateTime              @default(now()) @map("created_at")
+  updatedAt             DateTime              @updatedAt @map("updated_at")
+
+  @@unique([invoiceId, costRunId, calculationVersion], map: "ux_cm_invoice_margin_invoice_run_version")
+  @@index([invoiceId, calculatedAt])
+  @@index([costRunId])
+  @@index([marginStatus])
+  @@index([marginEur])
+  @@index([marginEurMwh])
+  @@map("cm_invoice_margin_snapshots")
+}
+
+model CmInvoiceIntervalCost {
+  id                    String                      @id @default(uuid()) @db.Uuid
+  costRunId             String                      @map("cost_run_id") @db.Uuid
+  costRun               CmInvoiceCostRun            @relation(fields: [costRunId], references: [id], onDelete: Cascade)
+  invoiceId             String                      @map("invoice_id") @db.Uuid
+  invoice               CmInvoice                   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  curveIntervalId       String?                     @map("curve_interval_id") @db.Uuid
+  curveInterval         CmInvoiceConsumptionCurve?  @relation(fields: [curveIntervalId], references: [id], onDelete: SetNull)
+  datetime              DateTime
+  tariffPeriod          String                      @map("tariff_period") @db.VarChar(5)
+  bcKwh                 Decimal?                    @map("bc_kwh") @db.Decimal(24, 9)
+  pfKwh                 Decimal?                    @map("pf_kwh") @db.Decimal(24, 9)
+  liquidationsCostEur   Decimal?                    @map("liquidations_cost_eur") @db.Decimal(24, 10)
+  regulatedCostEur      Decimal?                    @map("regulated_cost_eur") @db.Decimal(24, 10)
+  configuredCostEur     Decimal?                    @map("configured_cost_eur") @db.Decimal(24, 10)
+  tollsChargesCostEur   Decimal?                    @map("tolls_charges_cost_eur") @db.Decimal(24, 10)
+  derivedCostEur        Decimal?                    @map("derived_cost_eur") @db.Decimal(24, 10)
+  totalCostEur          Decimal?                    @map("total_cost_eur") @db.Decimal(24, 10)
+  status                CmInvoiceIntervalCostStatus @default(OK)
+  incidentCodes         Json?                       @map("incident_codes")
+  createdAt             DateTime                    @default(now()) @map("created_at")
+  components            CmInvoiceIntervalCostComponent[]
+
+  @@index([costRunId, datetime])
+  @@index([invoiceId, datetime])
+  @@index([curveIntervalId])
+  @@index([status])
+  @@map("cm_invoice_interval_costs")
+}
+
+model CmInvoiceIntervalCostComponent {
+  id                      String                      @id @default(uuid()) @db.Uuid
+  intervalCostId          String                      @map("interval_cost_id") @db.Uuid
+  intervalCost            CmInvoiceIntervalCost       @relation(fields: [intervalCostId], references: [id], onDelete: Cascade)
+  componentCode           CmInvoiceCostComponentCode  @map("component_code")
+  energyBasis             CmInvoiceCostEnergyBasis    @map("energy_basis")
+  energyKwh               Decimal?                    @map("energy_kwh") @db.Decimal(24, 9)
+  energyMwh               Decimal?                    @map("energy_mwh") @db.Decimal(24, 12)
+  priceEurMwh             Decimal?                    @map("price_eur_mwh") @db.Decimal(24, 10)
+  baseAmountEur           Decimal?                    @map("base_amount_eur") @db.Decimal(24, 10)
+  percentage              Decimal?                    @db.Decimal(12, 6)
+  costEur                 Decimal?                    @map("cost_eur") @db.Decimal(24, 10)
+  sourceTable             String?                     @map("source_table") @db.VarChar(80)
+  sourceRowId             String?                     @map("source_row_id") @db.Uuid
+  sourceVersion           ReeSettlementVersion?       @map("source_version")
+  regulatedPriceVersionId String?                     @map("regulated_price_version_id") @db.Uuid
+  regulatedPriceVersionName String?                   @map("regulated_price_version_name") @db.VarChar(120)
+  sourceValidFrom         DateTime?                   @map("source_valid_from") @db.Date
+  sourceValidTo           DateTime?                   @map("source_valid_to") @db.Date
+  sourceTariffCode        String?                     @map("source_tariff_code") @db.VarChar(20)
+  sourceTariffPeriod      String?                     @map("source_tariff_period") @db.VarChar(5)
+  sourceResolutionMinutes Int?                        @map("source_resolution_minutes")
+  status                  CmInvoiceIntervalCostStatus @default(OK)
+  incidentCode            String?                     @map("incident_code") @db.VarChar(80)
+  createdAt               DateTime                    @default(now()) @map("created_at")
+
+  @@index([intervalCostId])
+  @@index([componentCode])
+  @@index([sourceVersion])
+  @@index([regulatedPriceVersionId])
+  @@index([status])
+  @@index([incidentCode])
+  @@map("cm_invoice_interval_cost_components")
+}
+
+model CmInvoicePowerCostComponent {
+  id                        String                      @id @default(uuid()) @db.Uuid
+  costRunId                 String                      @map("cost_run_id") @db.Uuid
+  costRun                   CmInvoiceCostRun            @relation(fields: [costRunId], references: [id], onDelete: Cascade)
+  invoiceId                 String                      @map("invoice_id") @db.Uuid
+  invoice                   CmInvoice                   @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  componentCode             CmInvoiceCostComponentCode  @default(TOLLS_CHARGES_POWER) @map("component_code")
+  calculationBasis          CmInvoiceCostEnergyBasis    @default(CONTRACTED_POWER) @map("calculation_basis")
+  tariffCode                String?                     @map("tariff_code") @db.VarChar(20)
+  tariffPeriod              String?                     @map("tariff_period") @db.VarChar(5)
+  contractedPowerKw         Decimal?                    @map("contracted_power_kw") @db.Decimal(24, 9)
+  startDate                 DateTime                    @map("start_date") @db.Date
+  endDate                   DateTime                    @map("end_date") @db.Date
+  billedDays                Int                         @map("billed_days")
+  yearDays                  Int?                        @map("year_days")
+  annualPriceEurKwYear      Decimal?                    @map("annual_price_eur_kw_year") @db.Decimal(24, 10)
+  costEur                   Decimal?                    @map("cost_eur") @db.Decimal(24, 10)
+  sourceTable               String?                     @map("source_table") @db.VarChar(80)
+  sourceRowId               String?                     @map("source_row_id") @db.Uuid
+  regulatedPriceVersionId   String?                     @map("regulated_price_version_id") @db.Uuid
+  regulatedPriceVersionName String?                     @map("regulated_price_version_name") @db.VarChar(120)
+  sourceValidFrom           DateTime?                   @map("source_valid_from") @db.Date
+  sourceValidTo             DateTime?                   @map("source_valid_to") @db.Date
+  status                    CmInvoiceIntervalCostStatus @default(OK)
+  incidentCode              String?                     @map("incident_code") @db.VarChar(80)
+  createdAt                 DateTime                    @default(now()) @map("created_at")
+
+  @@index([costRunId])
+  @@index([invoiceId])
+  @@index([componentCode])
+  @@index([tariffPeriod])
+  @@index([regulatedPriceVersionId])
+  @@index([status])
+  @@index([incidentCode])
+  @@map("cm_invoice_power_cost_components")
+}
+
+model RegulatedPriceVersion {
+  id                  String                       @id @default(uuid()) @db.Uuid
+  code                RegulatedPriceCode
+  name                String                       @db.VarChar(120)
+  validFrom           DateTime                     @map("valid_from") @db.Date
+  validTo             DateTime?                    @map("valid_to") @db.Date
+  notes               String?                      @db.Text
+  createdAt           DateTime                     @default(now()) @map("created_at")
+  updatedAt           DateTime                     @updatedAt @map("updated_at")
+  rethPrice           RegulatedRethPrice?
+  efihPrice           RegulatedEfihPrice?
+  pc3Prices           RegulatedPc3Price[]
+  tollsChargesPrices  RegulatedTollsChargesPrice[]
+  socialBonusPrice    RegulatedSocialBonusPrice?
+  otherPrice          RegulatedOtherPrice?
+  imuRate             RegulatedImuRate?
+
+  @@index([code, validFrom, validTo])
+  @@map("regulated_price_versions")
+}
+
+model RegulatedRethPrice {
+  id          String                @id @default(uuid()) @db.Uuid
+  versionId   String                @unique @map("version_id") @db.Uuid
+  version     RegulatedPriceVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  priceEurMwh Decimal               @map("price_eur_mwh") @db.Decimal(20, 8)
+  energyBasis String                @default("BC") @map("energy_basis") @db.VarChar(40)
+  unit        String                @default("EUR_MWH") @db.VarChar(40)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@map("regulated_reth_prices")
+}
+
+model RegulatedEfihPrice {
+  id          String                @id @default(uuid()) @db.Uuid
+  versionId   String                @unique @map("version_id") @db.Uuid
+  version     RegulatedPriceVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  priceEurMwh Decimal               @map("price_eur_mwh") @db.Decimal(20, 8)
+  energyBasis String                @default("PF") @map("energy_basis") @db.VarChar(40)
+  unit        String                @default("EUR_MWH") @db.VarChar(40)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@map("regulated_efih_prices")
+}
+
+model RegulatedPc3Price {
+  id          String                @id @default(uuid()) @db.Uuid
+  versionId   String                @map("version_id") @db.Uuid
+  version     RegulatedPriceVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  tariffCode  String                @map("tariff_code") @db.VarChar(20)
+  p1EurMwh    Decimal?              @map("p1_eur_mwh") @db.Decimal(20, 8)
+  p2EurMwh    Decimal?              @map("p2_eur_mwh") @db.Decimal(20, 8)
+  p3EurMwh    Decimal?              @map("p3_eur_mwh") @db.Decimal(20, 8)
+  p4EurMwh    Decimal?              @map("p4_eur_mwh") @db.Decimal(20, 8)
+  p5EurMwh    Decimal?              @map("p5_eur_mwh") @db.Decimal(20, 8)
+  p6EurMwh    Decimal?              @map("p6_eur_mwh") @db.Decimal(20, 8)
+  energyBasis String                @default("BC") @map("energy_basis") @db.VarChar(40)
+  unit        String                @default("EUR_MWH") @db.VarChar(40)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@unique([versionId, tariffCode], map: "ux_regulated_pc3_version_tariff")
+  @@index([tariffCode])
+  @@map("regulated_pc3_prices")
+}
+
+model RegulatedTollsChargesPrice {
+  id                  String                @id @default(uuid()) @db.Uuid
+  versionId           String                @map("version_id") @db.Uuid
+  version             RegulatedPriceVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  tariffCode          String                @map("tariff_code") @db.VarChar(20)
+  powerP1EurKwYear    Decimal?              @map("power_p1_eur_kw_year") @db.Decimal(20, 8)
+  powerP2EurKwYear    Decimal?              @map("power_p2_eur_kw_year") @db.Decimal(20, 8)
+  powerP3EurKwYear    Decimal?              @map("power_p3_eur_kw_year") @db.Decimal(20, 8)
+  powerP4EurKwYear    Decimal?              @map("power_p4_eur_kw_year") @db.Decimal(20, 8)
+  powerP5EurKwYear    Decimal?              @map("power_p5_eur_kw_year") @db.Decimal(20, 8)
+  powerP6EurKwYear    Decimal?              @map("power_p6_eur_kw_year") @db.Decimal(20, 8)
+  energyP1EurMwh      Decimal?              @map("energy_p1_eur_mwh") @db.Decimal(20, 8)
+  energyP2EurMwh      Decimal?              @map("energy_p2_eur_mwh") @db.Decimal(20, 8)
+  energyP3EurMwh      Decimal?              @map("energy_p3_eur_mwh") @db.Decimal(20, 8)
+  energyP4EurMwh      Decimal?              @map("energy_p4_eur_mwh") @db.Decimal(20, 8)
+  energyP5EurMwh      Decimal?              @map("energy_p5_eur_mwh") @db.Decimal(20, 8)
+  energyP6EurMwh      Decimal?              @map("energy_p6_eur_mwh") @db.Decimal(20, 8)
+  energyBasis         String                @default("PF") @map("energy_basis") @db.VarChar(40)
+  energyUnit          String                @default("EUR_MWH") @map("energy_unit") @db.VarChar(40)
+  powerBasis          String                @default("CONTRACTED_POWER") @map("power_basis") @db.VarChar(40)
+  powerUnit           String                @default("EUR_KW_YEAR") @map("power_unit") @db.VarChar(40)
+  createdAt           DateTime              @default(now()) @map("created_at")
+  updatedAt           DateTime              @updatedAt @map("updated_at")
+
+  @@unique([versionId, tariffCode], map: "ux_regulated_tolls_charges_version_tariff")
+  @@index([tariffCode])
+  @@map("regulated_tolls_charges_prices")
+}
+
+model RegulatedSocialBonusPrice {
+  id          String                @id @default(uuid()) @db.Uuid
+  versionId   String                @unique @map("version_id") @db.Uuid
+  version     RegulatedPriceVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  priceEurMwh Decimal?              @map("price_eur_mwh") @db.Decimal(20, 8)
+  energyBasis String                @default("PF") @map("energy_basis") @db.VarChar(40)
+  unit        String                @default("EUR_MWH") @db.VarChar(40)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@map("regulated_social_bonus_prices")
+}
+
+model RegulatedOtherPrice {
+  id          String                @id @default(uuid()) @db.Uuid
+  versionId   String                @unique @map("version_id") @db.Uuid
+  version     RegulatedPriceVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  priceEurMwh Decimal?              @map("price_eur_mwh") @db.Decimal(20, 8)
+  energyBasis String                @default("BC") @map("energy_basis") @db.VarChar(40)
+  unit        String                @default("EUR_MWH") @db.VarChar(40)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@map("regulated_other_prices")
+}
+
+model RegulatedImuRate {
+  id          String                @id @default(uuid()) @db.Uuid
+  versionId   String                @unique @map("version_id") @db.Uuid
+  version     RegulatedPriceVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  percentage  Decimal?              @db.Decimal(12, 6)
+  basis       String                @default("ECONOMIC_AMOUNT") @db.VarChar(40)
+  unit        String                @default("PERCENT") @db.VarChar(40)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+
+  @@map("regulated_imu_rates")
 }

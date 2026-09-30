@@ -5,7 +5,7 @@ const { quarter_hour_to_hourly_average } = require("./quarter_hour_aggregator");
 const { periodo20TD, periodo30TD, periodo6XTD } = require("./tariff_periods");
 const { PricingBaseTableService, validatePricingBaseTable } = require("./pricing_base_table_service");
 const { buildCurveMonths, toCurveProduct } = require("./meff_forward_curve_service");
-const { get_latest_available_version } = require("./version_selector");
+const { get_latest_available_version, LIQUIDATION_MATURITY_ORDER, selectLatestAvailableVersion } = require("./version_selector");
 const { normalizeProfilesByMonthlyWeight } = require("./profiles_loader");
 
 void describe("Pricing base table", () => {
@@ -287,6 +287,28 @@ void describe("Pricing base table", () => {
       "2026-01-01"
     );
     assert.deepEqual(selected, { value: 3, version: "C2" });
+  });
+
+  void it("selecciona la liquidacion mas avanzada disponible en toda la secuencia A/C", () => {
+    assert.deepEqual(LIQUIDATION_MATURITY_ORDER, ["A1", "C1", "A2", "C2", "A3", "C3", "A4", "C4", "A5", "C5"]);
+    const cases = [
+      [["A1"], "A1"],
+      [["A1", "C1"], "C1"],
+      [["A1", "C1", "A2"], "A2"],
+      [["A1", "C1", "A2", "C2"], "C2"],
+      [["C2", "A3"], "A3"],
+      [["A3", "C3"], "C3"],
+      [["C4", "A5"], "A5"],
+      [["A5", "C5"], "C5"],
+      [["A1", "C1", "A2", "C2", "A3", "C3", "A4", "C4", "A5", "C5"], "C5"],
+      [["A4"], "A4"],
+      [["C3", "C5"], "C5"]
+    ];
+    for (const [versions, expected] of cases) {
+      const selected = selectLatestAvailableVersion(versions.map((version) => ({ version, value: version })));
+      assert.equal(selected.version, expected);
+      assert.equal(selected.value, expected);
+    }
   });
 
   void it("valida la tabla final", () => {

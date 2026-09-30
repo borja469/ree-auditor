@@ -395,6 +395,8 @@ export type BillingInvoiceRow = {
   periodStart: string | null;
   periodEnd: string | null;
   tariffCode: string | null;
+  priceListId?: number | null;
+  priceListName?: string | null;
   processingStatus: BillingInvoiceStatus;
   processingMessage: string | null;
   billedEnergyKwh?: number | null;
@@ -412,6 +414,23 @@ export type BillingInvoiceRow = {
   profilePct: number;
   realCoveragePct: number;
   issueCount: number;
+  curveIssueCount?: number;
+  costIssueCount?: number;
+  marginIssueCount?: number;
+  totalIssueCount?: number;
+  pfTotalKwh?: number | null;
+  bcTotalKwh?: number | null;
+  curveSummaryText?: string | null;
+  costRunId?: string | null;
+  costStatus?: string | null;
+  totalCostEur?: number | null;
+  associatedRevenueEur?: number | null;
+  associatedCostEur?: number | null;
+  marginEur?: number | null;
+  marginEurMwh?: number | null;
+  marginStatus?: "READY" | "WARNING" | "NOT_AVAILABLE" | null;
+  marginCalculatedAt?: string | null;
+  globalStatus?: string | null;
   energyByPeriod: Record<string, number>;
 };
 
@@ -452,7 +471,7 @@ export type BillingImportBatch = {
 };
 
 export type BillingJobStatus = "QUEUED" | "RUNNING" | "SUCCESS" | "ERROR" | "CANCELLED";
-export type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING";
+export type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS";
 export type BillingJob = {
   id: string;
   type: BillingJobType;
@@ -486,6 +505,7 @@ export type BillingDeleteInvoicesResponse = {
 };
 
 export type BillingInvoiceDetail = BillingInvoiceRow & {
+  compatibleInvoicingModes: Array<{ id: number; name: string }>;
   lines: Array<{
     id: string;
     accountId: number | null;
@@ -533,6 +553,187 @@ export type BillingInvoiceCurveResponse = {
     consumptionPfKwh: number | null;
     consumptionBcKwh: number | null;
   }>;
+};
+
+export type BillingCostRun = {
+  id: string;
+  invoiceId: string;
+  status: "PENDING" | "PROCESSING" | "COMPLETED" | "WARNING" | "ERROR";
+  startedAt: string;
+  completedAt: string | null;
+  calculationVersion: string;
+  totalOmieEur: number | null;
+  totalLiquidationsEur: number | null;
+  totalRegulatedEur: number | null;
+  totalConfiguredEur?: number | null;
+  totalTollsChargesEur?: number | null;
+  totalTollsChargesPowerEur?: number | null;
+  totalDerivedEur?: number | null;
+  totalCostEur: number | null;
+  intervalsCount: number;
+  okIntervalsCount: number;
+  warningIntervalsCount: number;
+  errorIntervalsCount: number;
+  incidentsCount: number;
+  message: string | null;
+};
+
+export type BillingCostComponentCode = "OMIE_MD" | "CAD" | "PC3" | "BS3" | "RAD3" | "RETH" | "PC3_CONFIG" | "EFIH" | "TOLLS_CHARGES_ENERGY" | "TOLLS_CHARGES_POWER" | "BONO_SOCIAL" | "OTROS" | "IMU";
+export type BillingCostComponent = {
+  componentCode: BillingCostComponentCode;
+  energyBasis: "BC" | "PF" | "ECONOMIC_AMOUNT" | "CONTRACTED_POWER";
+  energyKwh: number | null;
+  energyMwh: number | null;
+  priceEurMwh: number | null;
+  baseAmountEur: number | null;
+  percentage: number | null;
+  costEur: number | null;
+  sourceTable: string | null;
+  sourceRowId: string | null;
+  sourceVersion: ReeVersion | null;
+  regulatedPriceVersionId: string | null;
+  regulatedPriceVersionName: string | null;
+  sourceValidFrom: string | null;
+  sourceValidTo: string | null;
+  sourceTariffCode: string | null;
+  sourceTariffPeriod: string | null;
+  sourceResolutionMinutes: number | null;
+  status: "OK" | "WARNING" | "ERROR";
+  incidentCode: string | null;
+};
+
+export type BillingCostsResponse = {
+  status: "NOT_CALCULATED" | "COSTS_READY" | "PENDING" | "PROCESSING" | "COMPLETED" | "WARNING" | "ERROR";
+  latestRun: BillingCostRun | null;
+  componentSummary: Array<{
+    componentCode: BillingCostComponentCode;
+    nature: "ENERGY" | "POWER";
+    calculationBasis: "BC" | "PF" | "ECONOMIC_AMOUNT" | "CONTRACTED_POWER" | null;
+    costEur: number;
+    weightedPriceEurMwh: number | null;
+    intervals: number;
+    incidents: number;
+    versions: string[];
+  }>;
+  totals: {
+    omieEur: number | null;
+    liquidationsEur: number | null;
+    regulatedEur: number | null;
+    configuredEnergyEur?: number | null;
+    tollsChargesEur?: number | null;
+    tollsChargesPowerEur?: number | null;
+    derivedEur?: number | null;
+    totalCostEur: number | null;
+  } | null;
+  powerDetails?: Array<{
+    componentCode: "TOLLS_CHARGES_POWER";
+    calculationBasis: "CONTRACTED_POWER";
+    tariffCode: string | null;
+    tariffPeriod: string | null;
+    contractedPowerKw: number | null;
+    startDate: string;
+    endDate: string;
+    billedDays: number;
+    yearDays: number | null;
+    annualPriceEurKwYear: number | null;
+    costEur: number | null;
+    sourceTable: string | null;
+    sourceRowId: string | null;
+    regulatedPriceVersionId: string | null;
+    regulatedPriceVersionName: string | null;
+    sourceValidFrom: string | null;
+    sourceValidTo: string | null;
+    status: "OK" | "WARNING" | "ERROR";
+    incidentCode: string | null;
+  }>;
+  liquidationVersions: Array<{ componentCode: BillingCostComponentCode; versions: string[] }>;
+};
+
+export type BillingCostIntervalsResponse = {
+  total: number;
+  page: number;
+  pageSize: number;
+  run?: BillingCostRun;
+  items: Array<{
+    id: string;
+    datetime: string;
+    tariffPeriod: string;
+    bcKwh: number | null;
+    pfKwh: number | null;
+    liquidationsCostEur: number | null;
+    regulatedCostEur: number | null;
+    configuredCostEur?: number | null;
+    tollsChargesCostEur?: number | null;
+    derivedCostEur?: number | null;
+    totalCostEur: number | null;
+    status: "OK" | "WARNING" | "ERROR";
+    incidentCodes: string[];
+    components: BillingCostComponent[];
+  }>;
+};
+
+export type RegulatedPriceCode = "RETH" | "EFIH" | "PC3" | "TOLLS_CHARGES" | "BONO_SOCIAL" | "OTROS" | "IMU";
+export type RegulatedPeriodPriceRow = {
+  tariffCode: string;
+  p1EurMwh: number | null;
+  p2EurMwh: number | null;
+  p3EurMwh: number | null;
+  p4EurMwh: number | null;
+  p5EurMwh: number | null;
+  p6EurMwh: number | null;
+  energyBasis?: string;
+  unit?: string;
+};
+export type RegulatedTollsChargesRow = {
+  tariffCode: string;
+  powerP1EurKwYear: number | null;
+  powerP2EurKwYear: number | null;
+  powerP3EurKwYear: number | null;
+  powerP4EurKwYear: number | null;
+  powerP5EurKwYear: number | null;
+  powerP6EurKwYear: number | null;
+  energyP1EurMwh: number | null;
+  energyP2EurMwh: number | null;
+  energyP3EurMwh: number | null;
+  energyP4EurMwh: number | null;
+  energyP5EurMwh: number | null;
+  energyP6EurMwh: number | null;
+  energyBasis?: string;
+  energyUnit?: string;
+  powerBasis?: string;
+  powerUnit?: string;
+};
+export type RegulatedPriceVersion = {
+  id: string;
+  code: RegulatedPriceCode;
+  name: string;
+  validFrom: string;
+  validTo: string | null;
+  notes: string | null;
+  status: "CURRENT" | "FUTURE" | "FINISHED";
+  createdAt: string;
+  updatedAt: string;
+  reth: { priceEurMwh: number; energyBasis: string; unit: string } | null;
+  efih: { priceEurMwh: number; energyBasis: string; unit: string } | null;
+  socialBonus: { priceEurMwh: number | null; energyBasis: string; unit: string } | null;
+  other: { priceEurMwh: number | null; energyBasis: string; unit: string } | null;
+  imu: { percentage: number | null; basis: string; unit: string } | null;
+  pc3: RegulatedPeriodPriceRow[];
+  tollsCharges: RegulatedTollsChargesRow[];
+};
+export type RegulatedPriceVersionInput = {
+  code: RegulatedPriceCode;
+  name: string;
+  validFrom: string;
+  validTo?: string | null;
+  notes?: string | null;
+  reth?: { priceEurMwh: number | null };
+  efih?: { priceEurMwh: number | null };
+  socialBonus?: { priceEurMwh: number | null };
+  other?: { priceEurMwh: number | null };
+  imu?: { percentage: number | null };
+  pc3?: RegulatedPeriodPriceRow[];
+  tollsCharges?: RegulatedTollsChargesRow[];
 };
 
 export type BillingGisceConfig = {
@@ -4455,7 +4656,15 @@ export async function getBillingInvoices(filters: {
   tariff?: string;
   status?: string;
   curveSource?: string;
+  invoicingMode?: string;
+  priceListName?: string;
   withIssues?: string;
+  marginStatus?: string;
+  marginEurMin?: string;
+  marginEurMax?: string;
+  marginEurMwhMin?: string;
+  marginEurMwhMax?: string;
+  hasAnyIssues?: string;
   sort?: string;
   direction?: string;
   skip?: number;
@@ -4466,6 +4675,10 @@ export async function getBillingInvoices(filters: {
 
 export async function getBillingInvoiceDetail(id: string): Promise<BillingInvoiceDetail> {
   return getJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}`);
+}
+
+export async function getBillingInvoicingModes(): Promise<Array<{ id: number; name: string }>> {
+  return getJson(`/billing-dashboard/invoicing-modes`);
 }
 
 export async function getBillingInvoiceCurve(id: string, filters: { source?: string; period?: string; skip?: number; take?: number } = {}): Promise<BillingInvoiceCurveResponse> {
@@ -4504,12 +4717,88 @@ export async function startBillingProcessPendingJob(limit = 5): Promise<BillingJ
   return sendJson(`/billing-dashboard/jobs/process-pending`, "POST", "Lanzando procesamiento de facturas", REQUEST_TIMEOUT_MS, { limit });
 }
 
+export async function startBillingCalculateMarginsJob(dateFrom: string, dateTo: string, mode: "PENDING_ONLY" | "RECALCULATE"): Promise<BillingJob> {
+  return sendJson(`/billing-dashboard/jobs/calculate-margins`, "POST", "Lanzando calculo de costes y margenes", REQUEST_TIMEOUT_MS, { dateFrom, dateTo, mode });
+}
+
 export async function deleteBillingInvoicesByInvoiceDate(dateFrom: string, dateTo: string): Promise<BillingDeleteInvoicesResponse> {
   return sendJson(`/billing-dashboard/invoices/delete-range`, "POST", "Eliminando facturas", REQUEST_TIMEOUT_MS * 4, { dateFrom, dateTo });
 }
 
 export async function processBillingInvoice(id: string): Promise<BillingInvoiceRow> {
   return sendJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}/process`, "POST", "Preparando curva de factura", REQUEST_TIMEOUT_MS * 10);
+}
+
+export async function calculateBillingInvoiceCosts(id: string): Promise<BillingCostsResponse> {
+  return sendJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}/calculate-costs`, "POST", "Calculando costes energeticos", REQUEST_TIMEOUT_MS * 10);
+}
+
+export async function calculateBillingInvoiceMargin(id: string, mode: "PENDING_ONLY" | "RECALCULATE" = "RECALCULATE"): Promise<unknown> {
+  return sendJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}/calculate-margin`, "POST", "Calculando margen", REQUEST_TIMEOUT_MS * 4, { mode });
+}
+
+export async function calculateBillingInvoiceCostsAndMargin(id: string, mode: "PENDING_ONLY" | "RECALCULATE" = "RECALCULATE"): Promise<{ costs: BillingCostsResponse; margin: unknown }> {
+  return sendJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}/calculate-costs-and-margin`, "POST", "Calculando costes y margen", REQUEST_TIMEOUT_MS * 12, { mode });
+}
+
+export async function getBillingInvoiceCosts(id: string, filters: { runId?: string } = {}): Promise<BillingCostsResponse> {
+  return getJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}/costs${toQuery(filters)}`);
+}
+
+export async function getBillingInvoiceCostIntervals(id: string, filters: { runId?: string; dateFrom?: string; dateTo?: string; component?: string; status?: string; version?: string; incident?: string; skip?: number; take?: number } = {}): Promise<BillingCostIntervalsResponse> {
+  return getJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}/costs/intervals${toQuery(filters)}`);
+}
+
+export async function getBillingInvoiceCostRuns(id: string): Promise<BillingCostRun[]> {
+  return getJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}/costs/runs`);
+}
+
+export async function downloadBillingInvoiceCostRunAudit(id: string, runId: string): Promise<{ blob: Blob; fileName: string }> {
+  return withGlobalLoading(async () => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS * 6);
+    try {
+      const response = await fetch(`${API_URL}/billing-dashboard/invoices/${encodeURIComponent(id)}/costs/runs/${encodeURIComponent(runId)}/export`, {
+        signal: controller.signal,
+        headers: authHeaders()
+      });
+      if (!response.ok) {
+        handleUnauthorized(response);
+        throw new Error(await readError(response, "Error exportando auditoria de factura."));
+      }
+      return {
+        blob: await response.blob(),
+        fileName: filenameFromDisposition(response.headers.get("Content-Disposition")) ?? "Factura_Auditoria.xlsx"
+      };
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        throw new Error("Tiempo de espera agotado exportando auditoria de factura.");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeout);
+    }
+  }, { label: "Generando Excel" });
+}
+
+export async function getBillingRegulatedPriceVersions(filters: { code?: string } = {}): Promise<RegulatedPriceVersion[]> {
+  return getJson(`/billing-dashboard/regulated-prices/versions${toQuery(filters)}`);
+}
+
+export async function getBillingRegulatedPriceVersion(id: string): Promise<RegulatedPriceVersion> {
+  return getJson(`/billing-dashboard/regulated-prices/versions/${encodeURIComponent(id)}`);
+}
+
+export async function createBillingRegulatedPriceVersion(input: RegulatedPriceVersionInput): Promise<RegulatedPriceVersion> {
+  return sendJson("/billing-dashboard/regulated-prices/versions", "POST", "Guardando version de precios", REQUEST_TIMEOUT_MS, input);
+}
+
+export async function updateBillingRegulatedPriceVersion(id: string, input: RegulatedPriceVersionInput): Promise<RegulatedPriceVersion> {
+  return sendJson(`/billing-dashboard/regulated-prices/versions/${encodeURIComponent(id)}`, "PUT", "Actualizando version de precios", REQUEST_TIMEOUT_MS, input);
+}
+
+export async function deleteBillingRegulatedPriceVersion(id: string): Promise<{ deleted: boolean }> {
+  return sendJson(`/billing-dashboard/regulated-prices/versions/${encodeURIComponent(id)}`, "DELETE", "Eliminando version de precios");
 }
 
 export async function processPendingBillingInvoices(limit = 50): Promise<{ processed: number; remainingImported: number; results: BillingInvoiceRow[] }> {

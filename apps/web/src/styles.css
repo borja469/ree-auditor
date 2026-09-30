@@ -7977,10 +7977,20 @@ select:disabled {
   border-radius: 8px;
 }
 
-.billing-process-button {
+.billing-detail-actions {
+  display: inline-flex;
+  align-items: center;
   align-self: center;
   justify-self: end;
+  gap: 4px;
   white-space: nowrap;
+}
+
+.billing-detail-actions .icon-button {
+  width: 32px;
+  height: 32px;
+  margin: 0;
+  padding: 0;
 }
 
 .billing-detail-section {
@@ -8004,6 +8014,11 @@ select:disabled {
   margin: 0;
   color: #17313f;
   font-size: 0.9rem;
+}
+
+.billing-section-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .billing-field-grid {
@@ -8050,6 +8065,76 @@ select:disabled {
   gap: 12px;
 }
 
+.billing-cost-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.billing-cost-summary .billing-detail-metric {
+  flex: 1 1 128px;
+  min-height: 54px;
+  padding: 9px 10px;
+  background: #f8fbfc;
+  border: 1px solid #dce6ec;
+  border-radius: 7px;
+}
+
+.billing-cost-summary .billing-detail-metric:nth-child(2) {
+  flex: 2.2 1 360px;
+}
+
+.billing-curve-compact {
+  display: grid;
+  gap: 14px;
+}
+
+.billing-curve-origin {
+  display: grid;
+  gap: 8px;
+}
+
+.billing-curve-origin h4 {
+  margin: 0;
+  color: #31505d;
+  font-size: 0.75rem;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.billing-curve-origin-list {
+  display: grid;
+  gap: 6px;
+}
+
+.billing-curve-origin-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 8px 10px;
+  border: 1px solid #dce6ec;
+  border-radius: 6px;
+  background: #f8fbfc;
+}
+
+.billing-curve-origin-row span {
+  color: #17313f;
+  font-weight: 800;
+}
+
+.billing-curve-origin-row strong {
+  color: #17313f;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.billing-curve-origin.warning .billing-curve-origin-row {
+  border-color: #f1d08a;
+  background: #fff9ec;
+}
+
 .billing-unprocessed-curve p {
   grid-column: 1 / -1;
   margin: 2px 0 0;
@@ -8073,8 +8158,37 @@ select:disabled {
   min-width: 680px;
 }
 
+.billing-lines-summary-table {
+  width: 100%;
+  min-width: 760px;
+  table-layout: fixed;
+}
+
+.billing-margin-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.billing-margin-summary .billing-detail-metric {
+  flex: 1 1 180px;
+  min-height: 54px;
+  padding: 9px 10px;
+  background: #f8fbfc;
+  border: 1px solid #dce6ec;
+  border-radius: 7px;
+}
+
+.billing-margin-summary .ops-status-badge {
+  align-self: center;
+}
+
 .billing-lines-table th,
 .billing-lines-table td,
+.billing-lines-summary-table th,
+.billing-lines-summary-table td,
 .billing-curve-table th,
 .billing-curve-table td,
 .billing-compact-table th,
@@ -8084,6 +8198,7 @@ select:disabled {
 }
 
 .billing-lines-table th,
+.billing-lines-summary-table th,
 .billing-curve-table th,
 .billing-compact-table th {
   background: #eef5f8;
@@ -8094,9 +8209,78 @@ select:disabled {
 }
 
 .billing-lines-table tbody tr:hover,
+.billing-lines-summary-table tbody tr:hover,
 .billing-curve-table tbody tr:hover,
 .billing-compact-table tbody tr:hover {
   background: #f6fafc;
+}
+
+.billing-lines-summary-table th:first-child,
+.billing-lines-summary-table td:first-child {
+  width: auto;
+  white-space: normal;
+}
+
+.billing-lines-summary-table th.number,
+.billing-lines-summary-table td.number {
+  width: 180px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.billing-lines-summary-table .billing-lines-total-row th {
+  border-top: 2px solid #c8d7df;
+  font-weight: 950;
+}
+
+.billing-cost-total-row th {
+  border-top: 2px solid #c8d7df;
+  background: #f6fafc;
+  color: #102f3d;
+  font-weight: 950;
+}
+
+.billing-cost-total-row th.number {
+  color: #0f3445;
+}
+
+.billing-cost-nature-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 3px 8px;
+  color: #31505d;
+  background: #f3f7f9;
+  border: 1px solid #d8e2e8;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.billing-invoices-table .positive-value {
+  color: #166534;
+  font-weight: 800;
+}
+
+.billing-invoices-table .negative-value {
+  color: #b91c1c;
+  font-weight: 800;
+}
+
+.billing-cost-power-detail {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.billing-cost-power-detail h4 {
+  margin: 0;
+  color: #31505d;
+  font-size: 0.78rem;
+  font-weight: 950;
+  text-transform: uppercase;
 }
 
 .billing-lines-table th:nth-child(1),
@@ -8152,8 +8336,8 @@ select:disabled {
     grid-template-columns: 1fr;
   }
 
-  .billing-process-button {
-    justify-self: stretch;
+  .billing-detail-actions {
+    justify-self: start;
   }
 }
 
@@ -10240,6 +10424,70 @@ select:disabled {
   font-weight: 850;
 }
 
+.billing-module-tabs,
+.billing-config-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.billing-module-tabs {
+  margin: 0 0 14px;
+  padding: 6px;
+  background: #f7fafc;
+  border: 1px solid #d8e2e8;
+  border-radius: 9px;
+}
+
+.billing-module-tabs button,
+.billing-config-tabs button {
+  min-height: 34px;
+  padding: 0 13px;
+  color: #31505d;
+  background: #ffffff;
+  border: 1px solid #d8e2e8;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.billing-module-tabs button.active,
+.billing-config-tabs button.active {
+  color: #ffffff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.billing-config-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #d8e2e8;
+  border-radius: 9px;
+}
+
+.billing-config-head > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.billing-config-head span {
+  color: #607482;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.billing-config-head h3 {
+  margin: 0;
+  color: #17313f;
+  font-size: 1rem;
+}
+
 .billing-jobs-table td.number,
 .billing-jobs-table th.number,
 .billing-invoices-table td.number,
@@ -10256,6 +10504,344 @@ select:disabled {
   margin-right: 4px;
 }
 
+.billing-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.billing-row-actions .icon-button {
+  margin-right: 0;
+}
+
+.regulated-prices-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.regulated-prices-head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.regulated-prices-head h3 {
+  margin: 0;
+  color: #17313f;
+  font-size: 1.08rem;
+}
+
+.regulated-prices-head span,
+.regulated-price-modal-head span {
+  color: #607482;
+  font-size: 0.78rem;
+  font-weight: 780;
+}
+
+.regulated-prices-head .primary-button,
+.regulated-modal-actions .primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.regulated-price-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid #dce6ec;
+}
+
+.regulated-price-tabs button {
+  min-height: 34px;
+  padding: 0 12px;
+  color: #31505d;
+  background: #f7fafc;
+  border: 1px solid #d8e2e8;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.regulated-price-tabs button.active {
+  color: #ffffff;
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.regulated-versions-title {
+  align-items: flex-end;
+}
+
+.regulated-versions-title h3 {
+  font-size: 0.94rem;
+}
+
+.regulated-versions-title span {
+  color: #607482;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.regulated-versions-table {
+  width: 100%;
+  min-width: 920px;
+}
+
+.regulated-versions-table th:first-child,
+.regulated-versions-table td:first-child {
+  min-width: 220px;
+}
+
+.regulated-versions-table td:nth-child(5) {
+  min-width: 250px;
+  color: #31505d;
+  font-weight: 800;
+}
+
+.regulated-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.regulated-actions .secondary-button {
+  min-height: 30px;
+  padding: 0 9px;
+  font-size: 0.74rem;
+}
+
+.regulated-actions .danger-button {
+  color: #991b1b;
+  background: #fff7f6;
+  border-color: #f0c9c5;
+}
+
+.regulated-price-modal {
+  width: min(1180px, calc(100vw - 32px));
+  max-height: min(92vh, 940px);
+  color: #17313f;
+  background: #f7fafc;
+  border-color: #d8e2e8;
+}
+
+.regulated-price-modal-head {
+  background: #ffffff;
+  border-bottom-color: #d8e2e8;
+}
+
+.regulated-price-modal-head > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.regulated-price-modal-head strong {
+  color: #17313f;
+  font-size: 1rem;
+}
+
+.regulated-price-modal-head button {
+  color: #17313f;
+  background: #f7fafc;
+  border-color: #d8e2e8;
+}
+
+.regulated-price-modal-body {
+  max-height: calc(min(92vh, 940px) - 62px);
+  padding: 14px;
+}
+
+.regulated-form-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 1.3fr) repeat(2, minmax(160px, 0.7fr)) minmax(150px, 0.6fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.regulated-form-grid label,
+.regulated-single-price label {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+  color: #607482;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.regulated-form-grid input,
+.regulated-form-grid textarea,
+.regulated-single-price input,
+.regulated-price-modal .billing-lines-scroll input {
+  min-width: 0;
+  min-height: 36px;
+  color: #17313f;
+  background: #ffffff;
+  border: 1px solid #d8e2e8;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 780;
+}
+
+.regulated-form-grid input,
+.regulated-single-price input,
+.regulated-price-modal .billing-lines-scroll input {
+  padding: 0 9px;
+}
+
+.regulated-form-grid textarea {
+  min-height: 74px;
+  padding: 9px;
+  resize: vertical;
+}
+
+.regulated-check-field {
+  display: inline-flex !important;
+  min-height: 36px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px !important;
+  padding: 0 9px;
+  color: #31505d !important;
+  background: #f8fbfc;
+  border: 1px solid #d8e2e8;
+  border-radius: 7px;
+}
+
+.regulated-check-field input {
+  width: 15px;
+  height: 15px;
+  min-height: 0;
+  padding: 0;
+  accent-color: var(--color-primary);
+}
+
+.regulated-notes-field {
+  grid-column: 1 / -1;
+}
+
+.disabled-field {
+  opacity: .62;
+}
+
+.regulated-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 8px;
+  min-width: min(100%, 360px);
+}
+
+.regulated-single-price {
+  width: min(280px, 100%);
+}
+
+.regulated-section-subhead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.regulated-section-subhead h4 {
+  margin: 0;
+  color: #17313f;
+  font-size: 0.86rem;
+}
+
+.regulated-section-subhead > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 8px;
+  color: #31505d;
+  background: #f8fbfc;
+  border: 1px solid #d8e2e8;
+  border-radius: 7px;
+  font-size: 0.74rem;
+  font-weight: 850;
+}
+
+.regulated-price-block {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  background: #f8fbfc;
+  border: 1px solid #dce6ec;
+  border-radius: 8px;
+}
+
+.regulated-price-block + .regulated-price-block {
+  margin-top: 2px;
+}
+
+.regulated-price-modal .billing-lines-scroll {
+  max-width: 100%;
+  overflow: auto;
+  background: #ffffff;
+}
+
+.regulated-price-modal .billing-compact-table {
+  min-width: 820px;
+}
+
+.regulated-price-modal .billing-compact-table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.regulated-price-modal .billing-compact-table th:first-child,
+.regulated-price-modal .billing-compact-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+  min-width: 118px;
+  background: #ffffff;
+  font-weight: 900;
+}
+
+.regulated-price-modal .billing-compact-table th:first-child {
+  background: #eef5f8;
+}
+
+.regulated-price-modal .billing-compact-table input {
+  width: 118px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.regulated-price-modal .billing-compact-table input.empty-price-input {
+  color: #607482;
+  background: #f8fbfc;
+  border-style: dashed;
+}
+
+.regulated-modal-actions {
+  position: sticky;
+  bottom: -14px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 0 0;
+  background: linear-gradient(180deg, rgba(247, 250, 252, 0), #f7fafc 26%);
+}
+
+.regulated-modal-actions button {
+  min-height: 38px;
+}
+
 @media (max-width: 1280px) {
   .billing-filters-grid {
     grid-template-columns: minmax(190px, 1.6fr) repeat(3, minmax(120px, 1fr)) minmax(150px, 1.1fr);
@@ -10267,6 +10853,26 @@ select:disabled {
 }
 
 @media (max-width: 780px) {
+  .regulated-prices-head {
+    align-items: stretch;
+  }
+
+  .regulated-prices-head .primary-button {
+    width: 100%;
+  }
+
+  .regulated-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .regulated-modal-actions {
+    position: static;
+  }
+
+  .regulated-modal-actions button {
+    flex: 1;
+  }
+
   .billing-filters-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-areas:

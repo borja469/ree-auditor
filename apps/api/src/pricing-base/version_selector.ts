@@ -1,7 +1,24 @@
 import type { PricingSettlementVersion } from "./pricing-base.types";
 import { SETTLEMENT_CODES, isSettlementCode } from "../common/settlements";
 
-export const PRICING_VERSION_PRIORITY: PricingSettlementVersion[] = [...SETTLEMENT_CODES].reverse() as PricingSettlementVersion[];
+export const LIQUIDATION_MATURITY_ORDER: PricingSettlementVersion[] = [
+  "A1",
+  "C1",
+  "A2",
+  "C2",
+  "A3",
+  "C3",
+  "A4",
+  "C4",
+  "A5",
+  "C5"
+];
+
+export const PRICING_VERSION_PRIORITY: PricingSettlementVersion[] = [...LIQUIDATION_MATURITY_ORDER].reverse();
+
+if (LIQUIDATION_MATURITY_ORDER.join("|") !== SETTLEMENT_CODES.join("|")) {
+  throw new Error("El orden comun de liquidaciones no coincide con SETTLEMENT_CODES.");
+}
 
 export type VersionedValue<TValue> = {
   fecha: string;
