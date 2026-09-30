@@ -8,6 +8,7 @@ import {
   CmInvoiceIntervalCostStatus,
   OmieTipoPrecio,
   Prisma,
+  RegulatedPriceCode,
   ReeSettlementVersion
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -163,6 +164,9 @@ type PowerCostComponentResult = {
   incidentCode: string | null;
 };
 
+type RegulatedVersionRow = Prisma.RegulatedPriceVersionGetPayload<{ include: ReturnType<typeof regulatedPriceContextInclude> }>;
+type RegulatedPriceContext = { byCode: Map<RegulatedPriceCode, RegulatedVersionRow[]> };
+
 @Injectable()
 export class BillingDashboardCostsService {
   constructor(
@@ -171,7 +175,23 @@ export class BillingDashboardCostsService {
   ) {}
 
   async calculateCosts(invoiceId: string) {
-    const invoice = await this.prisma.cmInvoice.findUnique({
+    if (!billingJobProfilingEnabled()) return this.calculateCostsInternal(invoiceId);
+    const phases: Record<string, number> = {};
+    const started = Date.now();
+    const { result, profile } = await this.prisma.profileQueries(() => this.calculateCostsInternal(invoiceId, phases));
+    const totalMs = Date.now() - started;
+    console.log(JSON.stringify({
+      scope: "billing-costs",
+      invoiceId,
+      totalMs,
+      phases,
+      sql: profile
+    }));
+    return result;
+  }
+
+  private async calculateCostsInternal(invoiceId: string, phases?: Record<string, number>) {
+    const invoice = await timePhase(phases, "loadInvoiceMs", () => this.prisma.cmInvoice.findUnique({
       where: { id: invoiceId },
       select: {
         id: true,
@@ -199,22 +219,26 @@ export class BillingDashboardCostsService {
           }
         }
       }
-    });
+    }));
     if (!invoice) throw new NotFoundException("Factura no encontrada.");
     if (invoice.curve.length === 0) throw new BadRequestException("La factura no tiene curva normalizada de Fase 1.");
 
-    const run = await this.prisma.cmInvoiceCostRun.create({
-      data: {
-        invoiceId,
-        status: CmInvoiceCostRunStatus.PROCESSING,
-        calculationVersion: CALCULATION_VERSION
-      }
-    });
+    const run = await timePhase(phases, "createRunMs", () =>
+      this.prisma.cmInvoiceCostRun.create({
+        data: {
+          invoiceId,
+          status: CmInvoiceCostRunStatus.PROCESSING,
+          calculationVersion: CALCULATION_VERSION
+        }
+      })
+    );
 
     try {
-      const result = await this.buildCostRun(invoice.curve, invoice.tariffCode, invoice.periodStart, invoice.periodEnd, invoice.lines);
-      await this.persistCostRun(run.id, invoiceId, result);
-      return this.getCosts(invoiceId, run.id);
+      const result = await timePhase(phases, "buildCostRunMs", () => this.buildCostRun(invoice.curve, invoice.tariffCode, invoice.periodStart, invoice.periodEnd, invoice.lines));
+      await timePhase(phases, "persistCostRunMs", () => this.persistCostRun(run.id, invoiceId, result));
+      const updatedRun = await timePhase(phases, "loadPersistedRunMs", () => this.prisma.cmInvoiceCostRun.findUnique({ where: { id: run.id } }));
+      if (!updatedRun) return timePhase(phases, "getCostsMs", () => this.getCosts(invoiceId, run.id));
+      return costsResponseFromCalculatedResult(updatedRun, result);
     } catch (error) {
       await this.prisma.cmInvoiceCostRun.update({
         where: { id: run.id },
@@ -441,10 +465,11 @@ export class BillingDashboardCostsService {
     const timeKeys = buildMadridQuarterKeys(curve.map((row) => row.datetime));
     const dateRange = buildDateRange([...timeKeys.values()].map((item) => item.fecha));
     const tariffCode = normalizeTariffCode(invoiceTariffCode);
-    const [omie, hourly, qh] = await Promise.all([
+    const [omie, hourly, qh, regulatedContext] = await Promise.all([
       this.loadOmie(dateRange.start, dateRange.end),
       this.loadHourlyLiquidations(dateRange.start, dateRange.end),
-      this.loadQhLiquidations(dateRange.start, dateRange.end)
+      this.loadQhLiquidations(dateRange.start, dateRange.end),
+      this.loadRegulatedPriceContext(dateRange.start, dateRange.end)
     ]);
 
     const intervalCosts = [];
@@ -459,9 +484,11 @@ export class BillingDashboardCostsService {
         calculateCostComponent("CAD", "BC", bcKwh, hourly.CAD.get(key.hourlyKey) ?? null),
         calculateCostComponent("BS3", "BC", bcKwh, qh.BS3.get(key.quarterKey) ?? null),
         calculateCostComponent("RAD3", "BC", bcKwh, qh.RAD3.get(key.quarterKey) ?? null),
-        ...(await this.buildRegulatedComponents(key, interval.tariffPeriod, tariffCode, bcKwh, pfKwh))
+        ...(regulatedContext
+          ? this.buildRegulatedComponents(key, interval.tariffPeriod, tariffCode, bcKwh, pfKwh, regulatedContext)
+          : await this.buildRegulatedComponentsLegacy(key, interval.tariffPeriod, tariffCode, bcKwh, pfKwh))
       ];
-      results.push(await this.buildImuComponent(key, results));
+      results.push(regulatedContext ? this.buildImuComponent(key, results, regulatedContext) : await this.buildImuComponentLegacy(key, results));
       const incidentCodes = results.map((item) => item.incidentCode).filter((item): item is string => Boolean(item));
       const omieCost = results.find((item) => item.componentCode === "OMIE_MD")?.costEur ?? 0;
       const liquidationsCost = results.filter((item) => LIQUIDATION_COMPONENTS.includes(item.componentCode as LiquidationComponent)).reduce((sum, item) => sum + (item.costEur ?? 0), 0);
@@ -491,7 +518,9 @@ export class BillingDashboardCostsService {
       });
       allComponents.push(...results);
     }
-    const powerCosts = await this.buildPowerCostComponents(invoiceTariffCode, periodStart, periodEnd, lines);
+    const powerCosts = regulatedContext
+      ? this.buildPowerCostComponents(invoiceTariffCode, periodStart, periodEnd, lines, regulatedContext)
+      : await this.buildPowerCostComponentsLegacy(invoiceTariffCode, periodStart, periodEnd, lines);
     const totalOmie = sumComponents(allComponents, "OMIE_MD");
     const totalLiquidations = LIQUIDATION_COMPONENTS.reduce((sum, component) => sum + sumComponents(allComponents, component), 0);
     const totalConfigured = CONFIGURED_COMPONENTS.reduce((sum, component) => sum + sumComponents(allComponents, component), 0);
@@ -525,7 +554,7 @@ export class BillingDashboardCostsService {
     };
   }
 
-  private async buildPowerCostComponents(invoiceTariffCode?: string | null, periodStart?: Date | null, periodEnd?: Date | null, lines: InvoiceLineForCosts[] = []): Promise<PowerCostComponentResult[]> {
+  private buildPowerCostComponents(invoiceTariffCode?: string | null, periodStart?: Date | null, periodEnd?: Date | null, lines: InvoiceLineForCosts[] = [], regulatedContext?: RegulatedPriceContext): PowerCostComponentResult[] {
     const tariffCode = normalizeTariffCode(invoiceTariffCode);
     const start = dateOnly(periodStart);
     const end = dateOnly(periodEnd);
@@ -541,16 +570,36 @@ export class BillingDashboardCostsService {
         results.push(powerUnresolved("INVALID_CONTRACTED_POWER", tariffCode, tariffPeriod, contractedPowerKw, start, end));
         continue;
       }
-      results.push(...await this.buildPowerCostPeriodSegments(tariffCode, tariffPeriod, contractedPowerKw, start, end));
+      results.push(...this.buildPowerCostPeriodSegments(tariffCode, tariffPeriod, contractedPowerKw, start, end, regulatedContext));
     }
     return results;
   }
 
-  private async buildPowerCostPeriodSegments(tariffCode: string, tariffPeriod: string, contractedPowerKw: number, start: string, end: string) {
+  private async buildPowerCostComponentsLegacy(invoiceTariffCode?: string | null, periodStart?: Date | null, periodEnd?: Date | null, lines: InvoiceLineForCosts[] = []): Promise<PowerCostComponentResult[]> {
+    const tariffCode = normalizeTariffCode(invoiceTariffCode);
+    const start = dateOnly(periodStart);
+    const end = dateOnly(periodEnd);
+    if (!start || !end) return [];
+    if (!tariffCode) return [powerUnresolved("TARIFF_CODE_NOT_RESOLVED", null, null, null, start, end)];
+    const powers = normalizeContractedPowerByPeriod(lines);
+    if (powers.error) return [powerUnresolved(powers.error, tariffCode, null, null, start, end)];
+    if (powers.values.size === 0) return [powerUnresolved("CONTRACTED_POWER_NOT_FOUND", tariffCode, null, null, start, end)];
+    const results: PowerCostComponentResult[] = [];
+    for (const [tariffPeriod, contractedPowerKw] of [...powers.values.entries()].sort()) {
+      if (contractedPowerKw === null || !Number.isFinite(contractedPowerKw)) {
+        results.push(powerUnresolved("INVALID_CONTRACTED_POWER", tariffCode, tariffPeriod, contractedPowerKw, start, end));
+        continue;
+      }
+      results.push(...await this.buildPowerCostPeriodSegmentsLegacy(tariffCode, tariffPeriod, contractedPowerKw, start, end));
+    }
+    return results;
+  }
+
+  private buildPowerCostPeriodSegments(tariffCode: string, tariffPeriod: string, contractedPowerKw: number, start: string, end: string, regulatedContext?: RegulatedPriceContext) {
     const rows: PowerCostComponentResult[] = [];
     let current: PowerCostComponentResult | null = null;
     for (const date of enumerateDatesInclusive(start, end)) {
-      const source = await this.resolveTollsChargesPowerSource(date, tariffCode, tariffPeriod);
+      const source = this.resolveTollsChargesPowerSource(date, tariffCode, tariffPeriod, regulatedContext);
       const yearDays = daysInYear(date);
       const status: ComponentStatus = source.sourceErrorCode || source.annualPriceEurKwYear === null ? "WARNING" : "OK";
       const incidentCode = source.sourceErrorCode ?? (source.annualPriceEurKwYear === null ? "TOLLS_CHARGES_POWER_PRICE_NOT_CONFIGURED" : null);
@@ -598,7 +647,102 @@ export class BillingDashboardCostsService {
     return rows;
   }
 
-  private async resolveTollsChargesPowerSource(date: string, tariffCode: string, tariffPeriod: string): Promise<PowerPriceSource> {
+  private async buildPowerCostPeriodSegmentsLegacy(tariffCode: string, tariffPeriod: string, contractedPowerKw: number, start: string, end: string) {
+    const rows: PowerCostComponentResult[] = [];
+    let current: PowerCostComponentResult | null = null;
+    for (const date of enumerateDatesInclusive(start, end)) {
+      const source = await this.resolveTollsChargesPowerSourceLegacy(date, tariffCode, tariffPeriod);
+      const yearDays = daysInYear(date);
+      const status: ComponentStatus = source.sourceErrorCode || source.annualPriceEurKwYear === null ? "WARNING" : "OK";
+      const incidentCode = source.sourceErrorCode ?? (source.annualPriceEurKwYear === null ? "TOLLS_CHARGES_POWER_PRICE_NOT_CONFIGURED" : null);
+      const dailyCost = status === "OK" ? contractedPowerKw * (source.annualPriceEurKwYear ?? 0) / yearDays : null;
+      const canMerge = current
+        && current.status === status
+        && current.incidentCode === incidentCode
+        && current.yearDays === yearDays
+        && current.annualPriceEurKwYear === source.annualPriceEurKwYear
+        && current.regulatedPriceVersionId === source.regulatedPriceVersionId
+        && current.sourceRowId === source.sourceRowId;
+      if (canMerge && current) {
+        current.endDate = date;
+        current.billedDays += 1;
+        current.costEur = current.costEur === null || dailyCost === null ? null : current.costEur + dailyCost;
+      } else {
+        current = {
+          componentCode: "TOLLS_CHARGES_POWER",
+          calculationBasis: "CONTRACTED_POWER",
+          tariffCode,
+          tariffPeriod,
+          contractedPowerKw,
+          startDate: date,
+          endDate: date,
+          billedDays: 1,
+          yearDays,
+          annualPriceEurKwYear: source.annualPriceEurKwYear,
+          costEur: dailyCost,
+          sourceTable: source.sourceTable,
+          sourceRowId: source.sourceRowId,
+          regulatedPriceVersionId: source.regulatedPriceVersionId,
+          regulatedPriceVersionName: source.regulatedPriceVersionName,
+          sourceValidFrom: source.sourceValidFrom,
+          sourceValidTo: source.sourceValidTo,
+          status,
+          incidentCode
+        };
+        rows.push(current);
+      }
+    }
+    return rows;
+  }
+
+  private resolveTollsChargesPowerSource(date: string, tariffCode: string, tariffPeriod: string, regulatedContext?: RegulatedPriceContext): PowerPriceSource {
+    if (!regulatedContext && !this.regulatedPrices) {
+      return {
+        annualPriceEurKwYear: null,
+        sourceTable: "regulated_tolls_charges_prices",
+        sourceRowId: null,
+        regulatedPriceVersionId: null,
+        regulatedPriceVersionName: null,
+        sourceValidFrom: null,
+        sourceValidTo: null,
+        sourceTariffCode: tariffCode,
+        sourceTariffPeriod: tariffPeriod,
+        sourceErrorCode: "TOLLS_CHARGES_POWER_VERSION_NOT_FOUND"
+      };
+    }
+    try {
+      const row = regulatedContext
+        ? resolveTollsChargesPowerPriceFromContext(regulatedContext, date, tariffCode, tariffPeriod)
+        : null;
+      if (!row) throw new Error("TOLLS_CHARGES_POWER_VERSION_NOT_FOUND");
+      return {
+        annualPriceEurKwYear: row.priceEurKwYear,
+        sourceTable: row.sourceTable,
+        sourceRowId: row.sourceRowId,
+        regulatedPriceVersionId: row.versionId,
+        regulatedPriceVersionName: row.versionName,
+        sourceValidFrom: row.validFrom,
+        sourceValidTo: row.validTo,
+        sourceTariffCode: row.tariffCode,
+        sourceTariffPeriod: row.tariffPeriod
+      };
+    } catch (error) {
+      return {
+        annualPriceEurKwYear: null,
+        sourceTable: "regulated_tolls_charges_prices",
+        sourceRowId: null,
+        regulatedPriceVersionId: null,
+        regulatedPriceVersionName: null,
+        sourceValidFrom: null,
+        sourceValidTo: null,
+        sourceTariffCode: tariffCode,
+        sourceTariffPeriod: tariffPeriod,
+        sourceErrorCode: regulatedIncidentCode("TOLLS_CHARGES_POWER", error)
+      };
+    }
+  }
+
+  private async resolveTollsChargesPowerSourceLegacy(date: string, tariffCode: string, tariffPeriod: string): Promise<PowerPriceSource> {
     if (!this.regulatedPrices) {
       return {
         annualPriceEurKwYear: null,
@@ -627,6 +771,7 @@ export class BillingDashboardCostsService {
         sourceTariffPeriod: row.tariffPeriod
       };
     } catch (error) {
+      const code = regulatedIncidentCode("TOLLS_CHARGES_POWER", error);
       return {
         annualPriceEurKwYear: null,
         sourceTable: "regulated_tolls_charges_prices",
@@ -637,12 +782,41 @@ export class BillingDashboardCostsService {
         sourceValidTo: null,
         sourceTariffCode: tariffCode,
         sourceTariffPeriod: tariffPeriod,
-        sourceErrorCode: regulatedIncidentCode("TOLLS_CHARGES_POWER", error)
+        sourceErrorCode: code
       };
     }
   }
 
-  private async buildRegulatedComponents(key: TimeKey, tariffPeriod: string, tariffCode: string | null, bcKwh: number | null, pfKwh: number | null) {
+  private buildRegulatedComponents(key: TimeKey, tariffPeriod: string, tariffCode: string | null, bcKwh: number | null, pfKwh: number | null, regulatedContext: RegulatedPriceContext) {
+    if (!regulatedContext) {
+      return [
+        unresolved("RETH", "RETH_VERSION_NOT_FOUND", "BC", bcKwh, null),
+        unresolved("PC3_CONFIG", "PC3_VERSION_NOT_FOUND", "BC", bcKwh, null),
+        unresolved("EFIH", "EFIH_VERSION_NOT_FOUND", "PF", pfKwh, null),
+        unresolved("TOLLS_CHARGES_ENERGY", "TOLLS_CHARGES_VERSION_NOT_FOUND", "PF", pfKwh, null),
+        unresolved("BONO_SOCIAL", "BONO_SOCIAL_VERSION_NOT_FOUND", "PF", pfKwh, null),
+        unresolved("OTROS", "OTROS_VERSION_NOT_FOUND", "BC", bcKwh, null)
+      ];
+    }
+    const results: CostComponentResult[] = [];
+    results.push(calculateCostComponent("RETH", "BC", bcKwh, this.resolveRegulatedSource("RETH", () => resolveSimpleRegulatedPrice(regulatedContext, "RETH", key.fecha))));
+    results.push(calculateCostComponent("EFIH", "PF", pfKwh, this.resolveRegulatedSource("EFIH", () => resolveSimpleRegulatedPrice(regulatedContext, "EFIH", key.fecha))));
+    results.push(calculateCostComponent("BONO_SOCIAL", "PF", pfKwh, this.resolveRegulatedSource("BONO_SOCIAL", () => resolveSimpleRegulatedPrice(regulatedContext, "BONO_SOCIAL", key.fecha))));
+    results.push(calculateCostComponent("OTROS", "BC", bcKwh, this.resolveRegulatedSource("OTROS", () => resolveSimpleRegulatedPrice(regulatedContext, "OTROS", key.fecha))));
+    if (!tariffCode) {
+      results.push(unresolved("PC3_CONFIG", "TARIFF_CODE_NOT_RESOLVED", "BC", bcKwh, null));
+      results.push(unresolved("TOLLS_CHARGES_ENERGY", "TARIFF_CODE_NOT_RESOLVED", "PF", pfKwh, null));
+    } else if (!isTariffPeriod(tariffPeriod)) {
+      results.push(unresolved("PC3_CONFIG", "TARIFF_PERIOD_NOT_RESOLVED", "BC", bcKwh, null));
+      results.push(unresolved("TOLLS_CHARGES_ENERGY", "TARIFF_PERIOD_NOT_RESOLVED", "PF", pfKwh, null));
+    } else {
+      results.push(calculateCostComponent("PC3_CONFIG", "BC", bcKwh, this.resolveRegulatedSource("PC3_CONFIG", () => resolvePc3PriceFromContext(regulatedContext, key.fecha, tariffCode, tariffPeriod))));
+      results.push(calculateCostComponent("TOLLS_CHARGES_ENERGY", "PF", pfKwh, this.resolveRegulatedSource("TOLLS_CHARGES_ENERGY", () => resolveTollsChargesEnergyPriceFromContext(regulatedContext, key.fecha, tariffCode, tariffPeriod))));
+    }
+    return results;
+  }
+
+  private async buildRegulatedComponentsLegacy(key: TimeKey, tariffPeriod: string, tariffCode: string | null, bcKwh: number | null, pfKwh: number | null) {
     if (!this.regulatedPrices) {
       return [
         unresolved("RETH", "RETH_VERSION_NOT_FOUND", "BC", bcKwh, null),
@@ -654,10 +828,10 @@ export class BillingDashboardCostsService {
       ];
     }
     const results: CostComponentResult[] = [];
-    results.push(calculateCostComponent("RETH", "BC", bcKwh, await this.resolveRegulatedSource("RETH", () => this.regulatedPrices!.resolveRethPrice(key.fecha))));
-    results.push(calculateCostComponent("EFIH", "PF", pfKwh, await this.resolveRegulatedSource("EFIH", () => this.regulatedPrices!.resolveEfihPrice(key.fecha))));
-    results.push(calculateCostComponent("BONO_SOCIAL", "PF", pfKwh, await this.resolveRegulatedSource("BONO_SOCIAL", () => this.regulatedPrices!.resolveSocialBonusPrice(key.fecha))));
-    results.push(calculateCostComponent("OTROS", "BC", bcKwh, await this.resolveRegulatedSource("OTROS", () => this.regulatedPrices!.resolveOtherPrice(key.fecha))));
+    results.push(calculateCostComponent("RETH", "BC", bcKwh, await this.resolveRegulatedSourceLegacy("RETH", () => this.regulatedPrices!.resolveRethPrice(key.fecha))));
+    results.push(calculateCostComponent("EFIH", "PF", pfKwh, await this.resolveRegulatedSourceLegacy("EFIH", () => this.regulatedPrices!.resolveEfihPrice(key.fecha))));
+    results.push(calculateCostComponent("BONO_SOCIAL", "PF", pfKwh, await this.resolveRegulatedSourceLegacy("BONO_SOCIAL", () => this.regulatedPrices!.resolveSocialBonusPrice(key.fecha))));
+    results.push(calculateCostComponent("OTROS", "BC", bcKwh, await this.resolveRegulatedSourceLegacy("OTROS", () => this.regulatedPrices!.resolveOtherPrice(key.fecha))));
     if (!tariffCode) {
       results.push(unresolved("PC3_CONFIG", "TARIFF_CODE_NOT_RESOLVED", "BC", bcKwh, null));
       results.push(unresolved("TOLLS_CHARGES_ENERGY", "TARIFF_CODE_NOT_RESOLVED", "PF", pfKwh, null));
@@ -665,14 +839,14 @@ export class BillingDashboardCostsService {
       results.push(unresolved("PC3_CONFIG", "TARIFF_PERIOD_NOT_RESOLVED", "BC", bcKwh, null));
       results.push(unresolved("TOLLS_CHARGES_ENERGY", "TARIFF_PERIOD_NOT_RESOLVED", "PF", pfKwh, null));
     } else {
-      results.push(calculateCostComponent("PC3_CONFIG", "BC", bcKwh, await this.resolveRegulatedSource("PC3_CONFIG", () => this.regulatedPrices!.resolvePc3Price(key.fecha, tariffCode, tariffPeriod))));
-      results.push(calculateCostComponent("TOLLS_CHARGES_ENERGY", "PF", pfKwh, await this.resolveRegulatedSource("TOLLS_CHARGES_ENERGY", () => this.regulatedPrices!.resolveTollsChargesEnergyPrice(key.fecha, tariffCode, tariffPeriod))));
+      results.push(calculateCostComponent("PC3_CONFIG", "BC", bcKwh, await this.resolveRegulatedSourceLegacy("PC3_CONFIG", () => this.regulatedPrices!.resolvePc3Price(key.fecha, tariffCode, tariffPeriod))));
+      results.push(calculateCostComponent("TOLLS_CHARGES_ENERGY", "PF", pfKwh, await this.resolveRegulatedSourceLegacy("TOLLS_CHARGES_ENERGY", () => this.regulatedPrices!.resolveTollsChargesEnergyPrice(key.fecha, tariffCode, tariffPeriod))));
     }
     return results;
   }
 
-  private async buildImuComponent(key: TimeKey, components: CostComponentResult[]) {
-    const source = await this.resolveImuSource(key.fecha);
+  private buildImuComponent(key: TimeKey, components: CostComponentResult[], regulatedContext: RegulatedPriceContext) {
+    const source = this.resolveImuSource(key.fecha, regulatedContext);
     if (source.sourceErrorCode) {
       return unresolved("IMU", source.sourceErrorCode, "ECONOMIC_AMOUNT", null, source);
     }
@@ -714,9 +888,48 @@ export class BillingDashboardCostsService {
     } satisfies CostComponentResult;
   }
 
-  private async resolveRegulatedSource(componentCode: CostComponent, resolver: () => Promise<any>): Promise<SourcePrice | null> {
+  private async buildImuComponentLegacy(key: TimeKey, components: CostComponentResult[]) {
+    const source = await this.resolveImuSourceLegacy(key.fecha);
+    if (source.sourceErrorCode) {
+      return unresolved("IMU", source.sourceErrorCode, "ECONOMIC_AMOUNT", null, source);
+    }
+    const missingBase = IMU_BASE_COMPONENTS.filter((componentCode) => {
+      const component = components.find((item) => item.componentCode === componentCode);
+      return !component || component.status !== "OK" || component.costEur === null;
+    });
+    if (missingBase.length > 0) {
+      return unresolved("IMU", "IMU_BASE_INCOMPLETE", "ECONOMIC_AMOUNT", null, source);
+    }
+    const baseAmountEur = IMU_BASE_COMPONENTS.reduce((sum, componentCode) => sum + (components.find((item) => item.componentCode === componentCode)?.costEur ?? 0), 0);
+    const percentage = source.percentage ?? null;
+    if (percentage === null) return unresolved("IMU", "IMU_RATE_NOT_CONFIGURED", "ECONOMIC_AMOUNT", null, source);
+    return {
+      componentCode: "IMU",
+      energyBasis: "ECONOMIC_AMOUNT",
+      energyKwh: null,
+      energyMwh: null,
+      priceEurMwh: null,
+      baseAmountEur,
+      percentage,
+      costEur: baseAmountEur * (percentage / 100),
+      sourceTable: source.sourceTable,
+      sourceRowId: source.sourceRowId,
+      sourceVersion: null,
+      regulatedPriceVersionId: source.regulatedPriceVersionId ?? null,
+      regulatedPriceVersionName: source.regulatedPriceVersionName ?? null,
+      sourceValidFrom: source.sourceValidFrom ?? null,
+      sourceValidTo: source.sourceValidTo ?? null,
+      sourceTariffCode: null,
+      sourceTariffPeriod: null,
+      sourceResolutionMinutes: null,
+      status: "OK",
+      incidentCode: null
+    } satisfies CostComponentResult;
+  }
+
+  private resolveRegulatedSource(componentCode: CostComponent, resolver: () => any): SourcePrice | null {
     try {
-      const row = await resolver();
+      const row = resolver();
       return {
         priceEurMwh: row.priceEurMwh,
         sourceTable: row.sourceTable,
@@ -748,8 +961,36 @@ export class BillingDashboardCostsService {
     }
   }
 
-  private async resolveImuSource(date: string): Promise<SourcePrice> {
-    if (!this.regulatedPrices) {
+  private async resolveRegulatedSourceLegacy(componentCode: CostComponent, resolver: () => Promise<any>): Promise<SourcePrice | null> {
+    try {
+      const row = await resolver();
+      return {
+        priceEurMwh: row.priceEurMwh,
+        sourceTable: row.sourceTable,
+        sourceRowId: row.sourceRowId,
+        sourceVersion: null,
+        sourceResolutionMinutes: 15,
+        regulatedPriceVersionId: row.versionId,
+        regulatedPriceVersionName: row.versionName,
+        sourceValidFrom: row.validFrom,
+        sourceValidTo: row.validTo,
+        sourceTariffCode: row.tariffCode ?? null,
+        sourceTariffPeriod: row.tariffPeriod ?? null
+      };
+    } catch (error) {
+      return {
+        priceEurMwh: null,
+        sourceTable: nullSourceTable(componentCode),
+        sourceRowId: null,
+        sourceVersion: null,
+        sourceResolutionMinutes: 15,
+        sourceErrorCode: regulatedIncidentCode(componentCode, error)
+      };
+    }
+  }
+
+  private resolveImuSource(date: string, regulatedContext?: RegulatedPriceContext): SourcePrice {
+    if (!regulatedContext && !this.regulatedPrices) {
       return {
         priceEurMwh: null,
         percentage: null,
@@ -765,7 +1006,8 @@ export class BillingDashboardCostsService {
       };
     }
     try {
-      const row = await this.regulatedPrices.resolveImuRate(date);
+      const row = regulatedContext ? resolveImuRateFromContext(regulatedContext, date) : null;
+      if (!row) throw new Error("IMU_VERSION_NOT_FOUND");
       return {
         priceEurMwh: null,
         percentage: row.percentage,
@@ -793,6 +1035,65 @@ export class BillingDashboardCostsService {
         sourceErrorCode: regulatedIncidentCode("IMU", error)
       };
     }
+  }
+
+  private async resolveImuSourceLegacy(date: string): Promise<SourcePrice> {
+    if (!this.regulatedPrices) {
+      return {
+        priceEurMwh: null,
+        percentage: null,
+        sourceTable: "regulated_imu_rates",
+        sourceRowId: null,
+        sourceVersion: null,
+        sourceResolutionMinutes: 15,
+        sourceErrorCode: "IMU_VERSION_NOT_FOUND"
+      };
+    }
+    try {
+      const row = await this.regulatedPrices.resolveImuRate(date);
+      return {
+        priceEurMwh: null,
+        percentage: row.percentage,
+        sourceTable: row.sourceTable,
+        sourceRowId: row.sourceRowId,
+        sourceVersion: null,
+        sourceResolutionMinutes: 15,
+        regulatedPriceVersionId: row.versionId,
+        regulatedPriceVersionName: row.versionName,
+        sourceValidFrom: row.validFrom,
+        sourceValidTo: row.validTo
+      };
+    } catch (error) {
+      return {
+        priceEurMwh: null,
+        percentage: null,
+        sourceTable: "regulated_imu_rates",
+        sourceRowId: null,
+        sourceVersion: null,
+        sourceResolutionMinutes: 15,
+        sourceErrorCode: regulatedIncidentCode("IMU", error)
+      };
+    }
+  }
+
+  private async loadRegulatedPriceContext(fechaInicio: string, fechaFin: string) {
+    if (!this.prisma.regulatedPriceVersion?.findMany) return null;
+    const rows = await this.prisma.regulatedPriceVersion.findMany({
+      where: {
+        code: { in: ["RETH", "EFIH", "PC3", "TOLLS_CHARGES", "BONO_SOCIAL", "OTROS", "IMU"] },
+        validFrom: { lte: new Date(`${fechaFin}T00:00:00.000Z`) },
+        OR: [{ validTo: null }, { validTo: { gte: new Date(`${fechaInicio}T00:00:00.000Z`) } }]
+      },
+      include: regulatedPriceContextInclude(),
+      orderBy: [{ code: "asc" }, { validFrom: "asc" }]
+    });
+    const byCode = new Map<RegulatedPriceCode, RegulatedVersionRow[]>();
+    for (const row of rows as RegulatedVersionRow[]) {
+      const list = byCode.get(row.code) ?? [];
+      list.push(row);
+      byCode.set(row.code, list);
+    }
+    return { byCode };
   }
 
   private async persistCostRun(runId: string, invoiceId: string, result: Awaited<ReturnType<BillingDashboardCostsService["buildCostRun"]>>) {
@@ -1079,6 +1380,125 @@ function selectLatestSource(groups: Map<string, SourceCandidate[]>) {
   return result;
 }
 
+function regulatedPriceContextInclude() {
+  return {
+    rethPrice: true,
+    efihPrice: true,
+    pc3Prices: true,
+    tollsChargesPrices: true,
+    socialBonusPrice: true,
+    otherPrice: true,
+    imuRate: true
+  } satisfies Prisma.RegulatedPriceVersionInclude;
+}
+
+function resolveVersionFromContext(context: RegulatedPriceContext, code: RegulatedPriceCode, date: string) {
+  const target = new Date(`${date}T00:00:00.000Z`).getTime();
+  const rows = (context.byCode.get(code) ?? []).filter((row) => {
+    const from = row.validFrom.getTime();
+    const to = row.validTo ? row.validTo.getTime() : Number.POSITIVE_INFINITY;
+    return from <= target && to >= target;
+  });
+  if (rows.length === 0) throw new Error("PRICE_VERSION_NOT_FOUND");
+  if (rows.length > 1) throw new Error("PRICE_VERSION_OVERLAP");
+  return rows[0];
+}
+
+function resolveSimpleRegulatedPrice(context: RegulatedPriceContext, code: "RETH" | "EFIH" | "BONO_SOCIAL" | "OTROS", date: string) {
+  const version = resolveVersionFromContext(context, code, date);
+  const detail = code === "RETH" ? version.rethPrice : code === "EFIH" ? version.efihPrice : code === "BONO_SOCIAL" ? version.socialBonusPrice : version.otherPrice;
+  if (!detail) throw new Error(`${code}_PRICE_NOT_CONFIGURED`);
+  const priceEurMwh = decimalToNumber(detail.priceEurMwh);
+  if (priceEurMwh === null) throw new Error(`${code}_PRICE_NOT_CONFIGURED`);
+  return {
+    versionId: version.id,
+    versionName: version.name,
+    validFrom: dateOnly(version.validFrom),
+    validTo: dateOnly(version.validTo),
+    sourceTable: code === "RETH" ? "regulated_reth_prices" : code === "EFIH" ? "regulated_efih_prices" : code === "BONO_SOCIAL" ? "regulated_social_bonus_prices" : "regulated_other_prices",
+    sourceRowId: detail.id,
+    priceEurMwh,
+    tariffCode: null,
+    tariffPeriod: null
+  };
+}
+
+function resolvePc3PriceFromContext(context: RegulatedPriceContext, date: string, tariffCode: string, tariffPeriod: string) {
+  const version = resolveVersionFromContext(context, "PC3", date);
+  const row = version.pc3Prices.find((item) => normalizeTariffCode(item.tariffCode) === normalizeTariffCode(tariffCode));
+  if (!row) throw new Error("PC3_TARIFF_NOT_FOUND");
+  const period = parseTariffPeriod(tariffPeriod);
+  const value = decimalToNumber(row[`p${period.slice(1)}EurMwh` as keyof typeof row] as Prisma.Decimal | null);
+  if (value === null) throw new Error("PC3_PRICE_NOT_CONFIGURED");
+  return {
+    versionId: version.id,
+    versionName: version.name,
+    validFrom: dateOnly(version.validFrom),
+    validTo: dateOnly(version.validTo),
+    sourceTable: "regulated_pc3_prices",
+    sourceRowId: row.id,
+    tariffCode: row.tariffCode,
+    tariffPeriod: period,
+    priceEurMwh: value
+  };
+}
+
+function resolveTollsChargesEnergyPriceFromContext(context: RegulatedPriceContext, date: string, tariffCode: string, tariffPeriod: string) {
+  const version = resolveVersionFromContext(context, "TOLLS_CHARGES", date);
+  const row = version.tollsChargesPrices.find((item) => normalizeTariffCode(item.tariffCode) === normalizeTariffCode(tariffCode));
+  if (!row) throw new Error("TOLLS_CHARGES_TARIFF_NOT_FOUND");
+  const period = parseTariffPeriod(tariffPeriod);
+  const value = decimalToNumber(row[`energy${period}EurMwh` as keyof typeof row] as Prisma.Decimal | null);
+  if (value === null) throw new Error("TOLLS_CHARGES_ENERGY_PRICE_NOT_CONFIGURED");
+  return {
+    versionId: version.id,
+    versionName: version.name,
+    validFrom: dateOnly(version.validFrom),
+    validTo: dateOnly(version.validTo),
+    sourceTable: "regulated_tolls_charges_prices",
+    sourceRowId: row.id,
+    tariffCode: row.tariffCode,
+    tariffPeriod: period,
+    priceEurMwh: value
+  };
+}
+
+function resolveTollsChargesPowerPriceFromContext(context: RegulatedPriceContext, date: string, tariffCode: string, tariffPeriod: string) {
+  const version = resolveVersionFromContext(context, "TOLLS_CHARGES", date);
+  const row = version.tollsChargesPrices.find((item) => normalizeTariffCode(item.tariffCode) === normalizeTariffCode(tariffCode));
+  if (!row) throw new Error("TOLLS_CHARGES_TARIFF_NOT_FOUND");
+  const period = parseTariffPeriod(tariffPeriod);
+  const value = decimalToNumber(row[`power${period}EurKwYear` as keyof typeof row] as Prisma.Decimal | null);
+  if (value === null) throw new Error("TOLLS_CHARGES_POWER_PRICE_NOT_CONFIGURED");
+  return {
+    versionId: version.id,
+    versionName: version.name,
+    validFrom: dateOnly(version.validFrom),
+    validTo: dateOnly(version.validTo),
+    sourceTable: "regulated_tolls_charges_prices",
+    sourceRowId: row.id,
+    tariffCode: row.tariffCode,
+    tariffPeriod: period,
+    priceEurKwYear: value
+  };
+}
+
+function resolveImuRateFromContext(context: RegulatedPriceContext, date: string) {
+  const version = resolveVersionFromContext(context, "IMU", date);
+  if (!version.imuRate) throw new Error("IMU_RATE_NOT_CONFIGURED");
+  const percentage = decimalToNumber(version.imuRate.percentage);
+  if (percentage === null) throw new Error("IMU_RATE_NOT_CONFIGURED");
+  return {
+    versionId: version.id,
+    versionName: version.name,
+    validFrom: dateOnly(version.validFrom),
+    validTo: dateOnly(version.validTo),
+    sourceTable: "regulated_imu_rates",
+    sourceRowId: version.imuRate.id,
+    percentage
+  };
+}
+
 function identifyLiquidationComponent(row: { segmento: string | null; codigoPrecio: string | null; codigoApunte: string | null }): LiquidationComponent | null {
   const fields = [row.segmento, row.codigoPrecio, row.codigoApunte].map((value) => value?.toUpperCase() ?? "");
   for (const component of LIQUIDATION_COMPONENTS) {
@@ -1172,6 +1592,30 @@ function summarizeLiquidationVersions(components: CostComponentResult[]) {
     componentCode,
     versions: [...new Set(components.filter((item) => item.componentCode === componentCode).map((item) => item.sourceVersion).filter((item): item is PricingSettlementVersion => item !== null))]
   }));
+}
+
+function costsResponseFromCalculatedResult(
+  run: Parameters<typeof costRunRow>[0],
+  result: Awaited<ReturnType<BillingDashboardCostsService["buildCostRun"]>>
+) {
+  const components = result.intervalCosts.flatMap((interval) => interval.components);
+  return {
+    status: run.status === "COMPLETED" && run.incidentsCount === 0 ? "COSTS_READY" : run.status,
+    latestRun: costRunRow(run),
+    componentSummary: result.summary,
+    totals: {
+      omieEur: decimalToNumber(run.totalOmieEur),
+      liquidationsEur: decimalToNumber(run.totalLiquidationsEur),
+      regulatedEur: decimalToNumber(run.totalRegulatedEur),
+      configuredEnergyEur: decimalToNumber(run.totalConfiguredEur),
+      tollsChargesEur: decimalToNumber(run.totalTollsChargesEur),
+      tollsChargesPowerEur: decimalToNumber(run.totalTollsChargesPowerEur),
+      derivedEur: decimalToNumber(run.totalDerivedEur),
+      totalCostEur: decimalToNumber(run.totalCostEur)
+    },
+    powerDetails: result.powerCosts,
+    liquidationVersions: summarizeLiquidationVersions(components)
+  };
 }
 
 type BillingAuditWorkbookInput = {
@@ -1546,6 +1990,11 @@ function isTariffPeriod(value: unknown) {
   return typeof value === "string" && /^P[1-6]$/i.test(value.trim());
 }
 
+function parseTariffPeriod(value: string) {
+  if (!isTariffPeriod(value)) throw new Error("TARIFF_PERIOD_NOT_RESOLVED");
+  return value.trim().toUpperCase() as "P1" | "P2" | "P3" | "P4" | "P5" | "P6";
+}
+
 function nullSourceTable(componentCode: CostComponent) {
   if (componentCode === "RETH") return "regulated_reth_prices";
   if (componentCode === "EFIH") return "regulated_efih_prices";
@@ -1754,6 +2203,19 @@ function decimalOrNull(value: number | null | undefined) {
 function decimalToNumber(value: Prisma.Decimal | number | null | undefined) {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
   return value === null || value === undefined ? null : Number(value);
+}
+
+async function timePhase<T>(phases: Record<string, number> | undefined, key: string, callback: () => Promise<T>): Promise<T> {
+  const started = Date.now();
+  try {
+    return await callback();
+  } finally {
+    if (phases) phases[key] = (phases[key] ?? 0) + Date.now() - started;
+  }
+}
+
+function billingJobProfilingEnabled() {
+  return process.env.BILLING_JOB_PROFILE === "true";
 }
 
 function parseInteger(value: unknown, fallback: number, min: number, max: number) {
