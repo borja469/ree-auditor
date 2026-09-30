@@ -1,16 +1,16 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { AnnualReportRetributionType, OmieDownloadEstado, OmieTipoDocumento, OmieTipoPrecio, Prisma, ReeSettlementVersion } from "@prisma/client";
+import { isSettlementCode, latestSettlementCode, type SettlementCode } from "../common/settlements";
 import { PrismaService } from "../prisma/prisma.service";
 import { PricingHedgesService } from "../pricing-hedges/pricing-hedges.service";
 
-const VERSION_PRIORITY: AnnualReportVersion[] = ["C5", "C4", "C3", "C2"];
 const MONTHS = Array.from({ length: 12 }, (_, index) => index + 1);
 const OMIE_TRANSACCIONES_CODIGO = "4121";
 const STROM_UOFERTANTE = "STROC01";
 const STROM_AGENT = "STROM";
 const QUARTER_HOUR_MWH_FACTOR = 0.25;
 
-type AnnualReportVersion = "C2" | "C3" | "C4" | "C5";
+type AnnualReportVersion = SettlementCode;
 type AnnualMetricKind = "energy" | "currency" | "price" | "text";
 type AnnualMetricKey =
   | "programaMwh"
@@ -318,7 +318,7 @@ export class AnnualReportService {
       ) normalized
       WHERE "timestamp" >= ${start}
         AND "timestamp" < ${end}
-        AND version IN ('C3', 'C4', 'C5')
+        AND version IN ('A1', 'C1', 'A2', 'C2', 'A3', 'C3', 'A4', 'C4', 'A5', 'C5')
       GROUP BY month, version
     `;
   }
@@ -335,14 +335,14 @@ export class AnnualReportService {
         FROM reganecu_records
         WHERE fecha_liquidacion >= ${start}
           AND fecha_liquidacion < ${end}
-          AND version IN ('C2', 'C3', 'C4', 'C5')
+          AND version IN ('A1', 'C1', 'A2', 'C2', 'A3', 'C3', 'A4', 'C4', 'A5', 'C5')
           AND segmento IN ('CAD', 'PC3')
         UNION ALL
         SELECT fecha_liquidacion AS month_date, version, segmento, importe_eur
         FROM reganecu_qh_records
         WHERE fecha_liquidacion >= ${start}
           AND fecha_liquidacion < ${end}
-          AND version IN ('C2', 'C3', 'C4', 'C5')
+          AND version IN ('A1', 'C1', 'A2', 'C2', 'A3', 'C3', 'A4', 'C4', 'A5', 'C5')
           AND segmento IN ('DSV', 'BS3', 'RAD3')
       ) rows
       GROUP BY month, version, segmento
@@ -459,7 +459,7 @@ export class AnnualReportService {
       FROM ree_seie_records
       WHERE fecha_liquidacion >= ${start}
         AND fecha_liquidacion < ${end}
-        AND version IN ('C2', 'C3', 'C4', 'C5')
+        AND version IN ('A1', 'C1', 'A2', 'C2', 'A3', 'C3', 'A4', 'C4', 'A5', 'C5')
         AND segmento IN ('IEAC', 'IEAD', 'IECD', 'IEPC')
       GROUP BY month, version, segmento
     `;
@@ -474,7 +474,7 @@ function selectVersions(medperRows: MedperAnnualRow[], reganecuRows: ReganecuAnn
   for (const row of reganecuRows) {
     addAvailableVersion(available, row.month, row.version);
   }
-  return new Map(MONTHS.map((month) => [month, VERSION_PRIORITY.find((version) => available.get(month)?.has(version)) ?? null]));
+  return new Map(MONTHS.map((month) => [month, latestSettlementCode([...(available.get(month) ?? [])])]));
 }
 
 function selectSeieVersions(rows: SeieAnnualRow[]) {
@@ -482,11 +482,11 @@ function selectSeieVersions(rows: SeieAnnualRow[]) {
   for (const row of rows) {
     addAvailableVersion(available, row.month, row.version);
   }
-  return new Map(MONTHS.map((month) => [month, VERSION_PRIORITY.find((version) => available.get(month)?.has(version)) ?? null]));
+  return new Map(MONTHS.map((month) => [month, latestSettlementCode([...(available.get(month) ?? [])])]));
 }
 
 function addAvailableVersion(target: Map<number, Set<AnnualReportVersion>>, month: number, version: string) {
-  if (!isAnnualVersion(version)) {
+  if (!isSettlementCode(version)) {
     return;
   }
   const versions = target.get(month) ?? new Set<AnnualReportVersion>();
@@ -939,10 +939,6 @@ function decimalToNumber(value: Prisma.Decimal) {
 
 function decimalToNullableNumber(value: Prisma.Decimal | null | undefined) {
   return value === null || value === undefined ? null : Number(value.toString());
-}
-
-function isAnnualVersion(version: string): version is AnnualReportVersion {
-  return VERSION_PRIORITY.includes(version as AnnualReportVersion);
 }
 
 function buildYearRange(year: number) {
