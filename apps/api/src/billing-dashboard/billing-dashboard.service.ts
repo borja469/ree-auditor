@@ -1601,7 +1601,7 @@ class OperationalBalanceRowsBuilder {
       const row = this.rows.get(key);
       if (!row) continue;
       row.months.forEach((cell, index) => {
-        if (cell.invoiceCount === 0 && invoiceCounts[index] > 0) {
+        if (cell.invoiceCount < invoiceCounts[index]) {
           cell.invoiceCount = invoiceCounts[index];
           cell.missingInvoiceCount = Math.max(cell.invoiceCount - cell.calculatedInvoiceCount, 0);
         }
@@ -1728,7 +1728,15 @@ export function buildOperationalBalanceReport(input: {
   }>;
   curveTotals: Array<{ invoiceId: string; _sum: { consumptionPfKwh: Prisma.Decimal | number | string | null; consumptionBcKwh: Prisma.Decimal | number | string | null } }>;
   costRuns: Array<{ id: string; invoiceId: string; incidentsCount: number; status: CmInvoiceCostRunStatus | string }>;
-  margins: Array<{ invoiceId: string; costRunId: string; marginStatus: CmInvoiceMarginStatus | string; marginEur: Prisma.Decimal | number | string | null }>;
+  margins: Array<{
+    invoiceId: string;
+    costRunId: string;
+    marginStatus: CmInvoiceMarginStatus | string;
+    associatedRevenueEur?: Prisma.Decimal | number | string | null;
+    associatedCostEur?: Prisma.Decimal | number | string | null;
+    marginEur: Prisma.Decimal | number | string | null;
+    detailsJson?: Prisma.JsonValue | null;
+  }>;
   intervalComponentSums: Array<{ costRunId: string; componentCode: string; costEur: Prisma.Decimal | number | string | null }>;
   powerComponentSums: Array<{ costRunId: string; componentCode: string; _sum?: { costEur: Prisma.Decimal | number | string | null }; costEur?: Prisma.Decimal | number | string | null }>;
 }): OperationalBalanceResponse {
@@ -1760,25 +1768,8 @@ export function buildOperationalBalanceReport(input: {
       priceSubtotal: decimalOrNullLike(line.priceSubtotal) as Prisma.Decimal | null
     })));
     rows.add("billing", "Facturacion", "EUR", 0, month, lineSummary.rows.reduce((sum, row) => sum + row.amount, 0), coverage(1, 1, 0));
-    let energyRevenue = 0;
-    let powerRevenue = 0;
-    let hasEnergyRevenue = false;
-    let hasPowerRevenue = false;
     for (const line of lineSummary.rows) {
       rows.add(`billing:${invoiceConceptKey(line.concept)}`, line.concept, "EUR", 1, month, line.amount, coverage(1, 1, 0), "billing");
-      const mapping = marginConceptMapping(line.concept);
-      if (mapping === "ENERGY" || mapping === "ADJUSTMENT") {
-        energyRevenue += line.amount;
-        hasEnergyRevenue = true;
-      } else if (mapping === "POWER") {
-        powerRevenue += line.amount;
-        hasPowerRevenue = true;
-      }
-    }
-    if (hasEnergyRevenue || hasPowerRevenue) {
-      rows.add("used-revenue", "Ingresos utilizados", "EUR", 0, month, energyRevenue + powerRevenue, coverage(1, 1, 0));
-      if (hasEnergyRevenue) rows.add("used-revenue:energy", "Energia", "EUR", 1, month, energyRevenue, coverage(1, 1, 0), "used-revenue");
-      if (hasPowerRevenue) rows.add("used-revenue:power", "Potencia", "EUR", 1, month, powerRevenue, coverage(1, 1, 0), "used-revenue");
     }
     const billedEnergy = Object.values(summarizeInvoiceEnergy(invoice.lines.map((line) => ({
       accountName: line.accountName,
@@ -1801,51 +1792,53 @@ export function buildOperationalBalanceReport(input: {
     rows.add("calculated-bc", "Consumo calculado BC", "KWH", 0, month, bc ?? 0, coverage(1, bc === null ? 0 : 1, 0));
   }
 
+  const latestMarginByInvoiceAndRun = new Map<string, (typeof input.margins)[number]>();
+  for (const margin of input.margins) {
+    const key = `${margin.invoiceId}|${margin.costRunId}`;
+    if (!latestMarginByInvoiceAndRun.has(key)) latestMarginByInvoiceAndRun.set(key, margin);
+  }
+  const marginCostRunIds = new Set<string>();
   const costRunById = new Map(input.costRuns.map((run) => [run.id, run]));
   for (const run of input.costRuns) {
     const month = monthByInvoice.get(run.invoiceId);
     if (month === undefined) continue;
-    rows.markCoverage("costs", "Costes calculados", "EUR", 0, month, coverage(1, 1, run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0));
-    rows.markCoverage("costs:energy", "Energia", "EUR", 1, month, coverage(1, 1, run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0));
-    rows.markCoverage("costs:power", "Potencia", "EUR", 1, month, coverage(1, 1, run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0));
+    const margin = latestMarginByInvoiceAndRun.get(`${run.invoiceId}|${run.id}`);
+    if (!margin) continue;
+    marginCostRunIds.add(run.id);
+    const revenue = numericLike(margin.associatedRevenueEur);
+    const associatedCost = numericLike(margin.associatedCostEur);
+    const marginValue = numericLike(margin.marginEur);
+    const revenueByNature = marginRevenueByNature(margin.detailsJson);
+    const costsByNature = marginCostsByNature(margin.detailsJson);
+    rows.add("used-revenue", "Ingresos utilizados", "EUR", 0, month, revenue ?? 0, coverage(1, revenue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
+    if (revenueByNature.ENERGY !== null) rows.add("used-revenue:energy", "Energia", "EUR", 1, month, revenueByNature.ENERGY, coverage(1, 1, 0), "used-revenue");
+    if (revenueByNature.POWER !== null) rows.add("used-revenue:power", "Potencia", "EUR", 1, month, revenueByNature.POWER, coverage(1, 1, 0), "used-revenue");
+    rows.add("costs", "Costes calculados", "EUR", 0, month, associatedCost ?? 0, coverage(1, associatedCost === null ? 0 : 1, run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0));
+    if (costsByNature.ENERGY !== null) rows.add("costs:energy", "Energia", "EUR", 1, month, costsByNature.ENERGY, coverage(1, 1, 0), "costs");
+    if (costsByNature.POWER !== null) rows.add("costs:power", "Potencia", "EUR", 1, month, costsByNature.POWER, coverage(1, 1, 0), "costs");
+    rows.add("margin", "Margen EUR", "EUR", 0, month, marginValue ?? 0, coverage(1, marginValue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
   }
   for (const component of input.intervalComponentSums) {
     const run = costRunById.get(component.costRunId);
+    if (!marginCostRunIds.has(component.costRunId)) continue;
     if (!run) continue;
     const month = monthByInvoice.get(run.invoiceId);
     if (month === undefined) continue;
     const value = numericLike(component.costEur) ?? 0;
     const nature = costComponentNature(component.componentCode as CostComponent);
     const natureKey = nature === "POWER" ? "power" : "energy";
-    rows.add("costs", "Costes calculados", "EUR", 0, month, value, zeroCoverage());
-    rows.add(`costs:${natureKey}`, nature === "POWER" ? "Potencia" : "Energia", "EUR", 1, month, value, zeroCoverage(), "costs");
     rows.add(`costs:${natureKey}:${component.componentCode}`, costComponentLabel(component.componentCode), "EUR", 2, month, value, zeroCoverage(), `costs:${natureKey}`);
   }
   for (const component of input.powerComponentSums) {
     const run = costRunById.get(component.costRunId);
+    if (!marginCostRunIds.has(component.costRunId)) continue;
     if (!run) continue;
     const month = monthByInvoice.get(run.invoiceId);
     if (month === undefined) continue;
     const value = numericLike(component._sum?.costEur ?? component.costEur) ?? 0;
     const nature = costComponentNature(component.componentCode as CostComponent);
     const natureKey = nature === "POWER" ? "power" : "energy";
-    rows.add("costs", "Costes calculados", "EUR", 0, month, value, zeroCoverage());
-    rows.add(`costs:${natureKey}`, nature === "POWER" ? "Potencia" : "Energia", "EUR", 1, month, value, zeroCoverage(), "costs");
     rows.add(`costs:${natureKey}:${component.componentCode}`, costComponentLabel(component.componentCode), "EUR", 2, month, value, zeroCoverage(), `costs:${natureKey}`);
-  }
-
-  const latestMarginByInvoiceAndRun = new Map<string, (typeof input.margins)[number]>();
-  for (const margin of input.margins) {
-    const key = `${margin.invoiceId}|${margin.costRunId}`;
-    if (!latestMarginByInvoiceAndRun.has(key)) latestMarginByInvoiceAndRun.set(key, margin);
-  }
-  for (const run of input.costRuns) {
-    const invoice = invoicesById.get(run.invoiceId);
-    const month = invoice ? monthByInvoice.get(invoice.id) : undefined;
-    if (month === undefined) continue;
-    const margin = latestMarginByInvoiceAndRun.get(`${run.invoiceId}|${run.id}`);
-    const value = numericLike(margin?.marginEur);
-    rows.add("margin", "Margen EUR", "EUR", 0, month, value ?? 0, coverage(1, value === null ? 0 : 1, margin?.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
   }
 
   rows.applyInvoiceUniverse(invoiceCounts, ["billing", "billed-pf", "calculated-pf", "calculated-bc", "used-revenue", "costs", "margin"]);
@@ -1910,6 +1903,34 @@ function toEurMwhCell(eurCell: OperationalBalanceCell, pfCell: OperationalBalanc
 function lastOperationalKeyPart(key: string) {
   const parts = key.split(":");
   return parts[parts.length - 1] ?? key;
+}
+
+function marginRevenueByNature(detailsJson: Prisma.JsonValue | null | undefined): { ENERGY: number | null; POWER: number | null } {
+  const result: { ENERGY: number | null; POWER: number | null } = { ENERGY: null, POWER: null };
+  if (!detailsJson || typeof detailsJson !== "object" || Array.isArray(detailsJson)) return result;
+  const rows = (detailsJson as { rows?: unknown }).rows;
+  if (!Array.isArray(rows)) return result;
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const nature = (row as { nature?: unknown }).nature;
+    if (nature !== "ENERGY" && nature !== "POWER") continue;
+    const amount = numericLike((row as { amount?: Prisma.Decimal | number | string | null }).amount);
+    if (amount === null) continue;
+    result[nature] = (result[nature] ?? 0) + amount;
+  }
+  return result;
+}
+
+function marginCostsByNature(detailsJson: Prisma.JsonValue | null | undefined): { ENERGY: number | null; POWER: number | null } {
+  const result: { ENERGY: number | null; POWER: number | null } = { ENERGY: null, POWER: null };
+  if (!detailsJson || typeof detailsJson !== "object" || Array.isArray(detailsJson)) return result;
+  const costsByNature = (detailsJson as { costsByNature?: unknown }).costsByNature;
+  if (!costsByNature || typeof costsByNature !== "object" || Array.isArray(costsByNature)) return result;
+  for (const nature of ["ENERGY", "POWER"] as const) {
+    const value = numericLike((costsByNature as Record<string, Prisma.Decimal | number | string | null | undefined>)[nature]);
+    if (value !== null) result[nature] = value;
+  }
+  return result;
 }
 
 function marginConceptMapping(concept: string): CostNature | "ADJUSTMENT" | null {

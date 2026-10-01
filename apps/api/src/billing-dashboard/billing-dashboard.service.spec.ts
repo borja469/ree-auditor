@@ -135,7 +135,22 @@ describe("Billing dashboard operational balance", () => {
       }],
       curveTotals: [{ invoiceId: "invoice-1", _sum: { consumptionPfKwh: 1000, consumptionBcKwh: 1100 } }],
       costRuns: [{ id: "run-1", invoiceId: "invoice-1", incidentsCount: 0, status: CmInvoiceCostRunStatus.COMPLETED }],
-      margins: [{ invoiceId: "invoice-1", costRunId: "run-1", marginStatus: CmInvoiceMarginStatus.READY, marginEur: 11 }],
+      margins: [{
+        invoiceId: "invoice-1",
+        costRunId: "run-1",
+        marginStatus: CmInvoiceMarginStatus.READY,
+        associatedRevenueEur: 98,
+        associatedCostEur: 87,
+        marginEur: 11,
+        detailsJson: {
+          costsByNature: { ENERGY: 80, POWER: 7 },
+          rows: [
+            { concept: "Energia", amount: 70, nature: "ENERGY" },
+            { concept: "Potencia", amount: 20, nature: "POWER" },
+            { concept: "Ajuste por Costes del Sistema de Red Electrica de Espana", amount: 8, nature: "ENERGY" }
+          ]
+        }
+      }],
       intervalComponentSums: [],
       powerComponentSums: []
     });
@@ -169,7 +184,21 @@ describe("Billing dashboard operational balance", () => {
       }],
       curveTotals: [{ invoiceId: "invoice-1", _sum: { consumptionPfKwh: 2000, consumptionBcKwh: 2100 } }],
       costRuns: [{ id: "run-1", invoiceId: "invoice-1", incidentsCount: 1, status: CmInvoiceCostRunStatus.WARNING }],
-      margins: [{ invoiceId: "invoice-1", costRunId: "run-1", marginStatus: CmInvoiceMarginStatus.WARNING, marginEur: 25 }],
+      margins: [{
+        invoiceId: "invoice-1",
+        costRunId: "run-1",
+        marginStatus: CmInvoiceMarginStatus.WARNING,
+        associatedRevenueEur: 350,
+        associatedCostEur: 21,
+        marginEur: 25,
+        detailsJson: {
+          costsByNature: { ENERGY: 15, POWER: 6 },
+          rows: [
+            { concept: "Energia", amount: 300, nature: "ENERGY" },
+            { concept: "Potencia", amount: 50, nature: "POWER" }
+          ]
+        }
+      }],
       intervalComponentSums: [
         { costRunId: "run-1", componentCode: "OMIE_MD", costEur: 10 },
         { costRunId: "run-1", componentCode: "CAD", costEur: 4 },
@@ -196,6 +225,50 @@ describe("Billing dashboard operational balance", () => {
     assert.equal(power.children?.find((row) => row.key === "costs:power:TOLLS_CHARGES_POWER")?.months[1].value, 6);
     assert.equal(margin.months[1].warningInvoiceCount, 1);
     assert.equal(costs.months[1].warningInvoiceCount, 1);
+  });
+
+  it("uses the margin snapshot universe for used revenue so invoices without margin do not distort the balance", () => {
+    const report = buildOperationalBalanceReport({
+      year: 2026,
+      availableYears: [2026],
+      invoices: [{
+        id: "invoice-with-margin",
+        invoiceDate: new Date(Date.UTC(2026, 2, 1)),
+        lines: [line("Tarifas Acceso / Energia", "P1", 1, 100)]
+      }, {
+        id: "invoice-without-margin",
+        invoiceDate: new Date(Date.UTC(2026, 2, 2)),
+        lines: [line("Tarifas Acceso / Energia", "P1", 1, 900000)]
+      }],
+      curveTotals: [
+        { invoiceId: "invoice-with-margin", _sum: { consumptionPfKwh: 1000, consumptionBcKwh: 1000 } },
+        { invoiceId: "invoice-without-margin", _sum: { consumptionPfKwh: 2000, consumptionBcKwh: 2000 } }
+      ],
+      costRuns: [{ id: "run-1", invoiceId: "invoice-with-margin", incidentsCount: 0, status: CmInvoiceCostRunStatus.COMPLETED }],
+      margins: [{
+        invoiceId: "invoice-with-margin",
+        costRunId: "run-1",
+        marginStatus: CmInvoiceMarginStatus.READY,
+        associatedRevenueEur: 100,
+        associatedCostEur: 90,
+        marginEur: 10,
+        detailsJson: { costsByNature: { ENERGY: 90, POWER: 0 }, rows: [{ concept: "Energia", amount: 100, nature: "ENERGY" }] }
+      }],
+      intervalComponentSums: [{ costRunId: "run-1", componentCode: "OMIE_MD", costEur: 90 }],
+      powerComponentSums: []
+    });
+    const billing = report.rows.find((row) => row.key === "billing")!;
+    const revenue = report.rows.find((row) => row.key === "used-revenue")!;
+    const costs = report.rows.find((row) => row.key === "costs")!;
+    const margin = report.rows.find((row) => row.key === "margin")!;
+
+    assert.equal(billing.months[2].value, 900100);
+    assert.equal(revenue.months[2].value, 100);
+    assert.equal(costs.months[2].value, 90);
+    assert.equal(margin.months[2].value, 10);
+    assert.equal(revenue.months[2].invoiceCount, 2);
+    assert.equal(revenue.months[2].calculatedInvoiceCount, 1);
+    assert.equal(revenue.months[2].missingInvoiceCount, 1);
   });
 });
 
