@@ -48,6 +48,16 @@ export class BillingDashboardController {
     return this.service.listInvoicingModes();
   }
 
+  @Get("tariffs")
+  listTariffs() {
+    return this.service.listTariffs();
+  }
+
+  @Get("operational-balance")
+  operationalBalance(@Query() query: Record<string, unknown>) {
+    return this.service.operationalBalance(typeof query.year === "string" ? query.year : undefined, query);
+  }
+
   @Get("invoices/:id")
   invoiceDetail(@Param("id") id: string) {
     return this.service.invoiceDetail(id);

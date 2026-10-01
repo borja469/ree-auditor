@@ -1,5 +1,5 @@
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
-import { Calculator, Download, Eye, FileSpreadsheet, Info, Play, PlugZap, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
+import { Calculator, ChevronDown, ChevronRight, Download, Eye, FileSpreadsheet, FileText, Info, Play, PlugZap, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import {
   calculateBillingInvoiceCostsAndMargin,
   createBillingRegulatedPriceVersion,
@@ -12,7 +12,9 @@ import {
   getBillingInvoices,
   getBillingInvoicingModes,
   getBillingJobs,
+  getBillingOperationalBalance,
   getBillingRegulatedPriceVersions,
+  getBillingTariffs,
   processBillingInvoice,
   updateBillingRegulatedPriceVersion,
   saveBillingGisceConfig,
@@ -29,6 +31,8 @@ import {
   type BillingInvoiceStatus,
   type BillingInvoicesResponse,
   type BillingJob,
+  type BillingOperationalBalanceResponse,
+  type BillingOperationalBalanceRow,
   type RegulatedPriceCode,
   type RegulatedPriceVersion,
   type RegulatedPriceVersionInput
@@ -71,7 +75,7 @@ const INITIAL_BILLING_FILTERS = {
 };
 
 export function BillingDashboardModule() {
-  const [billingSection, setBillingSection] = useState<"invoices" | "jobs" | "config">("invoices");
+  const [billingSection, setBillingSection] = useState<"invoices" | "balance" | "jobs" | "config">("invoices");
   const [configSection, setConfigSection] = useState<"gisce" | "cost-prices">("gisce");
   const [importFrom, setImportFrom] = useState(() => monthStart());
   const [importTo, setImportTo] = useState(() => monthEnd());
@@ -83,6 +87,7 @@ export function BillingDashboardModule() {
   const [response, setResponse] = useState<BillingInvoicesResponse>();
   const [jobs, setJobs] = useState<BillingJob[]>([]);
   const [invoicingModes, setInvoicingModes] = useState<Array<{ id: number; name: string }>>([]);
+  const [tariffs, setTariffs] = useState<string[]>([]);
   const [selectedJob, setSelectedJob] = useState<BillingJob | null>(null);
   const [loading, setLoading] = useState(false);
   const [rowActionId, setRowActionId] = useState<string | null>(null);
@@ -100,6 +105,11 @@ export function BillingDashboardModule() {
   const [regulatedEditorOpen, setRegulatedEditorOpen] = useState(false);
   const [regulatedSaving, setRegulatedSaving] = useState(false);
   const [regulatedError, setRegulatedError] = useState<string | null>(null);
+  const [balanceYear, setBalanceYear] = useState(() => new Date().getFullYear());
+  const [balanceReport, setBalanceReport] = useState<BillingOperationalBalanceResponse | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceError, setBalanceError] = useState<string | null>(null);
+  const [balanceFilters, setBalanceFilters] = useState({ cups: "", tariff: "", invoicingMode: "" });
 
   const rows = response?.rows ?? [];
   const summary = response?.summary;
@@ -133,6 +143,7 @@ export function BillingDashboardModule() {
   useEffect(() => {
     void loadGisceConfig();
     void loadInvoicingModes();
+    void loadTariffs();
     void loadRegulatedPrices("RETH");
   }, []);
 
@@ -155,6 +166,11 @@ export function BillingDashboardModule() {
   useEffect(() => {
     void loadRegulatedPrices(regulatedTab);
   }, [regulatedTab]);
+
+  useEffect(() => {
+    if (billingSection !== "balance") return;
+    void loadOperationalBalance(balanceYear);
+  }, [billingSection, balanceYear, balanceFilters]);
 
   async function refreshJobs() {
     try {
@@ -296,11 +312,34 @@ export function BillingDashboardModule() {
     }
   }
 
+  async function loadOperationalBalance(year = balanceYear) {
+    setBalanceLoading(true);
+    setBalanceError(null);
+    try {
+      const report = await getBillingOperationalBalance(year, balanceFilters);
+      setBalanceReport(report);
+      if (report.year !== year) setBalanceYear(report.year);
+    } catch (error) {
+      setBalanceError(error instanceof Error ? error.message : "Error cargando Balance Operativo.");
+      setBalanceReport(null);
+    } finally {
+      setBalanceLoading(false);
+    }
+  }
+
   async function loadInvoicingModes() {
     try {
       setInvoicingModes(await getBillingInvoicingModes());
     } catch {
       setInvoicingModes([]);
+    }
+  }
+
+  async function loadTariffs() {
+    try {
+      setTariffs(await getBillingTariffs());
+    } catch {
+      setTariffs([]);
     }
   }
 
@@ -443,6 +482,7 @@ export function BillingDashboardModule() {
 
       <div className="billing-module-tabs" role="tablist" aria-label="Cuadro de Mando de Facturacion">
         <button className={billingSection === "invoices" ? "active" : ""} onClick={() => setBillingSection("invoices")} type="button">Facturas</button>
+        <button className={billingSection === "balance" ? "active" : ""} onClick={() => setBillingSection("balance")} type="button">Balance Operativo</button>
         <button className={billingSection === "jobs" ? "active" : ""} onClick={() => setBillingSection("jobs")} type="button">Jobs / Procesos</button>
         <button className={billingSection === "config" ? "active" : ""} onClick={() => setBillingSection("config")} type="button">Configuracion</button>
       </div>
@@ -528,6 +568,20 @@ export function BillingDashboardModule() {
       </section>
       )}
 
+      {billingSection === "balance" && (
+        <OperationalBalanceSection
+          report={balanceReport}
+          selectedYear={balanceYear}
+          loading={balanceLoading}
+          error={balanceError}
+          filters={balanceFilters}
+          invoicingModes={invoicingModes}
+          tariffs={tariffs}
+          onFiltersChange={setBalanceFilters}
+          onYearChange={setBalanceYear}
+        />
+      )}
+
 
       {billingSection === "invoices" && (
       <section className="panel wide billing-invoices-panel">
@@ -575,6 +629,150 @@ export function BillingDashboardModule() {
       {detail && <InvoiceDetailModal detail={detail} costs={costs} onClose={() => setDetail(null)} onProcess={() => void runProcessOne(detail)} onCalculateCosts={() => void runCalculateCosts(detail.id)} />}
     </div>
   );
+}
+
+function OperationalBalanceSection({
+  report,
+  selectedYear,
+  loading,
+  error,
+  filters,
+  invoicingModes,
+  tariffs,
+  onFiltersChange,
+  onYearChange
+}: {
+  report: BillingOperationalBalanceResponse | null;
+  selectedYear: number;
+  loading: boolean;
+  error: string | null;
+  filters: { cups: string; tariff: string; invoicingMode: string };
+  invoicingModes: Array<{ id: number; name: string }>;
+  tariffs: string[];
+  onFiltersChange: Dispatch<SetStateAction<{ cups: string; tariff: string; invoicingMode: string }>>;
+  onYearChange: (year: number) => void;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["used-revenue"]));
+  const years = useMemo(() => {
+    const unique = new Set([selectedYear, ...(report?.availableYears ?? [])]);
+    return [...unique].filter(Number.isFinite).sort((left, right) => right - left);
+  }, [report?.availableYears, selectedYear]);
+  const visibleRows = useMemo(() => flattenOperationalBalanceRows(report?.rows ?? [], expanded), [expanded, report?.rows]);
+
+  function toggle(key: string) {
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  return (
+    <section className="panel wide annual-report-panel billing-operational-balance-panel">
+      <div className="annual-report-header">
+        <PanelTitle icon={<FileText size={18} />} title="Balance Operativo" subtitle="Facturacion, consumos, costes y margen por fecha de factura" />
+        <label className="annual-report-year-filter">
+          <span>Ano</span>
+          <select value={selectedYear} onChange={(event) => onYearChange(Number(event.target.value))} disabled={loading}>
+            {years.map((year) => <option key={year} value={year}>{year}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="billing-operational-balance-filters filter-band">
+        <label>CUPS<input value={filters.cups} onChange={(event) => onFiltersChange((current) => ({ ...current, cups: event.target.value }))} placeholder="Todos" /></label>
+        <label>Tarifa ATR<select value={filters.tariff} onChange={(event) => onFiltersChange((current) => ({ ...current, tariff: event.target.value }))}><option value="">Todas</option>{tariffs.map((tariff) => <option key={tariff} value={tariff}>{tariff}</option>)}</select></label>
+        <label>Modo facturacion<select value={filters.invoicingMode} onChange={(event) => onFiltersChange((current) => ({ ...current, invoicingMode: event.target.value }))}><option value="">Todos</option>{invoicingModes.map((mode) => <option key={`${mode.id}-${mode.name}`} value={mode.name}>{mode.name}</option>)}</select></label>
+        <button className="secondary-button" type="button" onClick={() => onFiltersChange({ cups: "", tariff: "", invoicingMode: "" })}>Limpiar filtros</button>
+      </div>
+      {loading && <div className="annual-report-loading">Cargando Balance Operativo...</div>}
+      {error && <div className="form-message error">{error}</div>}
+      {report && (
+        <div className="annual-report-tables">
+          <section className="annual-report-table-section">
+            <h3>Balance Operativo {report.year}</h3>
+            <div className="table-scroll omie-annual-summary-scroll annual-report-table-shell">
+              <table className="omie-liquidation-table omie-annual-summary-table annual-report-table billing-operational-balance-table">
+                <colgroup>
+                  <col className="annual-report-metric-col" />
+                  {report.months.map((month) => <col className="annual-report-month-col" key={month} />)}
+                  <col className="annual-report-total-col" />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th className="annual-report-sticky-col">Metrica</th>
+                    {report.months.map((month) => <th key={month}>{month.slice(0, 3)}</th>)}
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleRows.map((entry) => (
+                    <OperationalBalanceRowView
+                      expanded={expanded.has(entry.row.key)}
+                      key={entry.row.key}
+                      row={entry.row}
+                      hasChildren={Boolean(entry.row.children?.length)}
+                      onToggle={() => toggle(entry.row.key)}
+                    />
+                  ))}
+                  {visibleRows.length === 0 && <tr><td colSpan={14}>Sin datos disponibles para el Balance Operativo.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function OperationalBalanceRowView({ row, hasChildren, expanded, onToggle }: { row: BillingOperationalBalanceRow; hasChildren: boolean; expanded: boolean; onToggle: () => void }) {
+  return (
+    <tr className={`billing-operational-balance-level-${row.level} ${row.level === 0 ? "annual-report-highlight-row" : ""}`}>
+      <th className="annual-report-sticky-col" scope="row">
+        <span className="billing-operational-balance-label" style={{ paddingLeft: `${row.level * 16}px` }}>
+          {hasChildren ? <button className="icon-button mini" onClick={onToggle} title={expanded ? "Contraer" : "Expandir"} type="button">{expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}</button> : <span className="billing-operational-balance-spacer" />}
+          {row.label}
+        </span>
+      </th>
+      {row.months.map((cell, index) => <td className={`number ${operationalBalanceToneClass(row, cell.value)}`} key={`${row.key}-${index}`} title={operationalBalanceCellTitle(cell)}>{formatOperationalBalanceValue(cell.value, row.unit)}</td>)}
+      <td className={`number annual-report-total ${operationalBalanceToneClass(row, row.total.value)}`} title={operationalBalanceCellTitle(row.total)}>{formatOperationalBalanceValue(row.total.value, row.unit)}</td>
+    </tr>
+  );
+}
+
+function flattenOperationalBalanceRows(rows: BillingOperationalBalanceRow[], expanded: Set<string>) {
+  const output: Array<{ row: BillingOperationalBalanceRow }> = [];
+  function visit(row: BillingOperationalBalanceRow) {
+    output.push({ row });
+    if (!expanded.has(row.key)) return;
+    for (const child of row.children ?? []) visit(child);
+  }
+  for (const row of rows) visit(row);
+  return output;
+}
+
+function formatOperationalBalanceValue(value: number | null, unit: "COUNT" | "EUR" | "EUR_MWH" | "KWH") {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "";
+  if (unit === "COUNT") return value.toLocaleString("es-ES", { maximumFractionDigits: 0 });
+  if (unit === "EUR_MWH") return `${value.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/MWh`;
+  if (Math.abs(value) < 0.0000001) return unit === "EUR" ? formatCurrencyEuro(0) : formatEnergy(0);
+  return unit === "EUR" ? formatCurrencyEuro(value) : formatEnergy(value);
+}
+
+function operationalBalanceToneClass(row: BillingOperationalBalanceRow, value: number | null) {
+  if (value === null || value === undefined || !Number.isFinite(value) || Math.abs(value) < 0.0000001) return "";
+  if (value < 0) return "negative";
+  return row.key.startsWith("margin") ? "positive" : "";
+}
+
+function operationalBalanceCellTitle(cell: { invoiceCount: number; calculatedInvoiceCount: number; missingInvoiceCount: number; warningInvoiceCount: number }) {
+  return [
+    `Facturas: ${cell.invoiceCount.toLocaleString("es-ES")}`,
+    `Calculadas: ${cell.calculatedInvoiceCount.toLocaleString("es-ES")}`,
+    `Pendientes: ${cell.missingInvoiceCount.toLocaleString("es-ES")}`,
+    `Warnings: ${cell.warningInvoiceCount.toLocaleString("es-ES")}`
+  ].join("\n");
 }
 
 function InvoiceDetailModal({ detail, costs, onClose, onProcess, onCalculateCosts }: { detail: BillingInvoiceDetail; costs: BillingCostsResponse | null; onClose: () => void; onProcess: () => void; onCalculateCosts: () => void }) {

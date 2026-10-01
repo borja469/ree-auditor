@@ -36,6 +36,31 @@ type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS
 type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
 const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V1";
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
+const OPERATIONAL_BALANCE_MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+type OperationalBalanceUnit = "COUNT" | "EUR" | "EUR_MWH" | "KWH";
+type OperationalBalanceCell = {
+  value: number | null;
+  invoiceCount: number;
+  calculatedInvoiceCount: number;
+  missingInvoiceCount: number;
+  warningInvoiceCount: number;
+};
+export type OperationalBalanceRow = {
+  key: string;
+  label: string;
+  unit: OperationalBalanceUnit;
+  level: number;
+  months: OperationalBalanceCell[];
+  total: OperationalBalanceCell;
+  children?: OperationalBalanceRow[];
+};
+export type OperationalBalanceResponse = {
+  year: number;
+  availableYears: number[];
+  months: string[];
+  rows: OperationalBalanceRow[];
+};
 
 @Injectable()
 export class BillingDashboardService {
@@ -218,6 +243,94 @@ export class BillingDashboardService {
       orderBy: { name: "asc" }
     });
     return rows.map((row) => ({ id: row.externalId, name: row.name }));
+  }
+
+  async listTariffs() {
+    const rows = await this.prisma.cmInvoice.groupBy({
+      by: ["tariffCode"],
+      where: { tariffCode: { not: null } },
+      orderBy: { tariffCode: "asc" }
+    });
+    return rows.map((row) => row.tariffCode).filter((tariff): tariff is string => Boolean(tariff));
+  }
+
+  async operationalBalance(yearInput?: number | string, filters: Record<string, unknown> = {}): Promise<OperationalBalanceResponse> {
+    const requestedYear = Number(yearInput ?? new Date().getFullYear());
+    const year = Number.isFinite(requestedYear) && requestedYear >= 2000 && requestedYear <= 2100 ? Math.trunc(requestedYear) : new Date().getFullYear();
+    const from = new Date(Date.UTC(year, 0, 1));
+    const to = new Date(Date.UTC(year, 11, 31));
+    const where: Prisma.CmInvoiceWhereInput = {
+      invoiceDate: { gte: from, lte: to },
+      ...(typeof filters.cups === "string" && filters.cups.trim() ? { cups: { contains: filters.cups.trim(), mode: "insensitive" } } : {}),
+      ...(typeof filters.tariff === "string" && filters.tariff.trim() ? { tariffCode: { equals: filters.tariff.trim(), mode: "insensitive" } } : {}),
+      ...(typeof filters.invoicingMode === "string" && filters.invoicingMode.trim() ? { compatibleInvoicingModes: { some: { name: { equals: filters.invoicingMode.trim(), mode: "insensitive" } } } } : {})
+    };
+    const invoices = await this.prisma.cmInvoice.findMany({
+      where,
+      orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
+      include: { lines: true }
+    });
+    const invoiceIds = invoices.map((invoice) => invoice.id);
+    const [availableYearsRows, curveTotals, costRuns, margins] = await Promise.all([
+      this.prisma.$queryRaw<Array<{ year: number }>>`
+        SELECT DISTINCT EXTRACT(YEAR FROM invoice_date)::int AS year
+        FROM cm_invoices
+        WHERE invoice_date IS NOT NULL
+        ORDER BY year DESC
+      `,
+      invoiceIds.length
+        ? this.prisma.cmInvoiceConsumptionCurve.groupBy({
+            by: ["invoiceId"],
+            where: { invoiceId: { in: invoiceIds } },
+            _sum: { consumptionPfKwh: true, consumptionBcKwh: true }
+          })
+        : Promise.resolve([]),
+      invoiceIds.length
+        ? this.prisma.cmInvoiceCostRun.findMany({
+            where: { invoiceId: { in: invoiceIds } },
+            orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }]
+          })
+        : Promise.resolve([]),
+      invoiceIds.length
+        ? this.prisma.cmInvoiceMarginSnapshot.findMany({
+            where: { invoiceId: { in: invoiceIds } },
+            orderBy: [{ calculatedAt: "desc" }, { createdAt: "desc" }]
+          })
+        : Promise.resolve([])
+    ]);
+    const latestCostRunByInvoice = new Map<string, (typeof costRuns)[number]>();
+    for (const run of costRuns) if (!latestCostRunByInvoice.has(run.invoiceId)) latestCostRunByInvoice.set(run.invoiceId, run);
+    const costRunIds = [...latestCostRunByInvoice.values()].map((run) => run.id);
+    let intervalComponentSums: Array<{ costRunId: string; componentCode: string; costEur: Prisma.Decimal | null }> = [];
+    let powerComponentSums: Array<{ costRunId: string; componentCode: string; _sum: { costEur: Prisma.Decimal | null } }> = [];
+    if (costRunIds.length) {
+      [intervalComponentSums, powerComponentSums] = await Promise.all([
+        this.prisma.$queryRaw<Array<{ costRunId: string; componentCode: string; costEur: Prisma.Decimal | null }>>`
+            SELECT ic.cost_run_id AS "costRunId", c.component_code::text AS "componentCode", SUM(c.cost_eur) AS "costEur"
+            FROM cm_invoice_interval_cost_components c
+            JOIN cm_invoice_interval_costs ic ON ic.id = c.interval_cost_id
+            WHERE ic.cost_run_id::text IN (${Prisma.join(costRunIds)})
+              AND c.status = 'OK'
+              AND c.cost_eur IS NOT NULL
+            GROUP BY ic.cost_run_id, c.component_code
+          `,
+        this.prisma.cmInvoicePowerCostComponent.groupBy({
+          by: ["costRunId", "componentCode"],
+          where: { costRunId: { in: costRunIds }, status: "OK", costEur: { not: null } },
+          _sum: { costEur: true }
+        })
+      ]);
+    }
+    return buildOperationalBalanceReport({
+      year,
+      availableYears: availableYearsRows.map((row) => Number(row.year)).filter(Number.isFinite),
+      invoices,
+      curveTotals,
+      costRuns: [...latestCostRunByInvoice.values()],
+      margins,
+      intervalComponentSums,
+      powerComponentSums
+    });
   }
 
   async startImportJob(dateFrom: string, dateTo: string, requestedBy?: string) {
@@ -1459,6 +1572,344 @@ function summarizeInvoiceLineConcepts(lines: Array<{ accountName: string | null;
     }
   }
   return { rows: [...groups.values()], associatedRevenueEur, hasMappedConcepts };
+}
+
+class OperationalBalanceRowsBuilder {
+  private readonly rows = new Map<string, OperationalBalanceRow>();
+  private readonly childKeys = new Map<string, Set<string>>();
+  private readonly firstSeenOrder = new Map<string, number>();
+  private nextOrder = 0;
+
+  ensureRow(key: string, label: string, unit: OperationalBalanceUnit, level: number, parentKey?: string) {
+    this.ensure(key, label, unit, level);
+    if (parentKey) this.addChild(parentKey, key);
+  }
+
+  add(key: string, label: string, unit: OperationalBalanceUnit, level: number, month: number, value: number, meta: Pick<OperationalBalanceCell, "invoiceCount" | "calculatedInvoiceCount" | "warningInvoiceCount">, parentKey?: string) {
+    const row = this.ensure(key, label, unit, level);
+    this.addToCell(row.months[month], value, meta);
+    if (parentKey) this.addChild(parentKey, key);
+  }
+
+  markCoverage(key: string, label: string, unit: OperationalBalanceUnit, level: number, month: number, meta: Pick<OperationalBalanceCell, "invoiceCount" | "calculatedInvoiceCount" | "warningInvoiceCount">) {
+    const row = this.ensure(key, label, unit, level);
+    this.addToCell(row.months[month], 0, meta);
+  }
+
+  applyInvoiceUniverse(invoiceCounts: number[], rowKeys: string[]) {
+    for (const key of rowKeys) {
+      const row = this.rows.get(key);
+      if (!row) continue;
+      row.months.forEach((cell, index) => {
+        if (cell.invoiceCount === 0 && invoiceCounts[index] > 0) {
+          cell.invoiceCount = invoiceCounts[index];
+          cell.missingInvoiceCount = Math.max(cell.invoiceCount - cell.calculatedInvoiceCount, 0);
+        }
+      });
+    }
+  }
+
+  toRows(rootOrder: string[]) {
+    for (const row of this.rows.values()) {
+      row.total = sumOperationalCells(row.months);
+    }
+    return rootOrder.map((key) => this.buildRow(key)).filter((row): row is OperationalBalanceRow => Boolean(row));
+  }
+
+  private ensure(key: string, label: string, unit: OperationalBalanceUnit, level: number) {
+    let row = this.rows.get(key);
+    if (!row) {
+      row = { key, label, unit, level, months: emptyOperationalCells(), total: emptyOperationalCell() };
+      this.rows.set(key, row);
+      this.firstSeenOrder.set(key, this.nextOrder++);
+    } else {
+      row.label = row.label === key ? label : row.label;
+      row.unit = unit;
+      row.level = level;
+    }
+    return row;
+  }
+
+  private addChild(parentKey: string, childKey: string) {
+    const children = this.childKeys.get(parentKey) ?? new Set<string>();
+    children.add(childKey);
+    this.childKeys.set(parentKey, children);
+  }
+
+  private buildRow(key: string): OperationalBalanceRow | null {
+    const row = this.rows.get(key);
+    if (!row) return null;
+    const children = [...(this.childKeys.get(key) ?? [])]
+      .sort((left, right) => (this.firstSeenOrder.get(left) ?? 0) - (this.firstSeenOrder.get(right) ?? 0))
+      .map((childKey) => this.buildRow(childKey))
+      .filter((child): child is OperationalBalanceRow => Boolean(child));
+    return { ...row, children: children.length ? children : undefined };
+  }
+
+  private addToCell(cell: OperationalBalanceCell, value: number, meta: Pick<OperationalBalanceCell, "invoiceCount" | "calculatedInvoiceCount" | "warningInvoiceCount">) {
+    cell.value = (cell.value ?? 0) + (Number.isFinite(value) ? value : 0);
+    cell.invoiceCount += meta.invoiceCount;
+    cell.calculatedInvoiceCount += meta.calculatedInvoiceCount;
+    cell.warningInvoiceCount += meta.warningInvoiceCount;
+    cell.missingInvoiceCount = Math.max(cell.invoiceCount - cell.calculatedInvoiceCount, 0);
+  }
+}
+
+function emptyOperationalCell(): OperationalBalanceCell {
+  return { value: 0, invoiceCount: 0, calculatedInvoiceCount: 0, missingInvoiceCount: 0, warningInvoiceCount: 0 };
+}
+
+function emptyOperationalCells() {
+  return Array.from({ length: 12 }, () => emptyOperationalCell());
+}
+
+function sumOperationalCells(cells: OperationalBalanceCell[]) {
+  return cells.reduce((total, cell) => ({
+    value: (total.value ?? 0) + (cell.value ?? 0),
+    invoiceCount: total.invoiceCount + cell.invoiceCount,
+    calculatedInvoiceCount: total.calculatedInvoiceCount + cell.calculatedInvoiceCount,
+    missingInvoiceCount: total.missingInvoiceCount + cell.missingInvoiceCount,
+    warningInvoiceCount: total.warningInvoiceCount + cell.warningInvoiceCount
+  }), emptyOperationalCell());
+}
+
+function coverage(invoiceCount: number, calculatedInvoiceCount: number, warningInvoiceCount: number) {
+  return { invoiceCount, calculatedInvoiceCount, warningInvoiceCount };
+}
+
+function zeroCoverage() {
+  return coverage(0, 0, 0);
+}
+
+function invoiceMonth(value: Date | string | null | undefined) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  const month = date.getUTCMonth();
+  return Number.isFinite(month) && month >= 0 && month <= 11 ? month : null;
+}
+
+function numericLike(value: Prisma.Decimal | number | string | null | undefined) {
+  if (value === null || value === undefined) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function decimalOrNullLike(value: Prisma.Decimal | number | string | null | undefined) {
+  return (value === null || value === undefined ? null : value) as Prisma.Decimal | null;
+}
+
+function costComponentLabel(componentCode: string) {
+  const labels: Record<string, string> = {
+    OMIE_MD: "OMIE MD",
+    CAD: "CAD",
+    PC3: "PC3 REGANECU",
+    BS3: "BS3",
+    RAD3: "RAD3",
+    RETH: "RETh",
+    PC3_CONFIG: "PC3",
+    EFIH: "EFIh",
+    TOLLS_CHARGES_ENERGY: "Peajes + Cargos Energia",
+    TOLLS_CHARGES_POWER: "Peajes + Cargos Potencia",
+    BONO_SOCIAL: "Bono Social",
+    OTROS: "Otros",
+    IMU: "IMU"
+  };
+  return labels[componentCode] ?? componentCode;
+}
+
+export function buildOperationalBalanceReport(input: {
+  year: number;
+  availableYears: number[];
+  invoices: Array<{
+    id: string;
+    invoiceDate: Date | string | null;
+    billedEnergyKwh?: Prisma.Decimal | number | string | null;
+    lines: Array<{ accountName: string | null; lineName: string | null; quantity?: Prisma.Decimal | number | string | null; priceUnit?: Prisma.Decimal | number | string | null; priceSubtotal: Prisma.Decimal | number | string | null }>;
+  }>;
+  curveTotals: Array<{ invoiceId: string; _sum: { consumptionPfKwh: Prisma.Decimal | number | string | null; consumptionBcKwh: Prisma.Decimal | number | string | null } }>;
+  costRuns: Array<{ id: string; invoiceId: string; incidentsCount: number; status: CmInvoiceCostRunStatus | string }>;
+  margins: Array<{ invoiceId: string; costRunId: string; marginStatus: CmInvoiceMarginStatus | string; marginEur: Prisma.Decimal | number | string | null }>;
+  intervalComponentSums: Array<{ costRunId: string; componentCode: string; costEur: Prisma.Decimal | number | string | null }>;
+  powerComponentSums: Array<{ costRunId: string; componentCode: string; _sum?: { costEur: Prisma.Decimal | number | string | null }; costEur?: Prisma.Decimal | number | string | null }>;
+}): OperationalBalanceResponse {
+  const rows = new OperationalBalanceRowsBuilder();
+  rows.ensureRow("invoice-count", "Numero de facturas", "COUNT", 0);
+  rows.ensureRow("billing", "Facturacion", "EUR", 0);
+  rows.ensureRow("billed-pf", "Consumo facturado PF", "KWH", 0);
+  rows.ensureRow("calculated-pf", "Consumo calculado PF", "KWH", 0);
+  rows.ensureRow("calculated-bc", "Consumo calculado BC", "KWH", 0);
+  rows.ensureRow("used-revenue", "Ingresos utilizados", "EUR", 0);
+  rows.ensureRow("used-revenue:energy", "Energia", "EUR", 1, "used-revenue");
+  rows.ensureRow("used-revenue:power", "Potencia", "EUR", 1, "used-revenue");
+  rows.ensureRow("costs", "Costes calculados", "EUR", 0);
+  rows.ensureRow("costs:energy", "Energia", "EUR", 1, "costs");
+  rows.ensureRow("costs:power", "Potencia", "EUR", 1, "costs");
+  rows.ensureRow("margin", "Margen EUR", "EUR", 0);
+  const invoicesById = new Map(input.invoices.map((invoice) => [invoice.id, invoice]));
+  const monthByInvoice = new Map<string, number>();
+  const invoiceCounts = Array.from({ length: 12 }, () => 0);
+  for (const invoice of input.invoices) {
+    const month = invoiceMonth(invoice.invoiceDate);
+    if (month === null) continue;
+    monthByInvoice.set(invoice.id, month);
+    invoiceCounts[month] += 1;
+    rows.add("invoice-count", "Numero de facturas", "COUNT", 0, month, 1, coverage(1, 1, 0));
+    const lineSummary = summarizeInvoiceLineConcepts(invoice.lines.map((line) => ({
+      accountName: line.accountName,
+      lineName: line.lineName,
+      priceSubtotal: decimalOrNullLike(line.priceSubtotal) as Prisma.Decimal | null
+    })));
+    rows.add("billing", "Facturacion", "EUR", 0, month, lineSummary.rows.reduce((sum, row) => sum + row.amount, 0), coverage(1, 1, 0));
+    let energyRevenue = 0;
+    let powerRevenue = 0;
+    let hasEnergyRevenue = false;
+    let hasPowerRevenue = false;
+    for (const line of lineSummary.rows) {
+      rows.add(`billing:${invoiceConceptKey(line.concept)}`, line.concept, "EUR", 1, month, line.amount, coverage(1, 1, 0), "billing");
+      const mapping = marginConceptMapping(line.concept);
+      if (mapping === "ENERGY" || mapping === "ADJUSTMENT") {
+        energyRevenue += line.amount;
+        hasEnergyRevenue = true;
+      } else if (mapping === "POWER") {
+        powerRevenue += line.amount;
+        hasPowerRevenue = true;
+      }
+    }
+    if (hasEnergyRevenue || hasPowerRevenue) {
+      rows.add("used-revenue", "Ingresos utilizados", "EUR", 0, month, energyRevenue + powerRevenue, coverage(1, 1, 0));
+      if (hasEnergyRevenue) rows.add("used-revenue:energy", "Energia", "EUR", 1, month, energyRevenue, coverage(1, 1, 0), "used-revenue");
+      if (hasPowerRevenue) rows.add("used-revenue:power", "Potencia", "EUR", 1, month, powerRevenue, coverage(1, 1, 0), "used-revenue");
+    }
+    const billedEnergy = Object.values(summarizeInvoiceEnergy(invoice.lines.map((line) => ({
+      accountName: line.accountName,
+      lineName: line.lineName,
+      quantity: decimalOrNullLike(line.quantity) as Prisma.Decimal | null,
+      priceUnit: decimalOrNullLike(line.priceUnit) as Prisma.Decimal | null
+    })))).reduce((sum, value) => sum + value, 0);
+    const billedEnergyValue = billedEnergy || numericLike(invoice.billedEnergyKwh);
+    rows.add("billed-pf", "Consumo facturado PF", "KWH", 0, month, billedEnergyValue ?? 0, coverage(1, billedEnergyValue === null ? 0 : 1, 0));
+  }
+
+  const curveTotalsByInvoice = new Map(input.curveTotals.map((row) => [row.invoiceId, row]));
+  for (const invoice of input.invoices) {
+    const month = monthByInvoice.get(invoice.id);
+    if (month === undefined) continue;
+    const totals = curveTotalsByInvoice.get(invoice.id);
+    const pf = numericLike(totals?._sum.consumptionPfKwh);
+    const bc = numericLike(totals?._sum.consumptionBcKwh);
+    rows.add("calculated-pf", "Consumo calculado PF", "KWH", 0, month, pf ?? 0, coverage(1, pf === null ? 0 : 1, 0));
+    rows.add("calculated-bc", "Consumo calculado BC", "KWH", 0, month, bc ?? 0, coverage(1, bc === null ? 0 : 1, 0));
+  }
+
+  const costRunById = new Map(input.costRuns.map((run) => [run.id, run]));
+  for (const run of input.costRuns) {
+    const month = monthByInvoice.get(run.invoiceId);
+    if (month === undefined) continue;
+    rows.markCoverage("costs", "Costes calculados", "EUR", 0, month, coverage(1, 1, run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0));
+    rows.markCoverage("costs:energy", "Energia", "EUR", 1, month, coverage(1, 1, run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0));
+    rows.markCoverage("costs:power", "Potencia", "EUR", 1, month, coverage(1, 1, run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0));
+  }
+  for (const component of input.intervalComponentSums) {
+    const run = costRunById.get(component.costRunId);
+    if (!run) continue;
+    const month = monthByInvoice.get(run.invoiceId);
+    if (month === undefined) continue;
+    const value = numericLike(component.costEur) ?? 0;
+    const nature = costComponentNature(component.componentCode as CostComponent);
+    const natureKey = nature === "POWER" ? "power" : "energy";
+    rows.add("costs", "Costes calculados", "EUR", 0, month, value, zeroCoverage());
+    rows.add(`costs:${natureKey}`, nature === "POWER" ? "Potencia" : "Energia", "EUR", 1, month, value, zeroCoverage(), "costs");
+    rows.add(`costs:${natureKey}:${component.componentCode}`, costComponentLabel(component.componentCode), "EUR", 2, month, value, zeroCoverage(), `costs:${natureKey}`);
+  }
+  for (const component of input.powerComponentSums) {
+    const run = costRunById.get(component.costRunId);
+    if (!run) continue;
+    const month = monthByInvoice.get(run.invoiceId);
+    if (month === undefined) continue;
+    const value = numericLike(component._sum?.costEur ?? component.costEur) ?? 0;
+    const nature = costComponentNature(component.componentCode as CostComponent);
+    const natureKey = nature === "POWER" ? "power" : "energy";
+    rows.add("costs", "Costes calculados", "EUR", 0, month, value, zeroCoverage());
+    rows.add(`costs:${natureKey}`, nature === "POWER" ? "Potencia" : "Energia", "EUR", 1, month, value, zeroCoverage(), "costs");
+    rows.add(`costs:${natureKey}:${component.componentCode}`, costComponentLabel(component.componentCode), "EUR", 2, month, value, zeroCoverage(), `costs:${natureKey}`);
+  }
+
+  const latestMarginByInvoiceAndRun = new Map<string, (typeof input.margins)[number]>();
+  for (const margin of input.margins) {
+    const key = `${margin.invoiceId}|${margin.costRunId}`;
+    if (!latestMarginByInvoiceAndRun.has(key)) latestMarginByInvoiceAndRun.set(key, margin);
+  }
+  for (const run of input.costRuns) {
+    const invoice = invoicesById.get(run.invoiceId);
+    const month = invoice ? monthByInvoice.get(invoice.id) : undefined;
+    if (month === undefined) continue;
+    const margin = latestMarginByInvoiceAndRun.get(`${run.invoiceId}|${run.id}`);
+    const value = numericLike(margin?.marginEur);
+    rows.add("margin", "Margen EUR", "EUR", 0, month, value ?? 0, coverage(1, value === null ? 0 : 1, margin?.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
+  }
+
+  rows.applyInvoiceUniverse(invoiceCounts, ["billing", "billed-pf", "calculated-pf", "calculated-bc", "used-revenue", "costs", "margin"]);
+  const baseRows = rows.toRows([
+    "invoice-count",
+    "billing",
+    "billed-pf",
+    "calculated-pf",
+    "calculated-bc",
+    "used-revenue",
+    "costs",
+    "margin"
+  ]);
+  const calculatedPf = baseRows.find((row) => row.key === "calculated-pf");
+  const outputRows = insertOperationalRateRows(baseRows, calculatedPf);
+  return {
+    year: input.year,
+    availableYears: input.availableYears.length ? input.availableYears : [input.year],
+    months: OPERATIONAL_BALANCE_MONTHS,
+    rows: outputRows
+  };
+}
+
+function insertOperationalRateRows(rows: OperationalBalanceRow[], pfRow: OperationalBalanceRow | undefined) {
+  const output: OperationalBalanceRow[] = [];
+  for (const row of rows) {
+    output.push(row);
+    if (row.key === "used-revenue") output.push(toEurMwhRow(row, "used-revenue-eur-mwh", "Ingresos utilizados €/MWh", pfRow));
+    if (row.key === "costs") output.push(toEurMwhRow(row, "costs-eur-mwh", "Costes calculados €/MWh", pfRow));
+    if (row.key === "margin") output.push(toEurMwhRow(row, "margin-eur-mwh", "Margen €/MWh", pfRow));
+  }
+  return output;
+}
+
+function toEurMwhRow(row: OperationalBalanceRow, key: string, label: string, pfRow: OperationalBalanceRow | undefined): OperationalBalanceRow {
+  const months = row.months.map((cell, index) => toEurMwhCell(cell, pfRow?.months[index]));
+  return {
+    key,
+    label,
+    unit: "EUR_MWH",
+    level: row.level,
+    months,
+    total: toEurMwhCell(row.total, pfRow?.total),
+    children: row.children?.map((child) => toEurMwhRow(child, `${key}:${lastOperationalKeyPart(child.key)}`, child.label, pfRow))
+  };
+}
+
+function toEurMwhCell(eurCell: OperationalBalanceCell, pfCell: OperationalBalanceCell | undefined): OperationalBalanceCell {
+  const pfKwh = pfCell?.value ?? null;
+  const eur = eurCell.value ?? null;
+  const value = pfKwh && pfKwh > 0 && eur !== null ? eur / (pfKwh / 1000) : null;
+  const calculatedInvoiceCount = Math.min(eurCell.calculatedInvoiceCount, pfCell?.calculatedInvoiceCount ?? 0);
+  return {
+    value,
+    invoiceCount: eurCell.invoiceCount,
+    calculatedInvoiceCount,
+    missingInvoiceCount: Math.max(eurCell.invoiceCount - calculatedInvoiceCount, 0),
+    warningInvoiceCount: eurCell.warningInvoiceCount + (pfCell?.warningInvoiceCount ?? 0)
+  };
+}
+
+function lastOperationalKeyPart(key: string) {
+  const parts = key.split(":");
+  return parts[parts.length - 1] ?? key;
 }
 
 function marginConceptMapping(concept: string): CostNature | "ADJUSTMENT" | null {

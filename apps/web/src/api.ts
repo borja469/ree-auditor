@@ -452,6 +452,30 @@ export type BillingInvoicesResponse = {
   rows: BillingInvoiceRow[];
 };
 
+export type BillingOperationalBalanceUnit = "COUNT" | "EUR" | "EUR_MWH" | "KWH";
+export type BillingOperationalBalanceCell = {
+  value: number | null;
+  invoiceCount: number;
+  calculatedInvoiceCount: number;
+  missingInvoiceCount: number;
+  warningInvoiceCount: number;
+};
+export type BillingOperationalBalanceRow = {
+  key: string;
+  label: string;
+  unit: BillingOperationalBalanceUnit;
+  level: number;
+  months: BillingOperationalBalanceCell[];
+  total: BillingOperationalBalanceCell;
+  children?: BillingOperationalBalanceRow[];
+};
+export type BillingOperationalBalanceResponse = {
+  year: number;
+  availableYears: number[];
+  months: string[];
+  rows: BillingOperationalBalanceRow[];
+};
+
 export type BillingImportBatch = {
   id: string;
   startedAt: string;
@@ -4681,6 +4705,14 @@ export async function getBillingInvoicingModes(): Promise<Array<{ id: number; na
   return getJson(`/billing-dashboard/invoicing-modes`);
 }
 
+export async function getBillingTariffs(): Promise<string[]> {
+  return getJson(`/billing-dashboard/tariffs`);
+}
+
+export async function getBillingOperationalBalance(year: number | string, filters: { cups?: string; tariff?: string; invoicingMode?: string } = {}): Promise<BillingOperationalBalanceResponse> {
+  return getJson(`/billing-dashboard/operational-balance${toQuery({ year, ...filters })}`);
+}
+
 export async function getBillingInvoiceCurve(id: string, filters: { source?: string; period?: string; skip?: number; take?: number } = {}): Promise<BillingInvoiceCurveResponse> {
   return getJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}/curve${toQuery(filters)}`);
 }
@@ -5060,7 +5092,7 @@ function sendMultipart<TResponse = ImportResponse>(
         logout();
         window.dispatchEvent(new Event("ree-auditor-auth-expired"));
       }
-      finish(() => reject(new Error(readErrorPayload(payload) ?? (request.responseText || "No se pudo importar."))));
+      finish(() => reject(new Error(readErrorPayload(payload) ?? sanitizeErrorText(request.responseText, "No se pudo importar."))));
     };
     request.onerror = () => finish(() => reject(new Error("No se pudo conectar con la API.")));
     request.ontimeout = () => finish(() => reject(new Error("Tiempo de espera agotado importando ficheros.")));
@@ -5126,7 +5158,18 @@ function filenameFromDisposition(value: string | null) {
 async function readError(response: Response, fallback: string) {
   const text = await response.text();
   const payload = parseJson(text);
-  return readErrorPayload(payload) ?? (text || fallback);
+  return readErrorPayload(payload) ?? sanitizeErrorText(text, fallback, response.status);
+}
+
+function sanitizeErrorText(text: string | undefined, fallback: string, status?: number) {
+  const value = text?.trim();
+  if (!value) return fallback;
+  if (/^\s*<!doctype html/i.test(value) || /^\s*<html[\s>]/i.test(value)) {
+    return status === 502
+      ? "Error 502 del proxy al contactar con la API. Comprueba que el servicio API esta arrancado y que el proxy apunta al puerto correcto."
+      : `La API ha devuelto una pagina HTML en lugar de JSON${status ? ` (HTTP ${status})` : ""}.`;
+  }
+  return value;
 }
 
 function parseJson(text: string) {

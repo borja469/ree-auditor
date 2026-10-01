@@ -3317,6 +3317,38 @@ select:disabled {
   font-weight: 800 !important;
 }
 
+.billing-operational-balance-label {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.billing-operational-balance-label .icon-button.mini {
+  height: 20px;
+  min-height: 20px;
+  padding: 0;
+  width: 20px;
+}
+
+.billing-operational-balance-spacer {
+  display: inline-block;
+  flex: 0 0 20px;
+  width: 20px;
+}
+
+.billing-operational-balance-level-1 th,
+.billing-operational-balance-level-1 td {
+  background: #fbfdff;
+}
+
+.billing-operational-balance-level-2 th,
+.billing-operational-balance-level-2 td {
+  color: #425466;
+  font-weight: 500;
+}
+
 @media (max-width: 720px) {
   .annual-report-header {
     align-items: flex-start;
