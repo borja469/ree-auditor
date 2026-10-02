@@ -2,6 +2,8 @@ const assert = require("node:assert/strict");
 const { describe, it } = require("node:test");
 const XLSX = require("xlsx");
 const { BillingDashboardCostsService, buildBillingAuditWorkbook, buildMadridQuarterKeys, calculateCostComponent, costComponentNature } = require("./billing-dashboard-costs.service");
+const { buildPricingCalendarRange } = require("../pricing-base/calendar_builder");
+const { buildHolidaySet, buildPeriodRuleMap, buildTariffPeriodSeedRows } = require("../ree-losses/period-engine");
 
 void describe("Billing dashboard costs phase 2", () => {
   void it("calcula siempre sobre BC y convierte kWh a MWh sin redondeo intermedio", () => {
@@ -468,6 +470,39 @@ void describe("Billing dashboard costs phase 2", () => {
     assert.equal(component(result, 0, "IMU").status, "OK");
     assert.equal(component(result, 0, "IMU").incidentCode, null);
     assert.ok((component(result, 0, "IMU").costEur ?? 0) > 0);
+  });
+
+  void it("aplica perdidas a los componentes BC en el historico de precios indexados", async () => {
+    const calendar = buildPricingCalendarRange("2026-09-01", "2026-09-01");
+    const quarterInstants = calendar.flatMap((hour) => {
+      const start = new Date(hour.timestampInicio).getTime();
+      return [0, 1, 2, 3].map((quarter) => new Date(start + quarter * 15 * 60_000));
+    });
+    const keys = buildMadridQuarterKeys(quarterInstants);
+    const omie = new Map([...keys.values()].map((key) => [key.quarterKey, price("omie_prices", 100, null, 15)]));
+    const service = new BillingDashboardCostsService(
+      {
+        esiosProfileIntermediateResult: { findMany: async () => [] }
+      },
+      undefined,
+      {
+        buildPeriodContext: async () => ({
+          rules: buildPeriodRuleMap(buildTariffPeriodSeedRows()),
+          holidays: buildHolidaySet([])
+        })
+      },
+      {
+        loadHourlyLosses: async () => new Map(calendar.map((hour) => [`${hour.fecha}|${hour.hora + 1}`, { value: 20, version: "A1", status: "ok", sourceId: "loss-1" }]))
+      }
+    );
+    service.loadOmie = async () => omie;
+    service.loadHourlyLiquidations = async () => ({ CAD: new Map() });
+    service.loadQhLiquidations = async () => ({ BS3: new Map(), RAD3: new Map() });
+    service.loadRegulatedPriceContext = async () => null;
+
+    const report = await service.calculateIndexedPriceHistory({ dateFrom: "2026-09-01", dateTo: "2026-09-01", tariffCode: "6.1TD" });
+    const firstValue = report.tariffs[0].rows[0].values.P1 ?? report.tariffs[0].rows[0].values.P2 ?? report.tariffs[0].rows[0].values.P3 ?? report.tariffs[0].rows[0].values.P4 ?? report.tariffs[0].rows[0].values.P5 ?? report.tariffs[0].rows[0].values.P6;
+    assert.equal(firstValue.priceEurMwh, 125);
   });
 });
 

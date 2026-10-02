@@ -14,8 +14,9 @@ import {
 import { PrismaService } from "../prisma/prisma.service";
 import { buildPricingCalendarRange, getMadridParts } from "../pricing-base/calendar_builder";
 import { resolvePricingPeriod } from "../pricing-base/pricing_period_adapter";
-import type { PricingSettlementVersion } from "../pricing-base/pricing-base.types";
+import type { PricingCalendarHour, PricingSettlementVersion } from "../pricing-base/pricing-base.types";
 import { LIQUIDATION_MATURITY_ORDER, selectLatestAvailableVersion } from "../pricing-base/version_selector";
+import { RegulatedLossesService, type RegulatedLossHourlyValue } from "../ree-losses/regulated-losses.service";
 import { ReeLossesRegulatoryEngine } from "../ree-losses/regulatory-engine.service";
 import { BillingDashboardRegulatedPricesService } from "./billing-dashboard-regulated-prices.service";
 import { resolvePeriodTariff } from "./billing-dashboard-tariff-period";
@@ -48,7 +49,7 @@ const COMPONENT_NATURE: Record<CostComponent, CostNature> = {
 };
 const ENERGY_REPORT_COMPONENTS = COST_COMPONENTS.filter((component) => COMPONENT_NATURE[component] === "ENERGY");
 const INDEXED_INITIAL_PROFILE_WEIGHTED_TARIFFS = ["2.0TD", "3.0TD", "3.0TDVE"] as const;
-const INDEXED_PRICE_HISTORY_CACHE_VERSION = "WEIGHTED_INITIAL_PROFILE_V1";
+const INDEXED_PRICE_HISTORY_CACHE_VERSION = "WEIGHTED_INITIAL_PROFILE_LOSSES_V1";
 
 export type CostComponent = (typeof HISTORICAL_COST_COMPONENTS)[number];
 export type CostNature = "ENERGY" | "POWER";
@@ -197,7 +198,8 @@ export class BillingDashboardCostsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly regulatedPrices?: BillingDashboardRegulatedPricesService,
-    private readonly regulatoryEngine?: ReeLossesRegulatoryEngine
+    private readonly regulatoryEngine?: ReeLossesRegulatoryEngine,
+    private readonly regulatedLosses?: RegulatedLossesService
   ) {}
 
   async calculateCosts(invoiceId: string) {
@@ -417,6 +419,7 @@ export class BillingDashboardCostsService {
 
     const responseTariffs = [];
     for (const tariffCode of tariffs) {
+      const losses = await this.loadIndexedLosses(calendar, tariffCode);
       const monthMap = new Map<string, Map<string, IndexedPriceAccumulator>>();
       const detailsByKey = new Map<string, IndexedPriceHourDetail[]>();
       const periodTariff = resolvePeriodTariff(tariffCode);
@@ -426,7 +429,7 @@ export class BillingDashboardCostsService {
         const quarterComponents = quarterInstantsForHour(hour.timestampInicio)
           .map((instant) => timeKeys.get(instant.toISOString()))
           .filter((key): key is TimeKey => Boolean(key))
-          .map((key) => this.buildIndexedQuarterComponents(key, tariffCode, tariffPeriod, omie, hourly, qh, regulatedContext));
+          .map((key) => this.buildIndexedQuarterComponents(key, tariffCode, tariffPeriod, omie, hourly, qh, regulatedContext, losses.get(key.hourlyKey) ?? null));
         if (quarterComponents.length === 0) continue;
 
         const hourComponents = aggregateIndexedHourComponents(quarterComponents);
@@ -695,6 +698,11 @@ export class BillingDashboardCostsService {
     return map;
   }
 
+  private async loadIndexedLosses(calendar: PricingCalendarHour[], tariffCode: string) {
+    if (!this.regulatedLosses || calendar.length === 0) return new Map<string, RegulatedLossHourlyValue>();
+    return this.regulatedLosses.loadHourlyLosses(calendar, tariffCode);
+  }
+
   private buildIndexedQuarterComponents(
     key: TimeKey,
     tariffCode: string,
@@ -702,10 +710,12 @@ export class BillingDashboardCostsService {
     omie: Map<string, SourcePrice>,
     hourly: ReturnType<typeof groupLiquidations>,
     qh: ReturnType<typeof groupLiquidations>,
-    regulatedContext: RegulatedPriceContext | null
+    regulatedContext: RegulatedPriceContext | null,
+    loss: RegulatedLossHourlyValue | null
   ) {
-    const bcKwh = 250;
     const pfKwh = 250;
+    const lossPercentage = loss?.value ?? null;
+    const bcKwh = lossPercentage === null || lossPercentage >= 100 ? null : pfKwh / (1 - lossPercentage / 100);
     const results: CostComponentResult[] = [
       calculateCostComponent("OMIE_MD", "BC", bcKwh, omie.get(key.quarterKey) ?? null),
       calculateCostComponent("CAD", "BC", bcKwh, hourly.CAD.get(key.hourlyKey) ?? null),
