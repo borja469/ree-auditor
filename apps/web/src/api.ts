@@ -711,6 +711,8 @@ export type IndexedPriceHistoryHourDetail = {
   hour: number;
   period: string;
   totalEurMwh: number;
+  initialProfile: number | null;
+  weightedProduct: number | null;
   incidents: string[];
   components: IndexedPriceHistoryComponent[];
 };

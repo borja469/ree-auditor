@@ -183,6 +183,7 @@ function IndexedPriceDetailModal({ selection, onClose }: { selection: { tariffCo
     }
     return [...labels.entries()];
   }, [selection.hours]);
+  const showWeighting = selection.hours.some((hour) => hour.initialProfile !== null || hour.weightedProduct !== null);
 
   return (
     <div className="modal-backdrop" role="presentation">
@@ -201,6 +202,8 @@ function IndexedPriceDetailModal({ selection, onClose }: { selection: { tariffCo
                 <th>Fecha</th>
                 <th>Hora</th>
                 <th>Periodo</th>
+                {showWeighting && <th>Perfil inicial</th>}
+                {showWeighting && <th>Precio x perfil</th>}
                 {componentLabels.map(([code, label]) => <th key={code}>{label}</th>)}
                 <th>Total</th>
               </tr>
@@ -213,12 +216,14 @@ function IndexedPriceDetailModal({ selection, onClose }: { selection: { tariffCo
                     <th scope="row">{formatDate(hour.date)}</th>
                     <td>{String(hour.hour).padStart(2, "0")}:00</td>
                     <td>{hour.period}</td>
+                    {showWeighting && <td className="number">{formatNullableProfile(hour.initialProfile)}</td>}
+                    {showWeighting && <td className="number">{formatNullablePrice(hour.weightedProduct)}</td>}
                     {componentLabels.map(([code]) => <td className="number" key={code}>{formatNullablePrice(components.get(code)?.costEur ?? null)}</td>)}
                     <td className="number strong">{formatNullablePrice(hour.totalEurMwh)}</td>
                   </tr>
                 );
               })}
-              {selection.hours.length === 0 && <tr><td colSpan={componentLabels.length + 4}>Sin detalle horario para esta celda.</td></tr>}
+              {selection.hours.length === 0 && <tr><td colSpan={componentLabels.length + (showWeighting ? 6 : 4)}>Sin detalle horario para esta celda.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -269,6 +274,10 @@ function formatPrice(value: number) {
 
 function formatNullablePrice(value: number | null) {
   return value === null || value === undefined || !Number.isFinite(value) ? "" : value.toLocaleString("es-ES", { minimumFractionDigits: 5, maximumFractionDigits: 5 });
+}
+
+function formatNullableProfile(value: number | null) {
+  return value === null || value === undefined || !Number.isFinite(value) ? "" : value.toLocaleString("es-ES", { minimumFractionDigits: 12, maximumFractionDigits: 12 });
 }
 
 async function copyIndexedPriceRow(values: Array<number | null>, rowKey: string, setCopiedRow: (value: string | undefined) => void) {

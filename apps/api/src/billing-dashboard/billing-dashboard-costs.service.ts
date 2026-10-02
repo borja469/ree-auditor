@@ -47,6 +47,8 @@ const COMPONENT_NATURE: Record<CostComponent, CostNature> = {
   IMU: "ENERGY"
 };
 const ENERGY_REPORT_COMPONENTS = COST_COMPONENTS.filter((component) => COMPONENT_NATURE[component] === "ENERGY");
+const INDEXED_INITIAL_PROFILE_WEIGHTED_TARIFFS = ["2.0TD", "3.0TD", "3.0TDVE"] as const;
+const INDEXED_PRICE_HISTORY_CACHE_VERSION = "WEIGHTED_INITIAL_PROFILE_V1";
 
 export type CostComponent = (typeof HISTORICAL_COST_COMPONENTS)[number];
 export type CostNature = "ENERGY" | "POWER";
@@ -170,12 +172,14 @@ type PowerCostComponentResult = {
 
 type RegulatedVersionRow = Prisma.RegulatedPriceVersionGetPayload<{ include: ReturnType<typeof regulatedPriceContextInclude> }>;
 type RegulatedPriceContext = { byCode: Map<RegulatedPriceCode, RegulatedVersionRow[]> };
-type IndexedPriceAccumulator = { total: number; hours: number; incidents: Set<string> };
+type IndexedPriceAccumulator = { total: number; hours: number; weightedTotal: number; weightTotal: number; weighted: boolean; incidents: Set<string> };
 type IndexedPriceHourDetail = {
   date: string;
   hour: number;
   period: string;
   totalEurMwh: number;
+  initialProfile: number | null;
+  weightedProduct: number | null;
   incidents: string[];
   components: Array<{
     componentCode: CostComponent;
@@ -403,11 +407,12 @@ export class BillingDashboardCostsService {
     const calendar = buildPricingCalendarRange(dateFrom, dateTo);
     const quarterInstants = calendar.flatMap((hour) => quarterInstantsForHour(hour.timestampInicio));
     const timeKeys = buildMadridQuarterKeys(quarterInstants);
-    const [omie, hourly, qh, regulatedContext] = await Promise.all([
+    const [omie, hourly, qh, regulatedContext, initialProfiles] = await Promise.all([
       this.loadOmie(dateFrom, dateTo),
       this.loadHourlyLiquidations(dateFrom, dateTo),
       this.loadQhLiquidations(dateFrom, dateTo),
-      this.loadRegulatedPriceContext(dateFrom, dateTo)
+      this.loadRegulatedPriceContext(dateFrom, dateTo),
+      this.loadIndexedInitialProfiles(calendar)
     ]);
 
     const responseTariffs = [];
@@ -427,11 +432,19 @@ export class BillingDashboardCostsService {
         const hourComponents = aggregateIndexedHourComponents(quarterComponents);
         const total = hourComponents.reduce((sum, item) => sum + (item.status === "OK" && item.costEur !== null ? item.costEur : 0), 0);
         const incidents = uniqueStrings(hourComponents.map((item) => item.incidentCode).filter((item): item is string => Boolean(item)));
+        const useWeighting = usesInitialProfileWeighting(tariffCode);
+        const initialProfile = useWeighting ? initialProfiles.get(indexedInitialProfileKey(tariffCode, hour.timestampInicio)) ?? null : null;
+        if (useWeighting && initialProfile === null) incidents.push("INITIAL_PROFILE_NOT_FOUND");
         const month = hour.fecha.slice(0, 7);
         const periodMap = monthMap.get(month) ?? new Map<string, IndexedPriceAccumulator>();
-        const accumulator = periodMap.get(tariffPeriod) ?? { total: 0, hours: 0, incidents: new Set<string>() };
+        const accumulator = periodMap.get(tariffPeriod) ?? { total: 0, hours: 0, weightedTotal: 0, weightTotal: 0, weighted: useWeighting, incidents: new Set<string>() };
         accumulator.total += total;
         accumulator.hours += 1;
+        accumulator.weighted = accumulator.weighted || useWeighting;
+        if (useWeighting && initialProfile !== null) {
+          accumulator.weightedTotal += total * initialProfile;
+          accumulator.weightTotal += initialProfile;
+        }
         for (const incident of incidents) accumulator.incidents.add(incident);
         periodMap.set(tariffPeriod, accumulator);
         monthMap.set(month, periodMap);
@@ -443,6 +456,8 @@ export class BillingDashboardCostsService {
           hour: hour.hora,
           period: tariffPeriod,
           totalEurMwh: total,
+          initialProfile,
+          weightedProduct: initialProfile === null ? null : total * initialProfile,
           incidents,
           components: hourComponents.map(indexedComponentRow)
         });
@@ -454,8 +469,10 @@ export class BillingDashboardCostsService {
         const values: Record<string, { priceEurMwh: number | null; hours: number; incidents: string[] }> = {};
         for (const period of periods) {
           const value = monthMap.get(month)?.get(period);
+          const incidents = value ? [...value.incidents].sort() : [];
+          if (value?.weighted && value.weightTotal <= 0) incidents.push("INITIAL_PROFILE_WEIGHT_ZERO");
           values[period] = value
-            ? { priceEurMwh: value.hours > 0 ? value.total / value.hours : null, hours: value.hours, incidents: [...value.incidents].sort() }
+            ? { priceEurMwh: indexedAveragePrice(value), hours: value.hours, incidents }
             : { priceEurMwh: null, hours: 0, incidents: [] };
         }
         return { month, values };
@@ -657,6 +674,25 @@ export class BillingDashboardCostsService {
       ...tollsRows.map((row) => normalizeTariffCode(row.tariffCode)).filter((item): item is string => Boolean(item)),
       ...invoiceRows.map((row) => normalizeTariffCode(row.tariffCode)).filter((item): item is string => Boolean(item))
     ]).sort(compareTariffCodes);
+  }
+
+  private async loadIndexedInitialProfiles(calendar: Array<{ timestampInicio: string }>) {
+    if (calendar.length === 0) return new Map<string, number>();
+    const start = new Date(calendar[0].timestampInicio);
+    const end = new Date(new Date(calendar[calendar.length - 1].timestampInicio).getTime() + 60 * 60 * 1000);
+    const rows = await this.prisma.esiosProfileIntermediateResult.findMany({
+      where: {
+        datetime: { gte: start, lt: end },
+        tariff: { in: [...INDEXED_INITIAL_PROFILE_WEIGHTED_TARIFFS] }
+      },
+      select: { datetime: true, tariff: true, initialProfile: true }
+    });
+    const map = new Map<string, number>();
+    for (const row of rows) {
+      const value = decimalToNumber(row.initialProfile);
+      if (value !== null) map.set(indexedInitialProfileKey(row.tariff, row.datetime.toISOString()), value);
+    }
+    return map;
   }
 
   private buildIndexedQuarterComponents(
@@ -2180,7 +2216,7 @@ function parseIndexedPriceHistoryQuery(query: Record<string, unknown>) {
   return {
     dateFrom,
     dateTo,
-    scopeKey: requestedTariff ? `TARIFF:${requestedTariff}` : "ALL"
+    scopeKey: `${requestedTariff ? `TARIFF:${requestedTariff}` : "ALL"}|${INDEXED_PRICE_HISTORY_CACHE_VERSION}`
   };
 }
 
@@ -2485,6 +2521,19 @@ function indexedComponentLabel(componentCode: CostComponent) {
 
 function indexedDetailKey(tariffCode: string, date: string, period: string) {
   return `${tariffCode}|${date}|${period}`;
+}
+
+function indexedInitialProfileKey(tariffCode: string, timestampInicio: string) {
+  return `${normalizeTariffCode(tariffCode) ?? tariffCode}|${new Date(timestampInicio).toISOString()}`;
+}
+
+function usesInitialProfileWeighting(tariffCode: string) {
+  return (INDEXED_INITIAL_PROFILE_WEIGHTED_TARIFFS as readonly string[]).includes(normalizeTariffCode(tariffCode) ?? tariffCode);
+}
+
+function indexedAveragePrice(value: IndexedPriceAccumulator) {
+  if (value.weighted) return value.weightTotal > 0 ? value.weightedTotal / value.weightTotal : null;
+  return value.hours > 0 ? value.total / value.hours : null;
 }
 
 function uniqueStrings(values: string[]) {
