@@ -696,6 +696,43 @@ export type BillingCostIntervalsResponse = {
   }>;
 };
 
+export type IndexedPriceHistoryComponent = {
+  componentCode: BillingCostComponentCode;
+  label: string;
+  priceEurMwh: number | null;
+  percentage: number | null;
+  costEur: number | null;
+  status: "OK" | "WARNING" | "ERROR";
+  incidentCode: string | null;
+};
+
+export type IndexedPriceHistoryHourDetail = {
+  date: string;
+  hour: number;
+  period: string;
+  totalEurMwh: number;
+  incidents: string[];
+  components: IndexedPriceHistoryComponent[];
+};
+
+export type IndexedPriceHistoryResponse = {
+  dateFrom: string;
+  dateTo: string;
+  calculationVersion?: string;
+  calculatedAt?: string | null;
+  fromCache?: boolean;
+  componentCodes: BillingCostComponentCode[];
+  tariffs: Array<{
+    tariffCode: string;
+    periods: string[];
+    rows: Array<{
+      month: string;
+      values: Record<string, { priceEurMwh: number | null; hours: number; incidents: string[] }>;
+    }>;
+    details: Record<string, IndexedPriceHistoryHourDetail[]>;
+  }>;
+};
+
 export type RegulatedPriceCode = "RETH" | "EFIH" | "PC3" | "TOLLS_CHARGES" | "BONO_SOCIAL" | "OTROS" | "IMU";
 export type RegulatedPeriodPriceRow = {
   tariffCode: string;
@@ -4954,6 +4991,14 @@ export async function getAnnualReport(year: number | string): Promise<AnnualRepo
 
 export async function getAnnualReportYears(): Promise<number[]> {
   return getJson(`/annual-report/years`);
+}
+
+export async function getIndexedPriceHistory(filters: { dateFrom: string; dateTo: string; tariffCode?: string }): Promise<IndexedPriceHistoryResponse> {
+  return getJson(`/billing-dashboard/reports/indexed-price-history${toQuery(filters)}`);
+}
+
+export async function recalculateIndexedPriceHistory(filters: { dateFrom: string; dateTo: string; tariffCode?: string }): Promise<IndexedPriceHistoryResponse> {
+  return sendJson(`/billing-dashboard/reports/indexed-price-history/recalculate`, "POST", "Calculando historico de precios", REQUEST_TIMEOUT_MS * 10, filters);
 }
 
 export async function saveAnnualReportRetributionPrice(request: {

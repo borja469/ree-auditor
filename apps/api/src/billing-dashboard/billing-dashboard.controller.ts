@@ -58,6 +58,16 @@ export class BillingDashboardController {
     return this.service.operationalBalance(typeof query.year === "string" ? query.year : undefined, query);
   }
 
+  @Get("reports/indexed-price-history")
+  indexedPriceHistory(@Query() query: Record<string, unknown>) {
+    return this.costs.indexedPriceHistory(query);
+  }
+
+  @Post("reports/indexed-price-history/recalculate")
+  recalculateIndexedPriceHistory(@Body() body: Record<string, unknown>) {
+    return this.costs.recalculateIndexedPriceHistory(body);
+  }
+
   @Get("invoices/:id")
   invoiceDetail(@Param("id") id: string) {
     return this.service.invoiceDetail(id);

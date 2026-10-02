@@ -169,7 +169,7 @@ export function isGasSection(section: Section) {
 }
 
 export function isInformesSection(section: Section) {
-  return section === "annualReport" || section === "futuresReport";
+  return section === "annualReport" || section === "futuresReport" || section === "indexedPriceHistoryReport";
 }
 
 export function selectOmieTransactionDownloadId(

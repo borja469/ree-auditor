@@ -3317,6 +3317,140 @@ select:disabled {
   font-weight: 800 !important;
 }
 
+.indexed-price-history-filters {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.indexed-price-history-filters label {
+  display: grid;
+  gap: 4px;
+  color: #607482;
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
+.indexed-price-history-filters input {
+  min-height: 34px;
+  min-width: 140px;
+  padding: 6px 8px;
+  border: 1px solid #d8e2e8;
+  border-radius: 7px;
+  background: #fff;
+  color: #1f3642;
+  font: inherit;
+}
+
+.indexed-price-history-meta {
+  margin: -6px 0 12px;
+  color: #607482;
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.indexed-price-history-table td.number {
+  min-width: 120px;
+}
+
+.indexed-price-cell-button {
+  width: 100%;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 850;
+  text-align: right;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.indexed-price-cell-button:hover {
+  color: #0f766e;
+  text-decoration: underline;
+}
+
+.indexed-price-warning .indexed-price-cell-button {
+  color: #9a3412;
+}
+
+.indexed-price-copy-cell {
+  width: 96px;
+  min-width: 96px !important;
+  text-align: center;
+}
+
+.indexed-price-copy-button {
+  width: auto;
+  min-width: 74px;
+  height: 28px;
+  padding: 0 8px;
+  gap: 5px;
+  font-size: 0.75rem;
+}
+
+.indexed-price-copy-button.copied {
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.28);
+  background: rgba(15, 118, 110, 0.08);
+}
+
+.modal-backdrop {
+  display: grid;
+  place-items: center;
+  position: fixed;
+  z-index: 950;
+  inset: 0;
+  padding: 24px;
+  background: rgba(7, 20, 25, 0.52);
+}
+
+.modal-card {
+  width: min(1180px, 100%);
+  max-height: min(86vh, 900px);
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid #d8e2e8;
+  border-radius: 8px;
+  box-shadow: 0 26px 80px rgba(7, 20, 25, 0.28);
+}
+
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #edf3f6;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: #1f3642;
+  font-size: 1rem;
+}
+
+.modal-header p {
+  margin: 4px 0 0;
+  color: #607482;
+  font-size: 0.82rem;
+}
+
+.indexed-price-detail-modal .table-scroll {
+  max-height: calc(86vh - 92px);
+}
+
+.indexed-price-detail-table th,
+.indexed-price-detail-table td {
+  white-space: nowrap;
+}
+
+.indexed-price-detail-table .strong {
+  font-weight: 900;
+}
+
 .billing-operational-balance-label {
   align-items: center;
   display: inline-flex;

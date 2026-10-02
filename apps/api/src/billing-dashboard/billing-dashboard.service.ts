@@ -9,6 +9,7 @@ import { normalizePeriodo, normalizeTarifa } from "../ree-losses/period-engine";
 import { GisceClientService, GisceConfigInput, GisceF1Item, GisceF5dItem, GisceInvoiceItem, GisceInvoiceLineItem, GisceP1Item, GisceP5dItem } from "./gisce-client.service";
 import { BillingDashboardCostsService } from "./billing-dashboard-costs.service";
 import { costComponentNature, type CostComponent, type CostNature } from "./billing-dashboard-costs.service";
+import { resolvePeriodTariff } from "./billing-dashboard-tariff-period";
 
 const ENERGY_ACCOUNT_NAME = "Tarifas Acceso / Energia";
 const PROFILE_TARIFF_COLUMNS: Record<string, "profile20td" | "profile30td" | "profile30tdve" | "profile61td"> = {
@@ -2404,11 +2405,6 @@ function profileSource(type?: CmInvoiceProfileType) {
   if (type === CmInvoiceProfileType.INTERMEDIO) return CmInvoiceConsumptionSource.PROFILE_INTERMEDIATE;
   if (type === CmInvoiceProfileType.INICIAL) return CmInvoiceConsumptionSource.PROFILE_INITIAL;
   return CmInvoiceConsumptionSource.MISSING;
-}
-
-function resolvePeriodTariff(tariff: string) {
-  if (tariff === "2.0TD" || tariff === "3.0TD") return tariff;
-  return "6.1TD";
 }
 
 function intervalIssue(invoiceId: string, interval: Pick<CurveInterval, "instant" | "tariffPeriod">, code: CurveIssueCode, detail: Record<string, unknown>): CurveIssue {

@@ -67,6 +67,7 @@ import { OmieTransaccionesModule } from "./modules/omie/transacciones/OmieTransa
 import { EsiosModule, type EsiosViewKey } from "./modules/esios/EsiosModule";
 import { AnnualReportModule } from "./modules/annual-report/AnnualReportModule";
 import { FuturesEvolutionReportModule } from "./modules/reports/FuturesEvolutionReportModule";
+import { IndexedPriceHistoryReportModule } from "./modules/reports/IndexedPriceHistoryReportModule";
 import { PricingBaseModule } from "./modules/pricing/PricingBaseModule";
 import { BillingDashboardModule } from "./modules/pricing/BillingDashboardModule";
 import { PricingHedgesModule } from "./modules/pricing/PricingHedgesModule";
@@ -1783,6 +1784,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                       ? "Prevision OMIE"
                     : section === "annualReport"
                       ? "Informe Anual"
+                    : section === "indexedPriceHistoryReport"
+                      ? "Historico Precios Indexados"
                     : section === "futuresReport"
                       ? "Informe Futuros"
                     : section === "pricingBase"
@@ -2361,6 +2364,13 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           description: "resumen mensual consolidado",
           active: section === "annualReport",
           onSelect: () => changeSection("annualReport")
+        },
+        {
+          key: "informes-historico-precios-indexados",
+          label: "Historico Precios Indexados",
+          description: "precio indexado por tarifa",
+          active: section === "indexedPriceHistoryReport",
+          onSelect: () => changeSection("indexedPriceHistoryReport")
         }
       ]
     }
@@ -2652,6 +2662,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
 
           {section === "futuresReport" && <FuturesEvolutionReportModule />}
           {section === "annualReport" && <AnnualReportModule />}
+          {section === "indexedPriceHistoryReport" && <IndexedPriceHistoryReportModule />}
           {section === "pricingBase" && <PricingBaseModule />}
           {section === "pricingMeff" && <PricingMeffModule />}
           {section === "pricingHedges" && <PricingHedgesModule />}

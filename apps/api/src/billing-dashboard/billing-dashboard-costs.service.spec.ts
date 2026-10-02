@@ -450,7 +450,7 @@ void describe("Billing dashboard costs phase 2", () => {
     assert.equal(imuSummary.calculationBasis, "ECONOMIC_AMOUNT");
   });
 
-  void it("IMU queda incompleto si falta un componente de su base pero acepta costes cero resueltos", async () => {
+  void it("calcula IMU con la base disponible y conserva warnings en los componentes ausentes", async () => {
     const instant = new Date("2026-08-01T00:00:00.000Z");
     const key = buildMadridQuarterKeys([instant]).get(instant.toISOString());
     const service = new BillingDashboardCostsService({}, regulatedService());
@@ -464,8 +464,10 @@ void describe("Billing dashboard costs phase 2", () => {
     const result = await service.buildCostRun([curveInterval(instant, 100, 80)], "2.0TD");
     assert.equal(component(result, 0, "BS3").status, "OK");
     assert.equal(component(result, 0, "BS3").costEur, 0);
-    assert.equal(component(result, 0, "IMU").status, "WARNING");
-    assert.equal(component(result, 0, "IMU").incidentCode, "IMU_BASE_INCOMPLETE");
+    assert.equal(component(result, 0, "RAD3").status, "WARNING");
+    assert.equal(component(result, 0, "IMU").status, "OK");
+    assert.equal(component(result, 0, "IMU").incidentCode, null);
+    assert.ok((component(result, 0, "IMU").costEur ?? 0) > 0);
   });
 });
 

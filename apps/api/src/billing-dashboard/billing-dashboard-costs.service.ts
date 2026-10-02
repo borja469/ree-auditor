@@ -12,10 +12,13 @@ import {
   ReeSettlementVersion
 } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { getMadridParts } from "../pricing-base/calendar_builder";
+import { buildPricingCalendarRange, getMadridParts } from "../pricing-base/calendar_builder";
+import { resolvePricingPeriod } from "../pricing-base/pricing_period_adapter";
 import type { PricingSettlementVersion } from "../pricing-base/pricing-base.types";
 import { LIQUIDATION_MATURITY_ORDER, selectLatestAvailableVersion } from "../pricing-base/version_selector";
+import { ReeLossesRegulatoryEngine } from "../ree-losses/regulatory-engine.service";
 import { BillingDashboardRegulatedPricesService } from "./billing-dashboard-regulated-prices.service";
+import { resolvePeriodTariff } from "./billing-dashboard-tariff-period";
 
 const CALCULATION_VERSION = "PHASE2_ENERGY_COSTS_V5_POWER_TERM";
 const COST_COMPONENTS = ["OMIE_MD", "CAD", "BS3", "RAD3", "RETH", "PC3_CONFIG", "EFIH", "TOLLS_CHARGES_ENERGY", "TOLLS_CHARGES_POWER", "BONO_SOCIAL", "OTROS", "IMU"] as const;
@@ -43,6 +46,7 @@ const COMPONENT_NATURE: Record<CostComponent, CostNature> = {
   OTROS: "ENERGY",
   IMU: "ENERGY"
 };
+const ENERGY_REPORT_COMPONENTS = COST_COMPONENTS.filter((component) => COMPONENT_NATURE[component] === "ENERGY");
 
 export type CostComponent = (typeof HISTORICAL_COST_COMPONENTS)[number];
 export type CostNature = "ENERGY" | "POWER";
@@ -166,12 +170,30 @@ type PowerCostComponentResult = {
 
 type RegulatedVersionRow = Prisma.RegulatedPriceVersionGetPayload<{ include: ReturnType<typeof regulatedPriceContextInclude> }>;
 type RegulatedPriceContext = { byCode: Map<RegulatedPriceCode, RegulatedVersionRow[]> };
+type IndexedPriceAccumulator = { total: number; hours: number; incidents: Set<string> };
+type IndexedPriceHourDetail = {
+  date: string;
+  hour: number;
+  period: string;
+  totalEurMwh: number;
+  incidents: string[];
+  components: Array<{
+    componentCode: CostComponent;
+    label: string;
+    priceEurMwh: number | null;
+    percentage: number | null;
+    costEur: number | null;
+    status: ComponentStatus;
+    incidentCode: string | null;
+  }>;
+};
 
 @Injectable()
 export class BillingDashboardCostsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly regulatedPrices?: BillingDashboardRegulatedPricesService
+    private readonly regulatedPrices?: BillingDashboardRegulatedPricesService,
+    private readonly regulatoryEngine?: ReeLossesRegulatoryEngine
   ) {}
 
   async calculateCosts(invoiceId: string) {
@@ -298,6 +320,155 @@ export class BillingDashboardCostsService {
       take: 50
     });
     return runs.map(costRunRow);
+  }
+
+  async indexedPriceHistory(query: Record<string, unknown>) {
+    const { dateFrom, dateTo, scopeKey } = parseIndexedPriceHistoryQuery(query);
+    const snapshot = await this.prisma.cmIndexedPriceHistorySnapshot.findUnique({
+      where: {
+        dateFrom_dateTo_calculationVersion_scopeKey: {
+          dateFrom: new Date(`${dateFrom}T00:00:00.000Z`),
+          dateTo: new Date(`${dateTo}T00:00:00.000Z`),
+          calculationVersion: CALCULATION_VERSION,
+          scopeKey
+        }
+      }
+    });
+    if (!snapshot) {
+      return {
+        dateFrom,
+        dateTo,
+        calculationVersion: CALCULATION_VERSION,
+        calculatedAt: null,
+        fromCache: true,
+        componentCodes: ENERGY_REPORT_COMPONENTS,
+        tariffs: []
+      };
+    }
+    return {
+      ...(snapshot.resultJson as Record<string, unknown>),
+      calculationVersion: snapshot.calculationVersion,
+      calculatedAt: snapshot.calculatedAt,
+      fromCache: true
+    };
+  }
+
+  async recalculateIndexedPriceHistory(query: Record<string, unknown>) {
+    const { dateFrom, dateTo, scopeKey } = parseIndexedPriceHistoryQuery(query);
+    const report = await this.calculateIndexedPriceHistory(query);
+    const snapshot = await this.prisma.cmIndexedPriceHistorySnapshot.upsert({
+      where: {
+        dateFrom_dateTo_calculationVersion_scopeKey: {
+          dateFrom: new Date(`${dateFrom}T00:00:00.000Z`),
+          dateTo: new Date(`${dateTo}T00:00:00.000Z`),
+          calculationVersion: CALCULATION_VERSION,
+          scopeKey
+        }
+      },
+      create: {
+        dateFrom: new Date(`${dateFrom}T00:00:00.000Z`),
+        dateTo: new Date(`${dateTo}T00:00:00.000Z`),
+        calculationVersion: CALCULATION_VERSION,
+        scopeKey,
+        resultJson: report as Prisma.InputJsonValue,
+        calculatedAt: new Date()
+      },
+      update: {
+        resultJson: report as Prisma.InputJsonValue,
+        calculatedAt: new Date()
+      }
+    });
+    return {
+      ...report,
+      calculationVersion: snapshot.calculationVersion,
+      calculatedAt: snapshot.calculatedAt,
+      fromCache: false
+    };
+  }
+
+  private async calculateIndexedPriceHistory(query: Record<string, unknown>) {
+    const dateFrom = isoDate(query.dateFrom);
+    const dateTo = isoDate(query.dateTo);
+    if (!dateFrom || !dateTo) throw new BadRequestException("Fecha desde y fecha hasta son obligatorias.");
+    if (dateFrom > dateTo) throw new BadRequestException("Fecha desde no puede ser posterior a fecha hasta.");
+    if (enumerateDatesInclusive(dateFrom, dateTo).length > 1830) throw new BadRequestException("El rango maximo permitido es de 5 anos.");
+
+    const requestedTariff = normalizeTariffCode(text(query.tariffCode));
+    const tariffs = requestedTariff ? [requestedTariff] : await this.listIndexedPriceTariffs(dateFrom, dateTo);
+    if (tariffs.length === 0) return { dateFrom, dateTo, componentCodes: ENERGY_REPORT_COMPONENTS, tariffs: [] };
+
+    const periodContext = await this.regulatoryEngine?.buildPeriodContext();
+    if (!periodContext) throw new BadRequestException("No se pudo cargar el calendario tarifario.");
+
+    const calendar = buildPricingCalendarRange(dateFrom, dateTo);
+    const quarterInstants = calendar.flatMap((hour) => quarterInstantsForHour(hour.timestampInicio));
+    const timeKeys = buildMadridQuarterKeys(quarterInstants);
+    const [omie, hourly, qh, regulatedContext] = await Promise.all([
+      this.loadOmie(dateFrom, dateTo),
+      this.loadHourlyLiquidations(dateFrom, dateTo),
+      this.loadQhLiquidations(dateFrom, dateTo),
+      this.loadRegulatedPriceContext(dateFrom, dateTo)
+    ]);
+
+    const responseTariffs = [];
+    for (const tariffCode of tariffs) {
+      const monthMap = new Map<string, Map<string, IndexedPriceAccumulator>>();
+      const detailsByKey = new Map<string, IndexedPriceHourDetail[]>();
+      const periodTariff = resolvePeriodTariff(tariffCode);
+      for (const hour of calendar) {
+        const tariffPeriod = resolvePricingPeriod(periodTariff, { fecha: hour.fecha, hora: hour.hora }, periodContext);
+        if (!isTariffPeriod(tariffPeriod)) continue;
+        const quarterComponents = quarterInstantsForHour(hour.timestampInicio)
+          .map((instant) => timeKeys.get(instant.toISOString()))
+          .filter((key): key is TimeKey => Boolean(key))
+          .map((key) => this.buildIndexedQuarterComponents(key, tariffCode, tariffPeriod, omie, hourly, qh, regulatedContext));
+        if (quarterComponents.length === 0) continue;
+
+        const hourComponents = aggregateIndexedHourComponents(quarterComponents);
+        const total = hourComponents.reduce((sum, item) => sum + (item.status === "OK" && item.costEur !== null ? item.costEur : 0), 0);
+        const incidents = uniqueStrings(hourComponents.map((item) => item.incidentCode).filter((item): item is string => Boolean(item)));
+        const month = hour.fecha.slice(0, 7);
+        const periodMap = monthMap.get(month) ?? new Map<string, IndexedPriceAccumulator>();
+        const accumulator = periodMap.get(tariffPeriod) ?? { total: 0, hours: 0, incidents: new Set<string>() };
+        accumulator.total += total;
+        accumulator.hours += 1;
+        for (const incident of incidents) accumulator.incidents.add(incident);
+        periodMap.set(tariffPeriod, accumulator);
+        monthMap.set(month, periodMap);
+
+        const detailKey = indexedDetailKey(tariffCode, month, tariffPeriod);
+        const details = detailsByKey.get(detailKey) ?? [];
+        details.push({
+          date: hour.fecha,
+          hour: hour.hora,
+          period: tariffPeriod,
+          totalEurMwh: total,
+          incidents,
+          components: hourComponents.map(indexedComponentRow)
+        });
+        detailsByKey.set(detailKey, details);
+      }
+
+      const periods = uniqueStrings([...monthMap.values()].flatMap((periodsForMonth) => [...periodsForMonth.keys()])).sort(compareTariffPeriods);
+      const rows = enumerateMonthsInclusive(dateFrom, dateTo).map((month) => {
+        const values: Record<string, { priceEurMwh: number | null; hours: number; incidents: string[] }> = {};
+        for (const period of periods) {
+          const value = monthMap.get(month)?.get(period);
+          values[period] = value
+            ? { priceEurMwh: value.hours > 0 ? value.total / value.hours : null, hours: value.hours, incidents: [...value.incidents].sort() }
+            : { priceEurMwh: null, hours: 0, incidents: [] };
+        }
+        return { month, values };
+      });
+      responseTariffs.push({
+        tariffCode,
+        periods,
+        rows,
+        details: Object.fromEntries([...detailsByKey.entries()].map(([key, value]) => [key, value.sort((left, right) => left.date.localeCompare(right.date) || left.hour - right.hour)]))
+      });
+    }
+
+    return { dateFrom, dateTo, componentCodes: ENERGY_REPORT_COMPONENTS, tariffs: responseTariffs };
   }
 
   async exportCostsWorkbook(invoiceId: string, runId: string) {
@@ -459,6 +630,55 @@ export class BillingDashboardCostsService {
         components: row.components.map(componentRow)
       }))
     };
+  }
+
+  private async listIndexedPriceTariffs(dateFrom: string, dateTo: string) {
+    const [pc3Rows, tollsRows, invoiceRows] = await Promise.all([
+      this.prisma.regulatedPc3Price.findMany({
+        where: { version: { is: versionIntersectsRange(dateFrom, dateTo, "PC3") } },
+        select: { tariffCode: true },
+        distinct: ["tariffCode"],
+        orderBy: { tariffCode: "asc" }
+      }),
+      this.prisma.regulatedTollsChargesPrice.findMany({
+        where: { version: { is: versionIntersectsRange(dateFrom, dateTo, "TOLLS_CHARGES") } },
+        select: { tariffCode: true },
+        distinct: ["tariffCode"],
+        orderBy: { tariffCode: "asc" }
+      }),
+      this.prisma.cmInvoice.groupBy({
+        by: ["tariffCode"],
+        where: { tariffCode: { not: null } },
+        orderBy: { tariffCode: "asc" }
+      })
+    ]);
+    return uniqueStrings([
+      ...pc3Rows.map((row) => normalizeTariffCode(row.tariffCode)).filter((item): item is string => Boolean(item)),
+      ...tollsRows.map((row) => normalizeTariffCode(row.tariffCode)).filter((item): item is string => Boolean(item)),
+      ...invoiceRows.map((row) => normalizeTariffCode(row.tariffCode)).filter((item): item is string => Boolean(item))
+    ]).sort(compareTariffCodes);
+  }
+
+  private buildIndexedQuarterComponents(
+    key: TimeKey,
+    tariffCode: string,
+    tariffPeriod: string,
+    omie: Map<string, SourcePrice>,
+    hourly: ReturnType<typeof groupLiquidations>,
+    qh: ReturnType<typeof groupLiquidations>,
+    regulatedContext: RegulatedPriceContext | null
+  ) {
+    const bcKwh = 250;
+    const pfKwh = 250;
+    const results: CostComponentResult[] = [
+      calculateCostComponent("OMIE_MD", "BC", bcKwh, omie.get(key.quarterKey) ?? null),
+      calculateCostComponent("CAD", "BC", bcKwh, hourly.CAD.get(key.hourlyKey) ?? null),
+      calculateCostComponent("BS3", "BC", bcKwh, qh.BS3.get(key.quarterKey) ?? null),
+      calculateCostComponent("RAD3", "BC", bcKwh, qh.RAD3.get(key.quarterKey) ?? null),
+      ...(regulatedContext ? this.buildRegulatedComponents(key, tariffPeriod, tariffCode, bcKwh, pfKwh, regulatedContext) : [])
+    ];
+    results.push(regulatedContext ? this.buildImuComponent(key, results, regulatedContext) : unresolved("IMU", "IMU_VERSION_NOT_FOUND", "ECONOMIC_AMOUNT", null, null));
+    return results.filter((item) => costComponentNature(item.componentCode) === "ENERGY");
   }
 
   private async buildCostRun(curve: CurveIntervalForCosts[], invoiceTariffCode?: string | null, periodStart?: Date | null, periodEnd?: Date | null, lines: InvoiceLineForCosts[] = []) {
@@ -851,15 +1071,7 @@ export class BillingDashboardCostsService {
       return unresolved("IMU", source.sourceErrorCode, "ECONOMIC_AMOUNT", null, source);
     }
     const baseRows = IMU_BASE_COMPONENTS.map((componentCode) => components.find((item) => item.componentCode === componentCode));
-    const missing = baseRows.filter((item) => !item || item.status !== "OK" || item.costEur === null);
     const baseAmountEur = baseRows.reduce((sum, item) => sum + (item?.status === "OK" && item.costEur !== null ? item.costEur : 0), 0);
-    if (missing.length > 0) {
-      return {
-        ...unresolved("IMU", "IMU_BASE_INCOMPLETE", "ECONOMIC_AMOUNT", null, source),
-        baseAmountEur,
-        percentage: source.percentage ?? null
-      };
-    }
     if (source.percentage === null || source.percentage === undefined || !Number.isFinite(source.percentage)) {
       return unresolved("IMU", "IMU_RATE_NOT_CONFIGURED", "ECONOMIC_AMOUNT", null, source);
     }
@@ -893,14 +1105,10 @@ export class BillingDashboardCostsService {
     if (source.sourceErrorCode) {
       return unresolved("IMU", source.sourceErrorCode, "ECONOMIC_AMOUNT", null, source);
     }
-    const missingBase = IMU_BASE_COMPONENTS.filter((componentCode) => {
+    const baseAmountEur = IMU_BASE_COMPONENTS.reduce((sum, componentCode) => {
       const component = components.find((item) => item.componentCode === componentCode);
-      return !component || component.status !== "OK" || component.costEur === null;
-    });
-    if (missingBase.length > 0) {
-      return unresolved("IMU", "IMU_BASE_INCOMPLETE", "ECONOMIC_AMOUNT", null, source);
-    }
-    const baseAmountEur = IMU_BASE_COMPONENTS.reduce((sum, componentCode) => sum + (components.find((item) => item.componentCode === componentCode)?.costEur ?? 0), 0);
+      return sum + (component?.status === "OK" && component.costEur !== null ? component.costEur : 0);
+    }, 0);
     const percentage = source.percentage ?? null;
     if (percentage === null) return unresolved("IMU", "IMU_RATE_NOT_CONFIGURED", "ECONOMIC_AMOUNT", null, source);
     return {
@@ -1962,6 +2170,31 @@ function enumerateDatesInclusive(start: string, end: string) {
   return result;
 }
 
+function parseIndexedPriceHistoryQuery(query: Record<string, unknown>) {
+  const dateFrom = isoDate(query.dateFrom);
+  const dateTo = isoDate(query.dateTo);
+  if (!dateFrom || !dateTo) throw new BadRequestException("Fecha desde y fecha hasta son obligatorias.");
+  if (dateFrom > dateTo) throw new BadRequestException("Fecha desde no puede ser posterior a fecha hasta.");
+  if (enumerateDatesInclusive(dateFrom, dateTo).length > 1830) throw new BadRequestException("El rango maximo permitido es de 5 anos.");
+  const requestedTariff = normalizeTariffCode(text(query.tariffCode));
+  return {
+    dateFrom,
+    dateTo,
+    scopeKey: requestedTariff ? `TARIFF:${requestedTariff}` : "ALL"
+  };
+}
+
+function enumerateMonthsInclusive(start: string, end: string) {
+  const result: string[] = [];
+  const cursor = new Date(`${start.slice(0, 7)}-01T00:00:00.000Z`);
+  const endMonth = `${end.slice(0, 7)}-01`;
+  while (dateOnly(cursor)! <= endMonth) {
+    result.push(dateOnly(cursor)!.slice(0, 7));
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1);
+  }
+  return result;
+}
+
 function nextDate(date: string) {
   const current = new Date(`${date}T00:00:00.000Z`);
   current.setUTCDate(current.getUTCDate() + 1);
@@ -2180,6 +2413,97 @@ function costRunRow(run: {
     errorIntervalsCount: run.errorIntervalsCount,
     incidentsCount: run.incidentsCount,
     message: run.message
+  };
+}
+
+function quarterInstantsForHour(timestampInicio: string) {
+  const start = new Date(timestampInicio).getTime();
+  return [0, 1, 2, 3].map((quarter) => new Date(start + quarter * 15 * 60 * 1000));
+}
+
+function aggregateIndexedHourComponents(quarters: CostComponentResult[][]) {
+  const byComponent = new Map<CostComponent, CostComponentResult[]>();
+  for (const quarter of quarters) {
+    for (const component of quarter) {
+      const rows = byComponent.get(component.componentCode) ?? [];
+      rows.push(component);
+      byComponent.set(component.componentCode, rows);
+    }
+  }
+  return ENERGY_REPORT_COMPONENTS.map((componentCode) => {
+    const rows = byComponent.get(componentCode) ?? [];
+    if (rows.length === 0) return unresolved(componentCode, `${componentCode}_NOT_FOUND`, defaultEnergyBasis(componentCode), null, null);
+    const first = rows[0];
+    const costEur = rows.some((row) => row.status !== "OK" || row.costEur === null) ? null : rows.reduce((sum, row) => sum + (row.costEur ?? 0), 0);
+    return {
+      ...first,
+      energyKwh: rows.reduce((sum, row) => sum + (row.energyKwh ?? 0), 0) || first.energyKwh,
+      energyMwh: rows.reduce((sum, row) => sum + (row.energyMwh ?? 0), 0) || first.energyMwh,
+      costEur,
+      incidentCode: rows.find((row) => row.incidentCode)?.incidentCode ?? null,
+      status: rows.some((row) => row.status !== "OK" || row.incidentCode) ? "WARNING" : "OK"
+    } satisfies CostComponentResult;
+  });
+}
+
+function defaultEnergyBasis(componentCode: CostComponent): "BC" | "PF" | "ECONOMIC_AMOUNT" {
+  if (componentCode === "EFIH" || componentCode === "BONO_SOCIAL" || componentCode === "TOLLS_CHARGES_ENERGY") return "PF";
+  if (componentCode === "IMU") return "ECONOMIC_AMOUNT";
+  return "BC";
+}
+
+function indexedComponentRow(component: CostComponentResult) {
+  return {
+    componentCode: component.componentCode,
+    label: indexedComponentLabel(component.componentCode),
+    priceEurMwh: component.priceEurMwh,
+    percentage: component.percentage,
+    costEur: component.costEur,
+    status: component.status,
+    incidentCode: component.incidentCode
+  };
+}
+
+function indexedComponentLabel(componentCode: CostComponent) {
+  const labels: Record<CostComponent, string> = {
+    OMIE_MD: "OMIE MD",
+    CAD: "CAD",
+    PC3: "PC3 REGANECU",
+    BS3: "BS3",
+    RAD3: "RAD3",
+    RETH: "RETh",
+    PC3_CONFIG: "PC3",
+    EFIH: "EFIh",
+    TOLLS_CHARGES_ENERGY: "Peajes + Cargos Energia",
+    TOLLS_CHARGES_POWER: "Peajes + Cargos Potencia",
+    BONO_SOCIAL: "Bono Social",
+    OTROS: "Otros",
+    IMU: "IMU"
+  };
+  return labels[componentCode] ?? componentCode;
+}
+
+function indexedDetailKey(tariffCode: string, date: string, period: string) {
+  return `${tariffCode}|${date}|${period}`;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function compareTariffPeriods(left: string, right: string) {
+  return Number(left.slice(1)) - Number(right.slice(1));
+}
+
+function compareTariffCodes(left: string, right: string) {
+  return left.localeCompare(right, "es", { numeric: true, sensitivity: "base" });
+}
+
+function versionIntersectsRange(dateFrom: string, dateTo: string, code: RegulatedPriceCode): Prisma.RegulatedPriceVersionWhereInput {
+  return {
+    code,
+    validFrom: { lte: new Date(`${dateTo}T00:00:00.000Z`) },
+    OR: [{ validTo: null }, { validTo: { gte: new Date(`${dateFrom}T00:00:00.000Z`) } }]
   };
 }
 

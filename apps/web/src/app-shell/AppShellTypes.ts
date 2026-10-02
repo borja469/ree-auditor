@@ -30,7 +30,8 @@ export type Section =
   | "gasMibgasLiquidationCheck"
   | "mercadoForecast"
   | "futuresReport"
-  | "annualReport";
+  | "annualReport"
+  | "indexedPriceHistoryReport";
 
 export type ReganecuView = "history" | "summary" | "hourly" | "qh";
 export type ReeSeieView = "summary" | "hourly";
