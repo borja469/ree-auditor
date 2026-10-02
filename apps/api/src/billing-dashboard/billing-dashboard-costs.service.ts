@@ -433,7 +433,7 @@ export class BillingDashboardCostsService {
         const total = hourComponents.reduce((sum, item) => sum + (item.status === "OK" && item.costEur !== null ? item.costEur : 0), 0);
         const incidents = uniqueStrings(hourComponents.map((item) => item.incidentCode).filter((item): item is string => Boolean(item)));
         const useWeighting = usesInitialProfileWeighting(tariffCode);
-        const initialProfile = useWeighting ? initialProfiles.get(indexedInitialProfileKey(tariffCode, hour.timestampInicio)) ?? null : null;
+        const initialProfile = useWeighting ? initialProfiles.get(indexedInitialProfileKey(tariffCode, hour.fecha, hour.hora)) ?? null : null;
         if (useWeighting && initialProfile === null) incidents.push("INITIAL_PROFILE_NOT_FOUND");
         const month = hour.fecha.slice(0, 7);
         const periodMap = monthMap.get(month) ?? new Map<string, IndexedPriceAccumulator>();
@@ -685,12 +685,12 @@ export class BillingDashboardCostsService {
         datetime: { gte: start, lt: end },
         tariff: { in: [...INDEXED_INITIAL_PROFILE_WEIGHTED_TARIFFS] }
       },
-      select: { datetime: true, tariff: true, initialProfile: true }
+      select: { year: true, month: true, day: true, hour: true, tariff: true, initialProfile: true }
     });
     const map = new Map<string, number>();
     for (const row of rows) {
       const value = decimalToNumber(row.initialProfile);
-      if (value !== null) map.set(indexedInitialProfileKey(row.tariff, row.datetime.toISOString()), value);
+      if (value !== null) map.set(indexedInitialProfileKey(row.tariff, localDateFromParts(row.year, row.month, row.day), row.hour), value);
     }
     return map;
   }
@@ -2523,8 +2523,12 @@ function indexedDetailKey(tariffCode: string, date: string, period: string) {
   return `${tariffCode}|${date}|${period}`;
 }
 
-function indexedInitialProfileKey(tariffCode: string, timestampInicio: string) {
-  return `${normalizeTariffCode(tariffCode) ?? tariffCode}|${new Date(timestampInicio).toISOString()}`;
+function indexedInitialProfileKey(tariffCode: string, localDate: string, localHour: number) {
+  return `${normalizeTariffCode(tariffCode) ?? tariffCode}|${localDate}|${localHour}`;
+}
+
+function localDateFromParts(year: number, month: number, day: number) {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
 function usesInitialProfileWeighting(tariffCode: string) {
