@@ -157,6 +157,11 @@ export class BillingDashboardController {
     return this.service.startCalculateMarginsJob(String(body.dateFrom ?? ""), String(body.dateTo ?? ""), body.mode, user);
   }
 
+  @Post("jobs/full-recalculation")
+  startFullRecalculationJob(@Body() body: { dateFrom?: string; dateTo?: string; mode?: "PENDING_ONLY" | "RECALCULATE" }, @Headers("x-user") user?: string) {
+    return this.service.startFullRecalculationJob(String(body.dateFrom ?? ""), String(body.dateTo ?? ""), body.mode, user);
+  }
+
   @Post("imports")
   importInvoices(@Body() body: { dateFrom?: string; dateTo?: string }) {
     return this.service.importInvoices(String(body.dateFrom ?? ""), String(body.dateTo ?? ""));

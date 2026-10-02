@@ -32,7 +32,7 @@ const BILLING_JOB_PROCESS_BATCH_SIZE = 5;
 const BILLING_PROCESS_PENDING_STATUSES = [CmInvoiceProcessingStatus.IMPORTED, CmInvoiceProcessingStatus.WARNING];
 const BILLING_MARGIN_JOB_DEFAULT_CONCURRENCY = 4;
 
-type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS";
+type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS" | "FULL_RECALCULATION";
 type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
 const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V1";
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
@@ -336,7 +336,7 @@ export class BillingDashboardService {
   async startImportJob(dateFrom: string, dateTo: string, requestedBy?: string) {
     assertDate(dateFrom, "dateFrom");
     assertDate(dateTo, "dateTo");
-    const active = await this.findActiveJob("IMPORT_INVOICES");
+    const active = await this.findActiveBillingJob(["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "FULL_RECALCULATION"]);
     if (active) return billingJobRow(active);
     const job = await this.prisma.cmBillingJob.create({
       data: {
@@ -352,7 +352,7 @@ export class BillingDashboardService {
   }
 
   async startProcessPendingJob(limit = BILLING_JOB_PROCESS_BATCH_SIZE, requestedBy?: string) {
-    const active = await this.findActiveJob("PROCESS_PENDING");
+    const active = await this.findActiveBillingJob(["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "FULL_RECALCULATION"]);
     if (active) return billingJobRow(active);
     const batchSize = Math.min(Math.max(Number(limit) || BILLING_JOB_PROCESS_BATCH_SIZE, 1), 20);
     const totalItems = await this.prisma.cmInvoice.count({ where: { processingStatus: { in: BILLING_PROCESS_PENDING_STATUSES } } });
@@ -374,7 +374,7 @@ export class BillingDashboardService {
     assertDate(dateFrom, "dateFrom");
     assertDate(dateTo, "dateTo");
     const normalizedMode: MarginJobMode = mode === "RECALCULATE" ? "RECALCULATE" : "PENDING_ONLY";
-    const active = await this.findActiveJob("CALCULATE_MARGINS");
+    const active = await this.findActiveBillingJob(["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "FULL_RECALCULATION"]);
     if (active) return billingJobRow(active);
     const job = await this.prisma.cmBillingJob.create({
       data: {
@@ -386,6 +386,25 @@ export class BillingDashboardService {
       }
     });
     void this.runCalculateMarginsJob(job.id, dateFrom, dateTo, normalizedMode);
+    return billingJobRow(job);
+  }
+
+  async startFullRecalculationJob(dateFrom: string, dateTo: string, mode: MarginJobMode = "PENDING_ONLY", requestedBy?: string) {
+    assertDate(dateFrom, "dateFrom");
+    assertDate(dateTo, "dateTo");
+    const normalizedMode: MarginJobMode = mode === "RECALCULATE" ? "RECALCULATE" : "PENDING_ONLY";
+    const active = await this.findActiveBillingJob(["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "FULL_RECALCULATION"]);
+    if (active) return billingJobRow(active);
+    const job = await this.prisma.cmBillingJob.create({
+      data: {
+        type: "FULL_RECALCULATION",
+        status: "QUEUED",
+        requestedBy: text(requestedBy),
+        params: { dateFrom, dateTo, mode: normalizedMode },
+        message: "Proceso completo en cola: importacion, curva, costes y margenes."
+      }
+    });
+    void this.runFullRecalculationJob(job.id, dateFrom, dateTo, normalizedMode);
     return billingJobRow(job);
   }
 
@@ -798,9 +817,9 @@ export class BillingDashboardService {
     return { processed: results.length, remainingImported, remainingPending, results };
   }
 
-  private async findActiveJob(type: BillingJobType) {
+  private async findActiveBillingJob(types: BillingJobType[]) {
     return this.prisma.cmBillingJob.findFirst({
-      where: { type, status: { in: BILLING_JOB_ACTIVE_STATUSES } },
+      where: { type: { in: types }, status: { in: BILLING_JOB_ACTIVE_STATUSES } },
       orderBy: { createdAt: "desc" }
     });
   }
@@ -948,6 +967,123 @@ export class BillingDashboardService {
           ...counters,
           result: result as unknown as Prisma.InputJsonValue,
           message: `Calculo de costes y margenes finalizado. OK: ${result.ok}. Warnings: ${result.warnings}. Sin curva: ${result.withoutCurve}. Sin costes: ${result.withoutCosts}.`,
+          finishedAt: new Date()
+        }
+      });
+    } catch (error) {
+      await this.failJob(jobId, error, counters);
+    }
+  }
+
+  private async runFullRecalculationJob(jobId: string, dateFrom: string, dateTo: string, mode: MarginJobMode) {
+    const from = parseDateOnly(dateFrom);
+    const to = parseDateOnly(dateTo);
+    const counters = { processedItems: 0, successCount: 0, warningCount: 0, errorCount: 0 };
+    const result = {
+      mode,
+      import: null as Prisma.JsonValue | null,
+      totalFound: 0,
+      processedCount: 0,
+      ok: 0,
+      warnings: 0,
+      errors: 0,
+      withoutCurve: 0,
+      withoutCosts: 0,
+      withoutPf: 0,
+      withoutMappedConcepts: 0,
+      skipped: 0
+    };
+    await this.prisma.cmBillingJob.update({
+      where: { id: jobId },
+      data: {
+        status: "RUNNING",
+        startedAt: new Date(),
+        currentItem: "IMPORT_INVOICES",
+        message: "Fase 1/3: importando facturas GISCE."
+      }
+    });
+    try {
+      const importBatch = await this.importInvoices(dateFrom, dateTo);
+      result.import = importBatch as unknown as Prisma.JsonValue;
+      await this.prisma.cmBillingJob.update({
+        where: { id: jobId },
+        data: {
+          result: result as unknown as Prisma.InputJsonValue,
+          currentItem: "PROCESS_CURVES",
+          message: "Fase 2/3: reconstruyendo curvas y perfiles."
+        }
+      });
+
+      const queue = await this.prisma.cmInvoice.findMany({
+        where: { invoiceDate: { gte: from, lte: to } },
+        orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
+        include: { lines: true }
+      });
+      result.totalFound = queue.length;
+      await this.prisma.cmBillingJob.update({
+        where: { id: jobId },
+        data: { totalItems: queue.length, result: result as unknown as Prisma.InputJsonValue }
+      });
+
+      for (const invoice of queue) {
+        const shouldProcessCurve = mode === "RECALCULATE" || invoice.processingStatus === CmInvoiceProcessingStatus.IMPORTED || invoice.processingStatus === CmInvoiceProcessingStatus.WARNING;
+        let invoiceForCosts = invoice;
+        try {
+          if (shouldProcessCurve) {
+            const processed = await this.processInvoice(invoice.id);
+            invoiceForCosts = { ...invoice, ...processed };
+          }
+        } catch (error) {
+          counters.processedItems += 1;
+          counters.errorCount += 1;
+          result.errors += 1;
+          await this.prisma.cmBillingJob.update({
+            where: { id: jobId },
+            data: {
+              ...counters,
+              currentItem: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId),
+              result: result as unknown as Prisma.InputJsonValue,
+              message: `Fase 2/3: curvas procesadas ${counters.processedItems} / ${queue.length}.`
+            }
+          });
+          continue;
+        }
+
+        try {
+          const outcome = await this.calculateCostsAndStoreMarginSnapshot(invoiceForCosts, mode);
+          counters.processedItems += 1;
+          result.processedCount += outcome.processed ? 1 : 0;
+          if (!outcome.processed && (outcome.code === "OK" || outcome.code === "WARNING")) result.skipped += 1;
+          if (outcome.code === "OK") { counters.successCount += 1; result.ok += 1; }
+          if (outcome.code === "WARNING") { counters.warningCount += 1; result.warnings += 1; }
+          if (outcome.code === "WITHOUT_CURVE") result.withoutCurve += 1;
+          if (outcome.code === "WITHOUT_COSTS") result.withoutCosts += 1;
+          if (outcome.code === "WITHOUT_PF") result.withoutPf += 1;
+          if (outcome.code === "WITHOUT_MAPPED_CONCEPTS") result.withoutMappedConcepts += 1;
+        } catch (error) {
+          counters.processedItems += 1;
+          counters.errorCount += 1;
+          result.errors += 1;
+        }
+
+        await this.prisma.cmBillingJob.update({
+          where: { id: jobId },
+          data: {
+            ...counters,
+            currentItem: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId),
+            result: result as unknown as Prisma.InputJsonValue,
+            message: `Fase 3/3: costes y margenes procesados ${counters.processedItems} / ${queue.length}.`
+          }
+        });
+      }
+
+      await this.prisma.cmBillingJob.update({
+        where: { id: jobId },
+        data: {
+          status: counters.errorCount ? "ERROR" : "SUCCESS",
+          ...counters,
+          result: result as unknown as Prisma.InputJsonValue,
+          message: `Proceso completo finalizado. OK: ${result.ok}. Warnings: ${result.warnings}. Sin curva: ${result.withoutCurve}. Sin costes: ${result.withoutCosts}.`,
           finishedAt: new Date()
         }
       });

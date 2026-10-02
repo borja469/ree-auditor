@@ -495,7 +495,7 @@ export type BillingImportBatch = {
 };
 
 export type BillingJobStatus = "QUEUED" | "RUNNING" | "SUCCESS" | "ERROR" | "CANCELLED";
-export type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS";
+export type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS" | "FULL_RECALCULATION";
 export type BillingJob = {
   id: string;
   type: BillingJobType;
@@ -4751,6 +4751,10 @@ export async function startBillingProcessPendingJob(limit = 5): Promise<BillingJ
 
 export async function startBillingCalculateMarginsJob(dateFrom: string, dateTo: string, mode: "PENDING_ONLY" | "RECALCULATE"): Promise<BillingJob> {
   return sendJson(`/billing-dashboard/jobs/calculate-margins`, "POST", "Lanzando calculo de costes y margenes", REQUEST_TIMEOUT_MS, { dateFrom, dateTo, mode });
+}
+
+export async function startBillingFullRecalculationJob(dateFrom: string, dateTo: string, mode: "PENDING_ONLY" | "RECALCULATE"): Promise<BillingJob> {
+  return sendJson(`/billing-dashboard/jobs/full-recalculation`, "POST", "Lanzando proceso completo de facturacion", REQUEST_TIMEOUT_MS, { dateFrom, dateTo, mode });
 }
 
 export async function deleteBillingInvoicesByInvoiceDate(dateFrom: string, dateTo: string): Promise<BillingDeleteInvoicesResponse> {

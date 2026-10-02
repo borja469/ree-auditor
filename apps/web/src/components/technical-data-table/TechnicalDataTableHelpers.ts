@@ -194,7 +194,7 @@ function stringifyExportCellValue<T>(column: TechnicalColumn<T>, value: string |
   if (numeric === undefined) {
     return "";
   }
-  return numeric.toLocaleString("es-ES", { maximumFractionDigits: 6 });
+  return numeric.toLocaleString("es-ES", { maximumFractionDigits: 15 });
 }
 
 export function formatCompleteness(value: number) {

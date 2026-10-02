@@ -71,6 +71,8 @@ type ProfileTariff = (typeof PROFILE_TARIFFS)[number];
 type EsiosProfilePivotRow = {
   id: string;
   year: number;
+  month: number;
+  day: number;
   datetime: string;
   hour: number;
   referenceDemandMw: number | null;
@@ -226,8 +228,9 @@ export function EsiosModule({ view }: { view: EsiosViewKey }) {
   async function loadIntermediates(nextFilters = profilesFilters, page = intermediatePage, pageSize = intermediatePageSize) {
     const normalized = normalizeProfilesFilters(nextFilters);
     const year = Number(normalized.year);
+    const rawPageSize = pageSize * PROFILE_TARIFFS.length;
     const [rows, summary, logs, finalDemand, finalProfiles] = await Promise.all([
-      getEsiosIntermediateProfiles({ ...normalized, skip: page * pageSize, take: pageSize }),
+      getEsiosIntermediateProfiles({ ...normalized, skip: page * rawPageSize, take: rawPageSize }),
       getEsiosIntermediateProfilesSummary(year),
       getEsiosProfileCalculationLogs({ year, take: 50 }),
       getEsiosReeFinalDemandUploads({ year, take: 50 }),
@@ -865,7 +868,7 @@ function ProfilesView({
           <TechnicalDataTable
             columns={profileColumns}
             exportFileName={`esios-perfiles-intermedios-${filters.year ?? "base"}`}
-            getDuplicateKey={(row) => `${row.year}|${row.datetime}`}
+            getDuplicateKey={(row) => row.id}
             getGroupLabel={() => "Perfiles"}
             getRowId={(row) => row.id}
             getRowQuality={buildProfilePivotRowQuality}
@@ -2186,9 +2189,12 @@ function buildProfileRowQuality(row: EsiosInitialProfile): RowQuality {
 function buildProfilePivotRows(rows: EsiosProfileIntermediateRow[]): EsiosProfilePivotRow[] {
   const byDatetime = new Map<string, EsiosProfilePivotRow>();
   for (const row of rows) {
-    const existing = byDatetime.get(row.datetime) ?? {
-      id: `${row.year}-${row.datetime}`,
+    const key = `${row.year}|${row.month}|${row.day}|${row.hour}`;
+    const existing = byDatetime.get(key) ?? {
+      id: key,
       year: row.year,
+      month: row.month,
+      day: row.day,
       datetime: row.datetime,
       hour: row.hour,
       referenceDemandMw: row.referenceDemandMw,
@@ -2200,9 +2206,9 @@ function buildProfilePivotRows(rows: EsiosProfileIntermediateRow[]): EsiosProfil
     existing.demandUsedMw ??= row.demandUsedMw;
     existing.demandSource = existing.demandSource || row.demandSource;
     existing.byTariff[row.tariff] = row;
-    byDatetime.set(row.datetime, existing);
+    byDatetime.set(key, existing);
   }
-  return Array.from(byDatetime.values()).sort((left, right) => left.datetime.localeCompare(right.datetime));
+  return Array.from(byDatetime.values()).sort((left, right) => left.year - right.year || left.month - right.month || left.day - right.day || left.hour - right.hour);
 }
 
 function buildProfilePivotColumns(rows: EsiosProfilePivotRow[]): Array<TechnicalColumn<EsiosProfilePivotRow>> {
@@ -2274,8 +2280,8 @@ function buildProfilePivotColumns(rows: EsiosProfilePivotRow[]): Array<Technical
         label: `Validado ${tariff}`,
         width: 126,
         filter: "select",
-        value: (row) => row.byTariff[tariff]?.validationStatus,
-        render: (row) => validationLabel(row.byTariff[tariff]?.validationStatus ?? "SIN_PERFF")
+        value: (row) => row.byTariff[tariff]?.validationStatus ?? "SIN_INTERMEDIO",
+        render: (row) => row.byTariff[tariff] ? validationLabel(row.byTariff[tariff].validationStatus) : "Sin intermedio"
       }
     );
   }
