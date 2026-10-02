@@ -1785,7 +1785,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
                     : section === "annualReport"
                       ? "Informe Anual"
                     : section === "indexedPriceHistoryReport"
-                      ? "Historico Precios Indexados"
+                      ? "Historico Pass Through"
+                    : section === "indexedPriceHistoryOmieImuReport"
+                      ? "Historico Pass Pool"
                     : section === "futuresReport"
                       ? "Informe Futuros"
                     : section === "pricingBase"
@@ -2367,10 +2369,17 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
         },
         {
           key: "informes-historico-precios-indexados",
-          label: "Historico Precios Indexados",
+          label: "Historico Pass Through",
           description: "precio indexado por tarifa",
           active: section === "indexedPriceHistoryReport",
           onSelect: () => changeSection("indexedPriceHistoryReport")
+        },
+        {
+          key: "informes-historico-precios-omie-imu",
+          label: "Historico Pass Pool",
+          description: "precio OMIE MD e IMU",
+          active: section === "indexedPriceHistoryOmieImuReport",
+          onSelect: () => changeSection("indexedPriceHistoryOmieImuReport")
         }
       ]
     }
@@ -2663,6 +2672,13 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           {section === "futuresReport" && <FuturesEvolutionReportModule />}
           {section === "annualReport" && <AnnualReportModule />}
           {section === "indexedPriceHistoryReport" && <IndexedPriceHistoryReportModule />}
+          {section === "indexedPriceHistoryOmieImuReport" && (
+            <IndexedPriceHistoryReportModule
+              title="Historico Pass Pool"
+              subtitle="Precio indexado con OMIE MD e IMU por tarifa y periodo tarifario"
+              componentScope="OMIE_IMU"
+            />
+          )}
           {section === "pricingBase" && <PricingBaseModule />}
           {section === "pricingMeff" && <PricingMeffModule />}
           {section === "pricingHedges" && <PricingHedgesModule />}

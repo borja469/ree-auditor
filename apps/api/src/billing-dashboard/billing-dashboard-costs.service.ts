@@ -48,6 +48,11 @@ const COMPONENT_NATURE: Record<CostComponent, CostNature> = {
   IMU: "ENERGY"
 };
 const ENERGY_REPORT_COMPONENTS = COST_COMPONENTS.filter((component) => COMPONENT_NATURE[component] === "ENERGY");
+const INDEXED_PRICE_COMPONENT_SCOPES = {
+  FULL_ENERGY: ENERGY_REPORT_COMPONENTS,
+  OMIE_IMU: ["OMIE_MD", "IMU"] as const
+} satisfies Record<string, readonly CostComponent[]>;
+type IndexedPriceComponentScope = keyof typeof INDEXED_PRICE_COMPONENT_SCOPES;
 const INDEXED_INITIAL_PROFILE_WEIGHTED_TARIFFS = ["2.0TD", "3.0TD", "3.0TDVE"] as const;
 const INDEXED_PRICE_HISTORY_CACHE_VERSION = "WEIGHTED_INITIAL_PROFILE_LOSSES_V1";
 
@@ -329,7 +334,7 @@ export class BillingDashboardCostsService {
   }
 
   async indexedPriceHistory(query: Record<string, unknown>) {
-    const { dateFrom, dateTo, scopeKey } = parseIndexedPriceHistoryQuery(query);
+    const { dateFrom, dateTo, scopeKey, componentCodes } = parseIndexedPriceHistoryQuery(query);
     const snapshot = await this.prisma.cmIndexedPriceHistorySnapshot.findUnique({
       where: {
         dateFrom_dateTo_calculationVersion_scopeKey: {
@@ -347,7 +352,7 @@ export class BillingDashboardCostsService {
         calculationVersion: CALCULATION_VERSION,
         calculatedAt: null,
         fromCache: true,
-        componentCodes: ENERGY_REPORT_COMPONENTS,
+        componentCodes,
         tariffs: []
       };
     }
@@ -400,8 +405,9 @@ export class BillingDashboardCostsService {
     if (enumerateDatesInclusive(dateFrom, dateTo).length > 1830) throw new BadRequestException("El rango maximo permitido es de 5 anos.");
 
     const requestedTariff = normalizeTariffCode(text(query.tariffCode));
+    const { componentCodes } = parseIndexedPriceHistoryQuery(query);
     const tariffs = requestedTariff ? [requestedTariff] : await this.listIndexedPriceTariffs(dateFrom, dateTo);
-    if (tariffs.length === 0) return { dateFrom, dateTo, componentCodes: ENERGY_REPORT_COMPONENTS, tariffs: [] };
+    if (tariffs.length === 0) return { dateFrom, dateTo, componentCodes, tariffs: [] };
 
     const periodContext = await this.regulatoryEngine?.buildPeriodContext();
     if (!periodContext) throw new BadRequestException("No se pudo cargar el calendario tarifario.");
@@ -429,10 +435,10 @@ export class BillingDashboardCostsService {
         const quarterComponents = quarterInstantsForHour(hour.timestampInicio)
           .map((instant) => timeKeys.get(instant.toISOString()))
           .filter((key): key is TimeKey => Boolean(key))
-          .map((key) => this.buildIndexedQuarterComponents(key, tariffCode, tariffPeriod, omie, hourly, qh, regulatedContext, losses.get(key.hourlyKey) ?? null));
+          .map((key) => this.buildIndexedQuarterComponents(key, tariffCode, tariffPeriod, omie, hourly, qh, regulatedContext, losses.get(key.hourlyKey) ?? null, componentCodes));
         if (quarterComponents.length === 0) continue;
 
-        const hourComponents = aggregateIndexedHourComponents(quarterComponents);
+        const hourComponents = aggregateIndexedHourComponents(quarterComponents, componentCodes);
         const total = hourComponents.reduce((sum, item) => sum + (item.status === "OK" && item.costEur !== null ? item.costEur : 0), 0);
         const incidents = uniqueStrings(hourComponents.map((item) => item.incidentCode).filter((item): item is string => Boolean(item)));
         const useWeighting = usesInitialProfileWeighting(tariffCode);
@@ -488,7 +494,7 @@ export class BillingDashboardCostsService {
       });
     }
 
-    return { dateFrom, dateTo, componentCodes: ENERGY_REPORT_COMPONENTS, tariffs: responseTariffs };
+    return { dateFrom, dateTo, componentCodes, tariffs: responseTariffs };
   }
 
   async exportCostsWorkbook(invoiceId: string, runId: string) {
@@ -711,20 +717,26 @@ export class BillingDashboardCostsService {
     hourly: ReturnType<typeof groupLiquidations>,
     qh: ReturnType<typeof groupLiquidations>,
     regulatedContext: RegulatedPriceContext | null,
-    loss: RegulatedLossHourlyValue | null
+    loss: RegulatedLossHourlyValue | null,
+    componentCodes: readonly CostComponent[] = ENERGY_REPORT_COMPONENTS
   ) {
     const pfKwh = 250;
     const lossPercentage = loss?.value ?? null;
     const bcKwh = lossPercentage === null || lossPercentage >= 100 ? null : pfKwh / (1 - lossPercentage / 100);
-    const results: CostComponentResult[] = [
-      calculateCostComponent("OMIE_MD", "BC", bcKwh, omie.get(key.quarterKey) ?? null),
-      calculateCostComponent("CAD", "BC", bcKwh, hourly.CAD.get(key.hourlyKey) ?? null),
-      calculateCostComponent("BS3", "BC", bcKwh, qh.BS3.get(key.quarterKey) ?? null),
-      calculateCostComponent("RAD3", "BC", bcKwh, qh.RAD3.get(key.quarterKey) ?? null),
-      ...(regulatedContext ? this.buildRegulatedComponents(key, tariffPeriod, tariffCode, bcKwh, pfKwh, regulatedContext) : [])
-    ];
-    results.push(regulatedContext ? this.buildImuComponent(key, results, regulatedContext) : unresolved("IMU", "IMU_VERSION_NOT_FOUND", "ECONOMIC_AMOUNT", null, null));
-    return results.filter((item) => costComponentNature(item.componentCode) === "ENERGY");
+    const requested = new Set<CostComponent>(componentCodes);
+    const results: CostComponentResult[] = [];
+    if (requested.has("OMIE_MD") || requested.has("IMU")) results.push(calculateCostComponent("OMIE_MD", "BC", bcKwh, omie.get(key.quarterKey) ?? null));
+    if (requested.has("CAD")) results.push(calculateCostComponent("CAD", "BC", bcKwh, hourly.CAD.get(key.hourlyKey) ?? null));
+    if (requested.has("BS3")) results.push(calculateCostComponent("BS3", "BC", bcKwh, qh.BS3.get(key.quarterKey) ?? null));
+    if (requested.has("RAD3")) results.push(calculateCostComponent("RAD3", "BC", bcKwh, qh.RAD3.get(key.quarterKey) ?? null));
+    if (regulatedContext) {
+      const regulated = this.buildRegulatedComponents(key, tariffPeriod, tariffCode, bcKwh, pfKwh, regulatedContext);
+      results.push(...regulated.filter((item) => requested.has(item.componentCode)));
+    }
+    if (requested.has("IMU")) {
+      results.push(regulatedContext ? this.buildImuComponent(key, results, regulatedContext) : unresolved("IMU", "IMU_VERSION_NOT_FOUND", "ECONOMIC_AMOUNT", null, null));
+    }
+    return results.filter((item) => requested.has(item.componentCode) && costComponentNature(item.componentCode) === "ENERGY");
   }
 
   private async buildCostRun(curve: CurveIntervalForCosts[], invoiceTariffCode?: string | null, periodStart?: Date | null, periodEnd?: Date | null, lines: InvoiceLineForCosts[] = []) {
@@ -2223,11 +2235,20 @@ function parseIndexedPriceHistoryQuery(query: Record<string, unknown>) {
   if (dateFrom > dateTo) throw new BadRequestException("Fecha desde no puede ser posterior a fecha hasta.");
   if (enumerateDatesInclusive(dateFrom, dateTo).length > 1830) throw new BadRequestException("El rango maximo permitido es de 5 anos.");
   const requestedTariff = normalizeTariffCode(text(query.tariffCode));
+  const componentScope = parseIndexedPriceComponentScope(query.componentScope);
+  const componentCodes = [...INDEXED_PRICE_COMPONENT_SCOPES[componentScope]];
   return {
     dateFrom,
     dateTo,
-    scopeKey: `${requestedTariff ? `TARIFF:${requestedTariff}` : "ALL"}|${INDEXED_PRICE_HISTORY_CACHE_VERSION}`
+    componentScope,
+    componentCodes,
+    scopeKey: `${requestedTariff ? `TARIFF:${requestedTariff}` : "ALL"}|COMPONENTS:${componentScope}|${INDEXED_PRICE_HISTORY_CACHE_VERSION}`
   };
+}
+
+function parseIndexedPriceComponentScope(value: unknown): IndexedPriceComponentScope {
+  const normalized = text(value)?.toUpperCase();
+  return normalized === "OMIE_IMU" ? "OMIE_IMU" : "FULL_ENERGY";
 }
 
 function enumerateMonthsInclusive(start: string, end: string) {
@@ -2467,7 +2488,7 @@ function quarterInstantsForHour(timestampInicio: string) {
   return [0, 1, 2, 3].map((quarter) => new Date(start + quarter * 15 * 60 * 1000));
 }
 
-function aggregateIndexedHourComponents(quarters: CostComponentResult[][]) {
+function aggregateIndexedHourComponents(quarters: CostComponentResult[][], componentCodes: readonly CostComponent[] = ENERGY_REPORT_COMPONENTS) {
   const byComponent = new Map<CostComponent, CostComponentResult[]>();
   for (const quarter of quarters) {
     for (const component of quarter) {
@@ -2476,7 +2497,7 @@ function aggregateIndexedHourComponents(quarters: CostComponentResult[][]) {
       byComponent.set(component.componentCode, rows);
     }
   }
-  return ENERGY_REPORT_COMPONENTS.map((componentCode) => {
+  return componentCodes.map((componentCode) => {
     const rows = byComponent.get(componentCode) ?? [];
     if (rows.length === 0) return unresolved(componentCode, `${componentCode}_NOT_FOUND`, defaultEnergyBasis(componentCode), null, null);
     const first = rows[0];

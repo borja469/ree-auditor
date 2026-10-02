@@ -473,38 +473,73 @@ void describe("Billing dashboard costs phase 2", () => {
   });
 
   void it("aplica perdidas a los componentes BC en el historico de precios indexados", async () => {
-    const calendar = buildPricingCalendarRange("2026-09-01", "2026-09-01");
-    const quarterInstants = calendar.flatMap((hour) => {
-      const start = new Date(hour.timestampInicio).getTime();
-      return [0, 1, 2, 3].map((quarter) => new Date(start + quarter * 15 * 60_000));
-    });
-    const keys = buildMadridQuarterKeys(quarterInstants);
-    const omie = new Map([...keys.values()].map((key) => [key.quarterKey, price("omie_prices", 100, null, 15)]));
-    const service = new BillingDashboardCostsService(
-      {
-        esiosProfileIntermediateResult: { findMany: async () => [] }
-      },
-      undefined,
-      {
-        buildPeriodContext: async () => ({
-          rules: buildPeriodRuleMap(buildTariffPeriodSeedRows()),
-          holidays: buildHolidaySet([])
-        })
-      },
-      {
-        loadHourlyLosses: async () => new Map(calendar.map((hour) => [`${hour.fecha}|${hour.hora + 1}`, { value: 20, version: "A1", status: "ok", sourceId: "loss-1" }]))
-      }
-    );
-    service.loadOmie = async () => omie;
-    service.loadHourlyLiquidations = async () => ({ CAD: new Map() });
-    service.loadQhLiquidations = async () => ({ BS3: new Map(), RAD3: new Map() });
-    service.loadRegulatedPriceContext = async () => null;
-
-    const report = await service.calculateIndexedPriceHistory({ dateFrom: "2026-09-01", dateTo: "2026-09-01", tariffCode: "6.1TD" });
+    const report = await indexedPriceHistoryFixture({ componentScope: "FULL_ENERGY", regulatedContext: null });
     const firstValue = report.tariffs[0].rows[0].values.P1 ?? report.tariffs[0].rows[0].values.P2 ?? report.tariffs[0].rows[0].values.P3 ?? report.tariffs[0].rows[0].values.P4 ?? report.tariffs[0].rows[0].values.P5 ?? report.tariffs[0].rows[0].values.P6;
     assert.equal(firstValue.priceEurMwh, 125);
   });
+
+  void it("permite un historico limitado a OMIE MD e IMU sin arrastrar otras variables", async () => {
+    const report = await indexedPriceHistoryFixture({ componentScope: "OMIE_IMU", regulatedContext: imuContext(1.5) });
+    const tariff = report.tariffs[0];
+    const period = tariff.periods[0];
+    const value = tariff.rows[0].values[period];
+    const details = tariff.details[`6.1TD|2026-09|${period}`];
+    assert.deepEqual(report.componentCodes, ["OMIE_MD", "IMU"]);
+    assert.equal(value.priceEurMwh, 126.875);
+    assert.deepEqual(details[0].components.map((item) => item.componentCode), ["OMIE_MD", "IMU"]);
+  });
 });
+
+async function indexedPriceHistoryFixture({ componentScope, regulatedContext }) {
+  const calendar = buildPricingCalendarRange("2026-09-01", "2026-09-01");
+  const quarterInstants = calendar.flatMap((hour) => {
+    const start = new Date(hour.timestampInicio).getTime();
+    return [0, 1, 2, 3].map((quarter) => new Date(start + quarter * 15 * 60_000));
+  });
+  const keys = buildMadridQuarterKeys(quarterInstants);
+  const omie = new Map([...keys.values()].map((key) => [key.quarterKey, price("omie_prices", 100, null, 15)]));
+  const service = new BillingDashboardCostsService(
+    {
+      esiosProfileIntermediateResult: { findMany: async () => [] }
+    },
+    undefined,
+    {
+      buildPeriodContext: async () => ({
+        rules: buildPeriodRuleMap(buildTariffPeriodSeedRows()),
+        holidays: buildHolidaySet([])
+      })
+    },
+    {
+      loadHourlyLosses: async () => new Map(calendar.map((hour) => [`${hour.fecha}|${hour.hora + 1}`, { value: 20, version: "A1", status: "ok", sourceId: "loss-1" }]))
+    }
+  );
+  service.loadOmie = async () => omie;
+  service.loadHourlyLiquidations = async () => ({ CAD: new Map() });
+  service.loadQhLiquidations = async () => ({ BS3: new Map(), RAD3: new Map() });
+  service.loadRegulatedPriceContext = async () => regulatedContext;
+
+  return service.calculateIndexedPriceHistory({ dateFrom: "2026-09-01", dateTo: "2026-09-01", tariffCode: "6.1TD", componentScope });
+}
+
+function imuContext(percentage) {
+  return {
+    byCode: new Map([
+      ["IMU", [
+        {
+          id: "imu-version",
+          code: "IMU",
+          name: "IMU 2026",
+          validFrom: date("2026-01-01"),
+          validTo: null,
+          imuRate: {
+            id: "imu-rate",
+            percentage
+          }
+        }
+      ]]
+    ])
+  };
+}
 
 function price(sourceTable, priceEurMwh, sourceVersion, sourceResolutionMinutes) {
   return {

@@ -31,7 +31,8 @@ export type Section =
   | "mercadoForecast"
   | "futuresReport"
   | "annualReport"
-  | "indexedPriceHistoryReport";
+  | "indexedPriceHistoryReport"
+  | "indexedPriceHistoryOmieImuReport";
 
 export type ReganecuView = "history" | "summary" | "hourly" | "qh";
 export type ReeSeieView = "summary" | "hourly";

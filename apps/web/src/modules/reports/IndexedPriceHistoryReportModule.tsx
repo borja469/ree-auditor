@@ -6,7 +6,17 @@ import { PanelTitle } from "../shared/RestoredModuleCommon";
 
 const DEFAULT_MONTHS = 12;
 
-export function IndexedPriceHistoryReportModule() {
+type IndexedPriceHistoryReportModuleProps = {
+  title?: string;
+  subtitle?: string;
+  componentScope?: "FULL_ENERGY" | "OMIE_IMU";
+};
+
+export function IndexedPriceHistoryReportModule({
+  title = "Historico Pass Through",
+  subtitle = "Precio indexado energia por tarifa y periodo tarifario",
+  componentScope = "FULL_ENERGY"
+}: IndexedPriceHistoryReportModuleProps) {
   const [filters, setFilters] = useState(() => defaultFilters());
   const [appliedFilters, setAppliedFilters] = useState(filters);
   const [report, setReport] = useState<IndexedPriceHistoryResponse>();
@@ -25,7 +35,7 @@ export function IndexedPriceHistoryReportModule() {
     let ignore = false;
     setLoading(true);
     setError(undefined);
-    getIndexedPriceHistory(monthFiltersToDateRange(appliedFilters))
+    getIndexedPriceHistory({ ...monthFiltersToDateRange(appliedFilters), componentScope })
       .then((response) => {
         if (!ignore) {
           setReport(response);
@@ -44,7 +54,7 @@ export function IndexedPriceHistoryReportModule() {
     return () => {
       ignore = true;
     };
-  }, [appliedFilters]);
+  }, [appliedFilters, componentScope]);
 
   const hasData = Boolean(report && report.tariffs.length > 0);
   const actionsDisabled = loading || calculating || !filters.monthFrom || !filters.monthTo;
@@ -53,7 +63,7 @@ export function IndexedPriceHistoryReportModule() {
     setCalculating(true);
     setError(undefined);
     try {
-      const response = await recalculateIndexedPriceHistory(monthFiltersToDateRange(filters));
+      const response = await recalculateIndexedPriceHistory({ ...monthFiltersToDateRange(filters), componentScope });
       setAppliedFilters(filters);
       setReport(response);
       setSelectedCell(null);
@@ -67,7 +77,7 @@ export function IndexedPriceHistoryReportModule() {
   return (
     <section className="panel wide annual-report-panel indexed-price-history-panel">
       <div className="annual-report-header">
-        <PanelTitle icon={<FileText size={18} />} title="Historico Precios Indexados" subtitle="Precio indexado energia por tarifa y periodo tarifario" />
+        <PanelTitle icon={<FileText size={18} />} title={title} subtitle={subtitle} />
         <div className="indexed-price-history-filters">
           <label>
             <span>Mes desde</span>

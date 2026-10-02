@@ -4995,11 +4995,11 @@ export async function getAnnualReportYears(): Promise<number[]> {
   return getJson(`/annual-report/years`);
 }
 
-export async function getIndexedPriceHistory(filters: { dateFrom: string; dateTo: string; tariffCode?: string }): Promise<IndexedPriceHistoryResponse> {
+export async function getIndexedPriceHistory(filters: { dateFrom: string; dateTo: string; tariffCode?: string; componentScope?: string }): Promise<IndexedPriceHistoryResponse> {
   return getJson(`/billing-dashboard/reports/indexed-price-history${toQuery(filters)}`);
 }
 
-export async function recalculateIndexedPriceHistory(filters: { dateFrom: string; dateTo: string; tariffCode?: string }): Promise<IndexedPriceHistoryResponse> {
+export async function recalculateIndexedPriceHistory(filters: { dateFrom: string; dateTo: string; tariffCode?: string; componentScope?: string }): Promise<IndexedPriceHistoryResponse> {
   return sendJson(`/billing-dashboard/reports/indexed-price-history/recalculate`, "POST", "Calculando historico de precios", REQUEST_TIMEOUT_MS * 10, filters);
 }
 
