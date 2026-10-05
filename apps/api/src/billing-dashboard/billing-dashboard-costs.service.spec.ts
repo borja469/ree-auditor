@@ -470,6 +470,30 @@ void describe("Billing dashboard costs phase 2", () => {
     assert.equal(component(result, 0, "IMU").status, "OK");
     assert.equal(component(result, 0, "IMU").incidentCode, null);
     assert.ok((component(result, 0, "IMU").costEur ?? 0) > 0);
+    assert.deepEqual(result.intervalCosts[0].incidentCodes, ["RAD3_NOT_FOUND"]);
+    assert.equal(result.intervalCosts[0].status, "OK");
+    assert.equal(result.counts.incidents, 0);
+    assert.equal(result.counts.warning, 0);
+  });
+
+  void it("mantiene warning global si falta un componente no esperado de la base IMU", async () => {
+    const instant = new Date("2026-08-01T00:00:00.000Z");
+    const key = buildMadridQuarterKeys([instant]).get(instant.toISOString());
+    const service = new BillingDashboardCostsService({}, regulatedService());
+    service.loadOmie = async () => new Map([[key.quarterKey, price("omie_prices", 100, null, 15)]]);
+    service.loadHourlyLiquidations = async () => ({ CAD: new Map() });
+    service.loadQhLiquidations = async () => ({
+      BS3: new Map([[key.quarterKey, price("reganecu_qh_records", 0, "A2", 15)]]),
+      RAD3: new Map([[key.quarterKey, price("reganecu_qh_records", 0, "A2", 15)]])
+    });
+
+    const result = await service.buildCostRun([curveInterval(instant, 100, 80)], "2.0TD");
+    assert.equal(component(result, 0, "CAD").incidentCode, "CAD_NOT_FOUND");
+    assert.equal(component(result, 0, "IMU").status, "OK");
+    assert.ok((component(result, 0, "IMU").costEur ?? 0) > 0);
+    assert.equal(result.intervalCosts[0].status, "WARNING");
+    assert.equal(result.counts.incidents, 1);
+    assert.equal(result.counts.warning, 1);
   });
 
   void it("aplica perdidas a los componentes BC en el historico de precios indexados", async () => {

@@ -768,6 +768,7 @@ export class BillingDashboardCostsService {
       ];
       results.push(regulatedContext ? this.buildImuComponent(key, results, regulatedContext) : await this.buildImuComponentLegacy(key, results));
       const incidentCodes = results.map((item) => item.incidentCode).filter((item): item is string => Boolean(item));
+      const reportableIncidentCodes = incidentCodes.filter((code) => !isExpectedMissingSettlementIncident(code));
       const omieCost = results.find((item) => item.componentCode === "OMIE_MD")?.costEur ?? 0;
       const liquidationsCost = results.filter((item) => LIQUIDATION_COMPONENTS.includes(item.componentCode as LiquidationComponent)).reduce((sum, item) => sum + (item.costEur ?? 0), 0);
       const configuredCost = results.filter((item) => CONFIGURED_COMPONENTS.includes(item.componentCode as (typeof CONFIGURED_COMPONENTS)[number])).reduce((sum, item) => sum + (item.costEur ?? 0), 0);
@@ -775,7 +776,7 @@ export class BillingDashboardCostsService {
       const derivedCost = results.filter((item) => DERIVED_COMPONENTS.includes(item.componentCode as (typeof DERIVED_COMPONENTS)[number])).reduce((sum, item) => sum + (item.costEur ?? 0), 0);
       const regulatedCost = configuredCost + tollsChargesCost + derivedCost;
       const totalCost = omieCost + liquidationsCost + regulatedCost;
-      const status = incidentCodes.length > 0 ? "WARNING" : "OK";
+      const status = reportableIncidentCodes.length > 0 ? "WARNING" : "OK";
       intervalCosts.push({
         id: randomUUID(),
         invoiceId: interval.invoiceId,
@@ -807,7 +808,8 @@ export class BillingDashboardCostsService {
     const totalTollsCharges = totalTollsChargesEnergy + totalTollsChargesPower;
     const totalDerived = DERIVED_COMPONENTS.reduce((sum, component) => sum + sumComponents(allComponents, component), 0);
     const totalRegulated = totalConfigured + totalTollsCharges + totalDerived;
-    const incidentsCount = allComponents.filter((item) => item.incidentCode).length + powerCosts.filter((item) => item.incidentCode).length;
+    const incidentsCount = allComponents.filter((item) => item.incidentCode && !isExpectedMissingSettlementIncident(item.incidentCode)).length
+      + powerCosts.filter((item) => item.incidentCode).length;
     return {
       intervalCosts,
       powerCosts,
@@ -1858,6 +1860,10 @@ function summarizeLiquidationVersions(components: CostComponentResult[]) {
     componentCode,
     versions: [...new Set(components.filter((item) => item.componentCode === componentCode).map((item) => item.sourceVersion).filter((item): item is PricingSettlementVersion => item !== null))]
   }));
+}
+
+function isExpectedMissingSettlementIncident(code: string) {
+  return code === "BS3_NOT_FOUND" || code === "RAD3_NOT_FOUND";
 }
 
 function costsResponseFromCalculatedResult(
