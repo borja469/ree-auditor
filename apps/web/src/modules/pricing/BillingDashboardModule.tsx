@@ -16,6 +16,7 @@ import {
   getBillingRegulatedPriceVersions,
   getBillingTariffs,
   processBillingInvoice,
+  recalculateBillingOperationalBalance,
   updateBillingRegulatedPriceVersion,
   saveBillingGisceConfig,
   startBillingImportJob,
@@ -108,6 +109,7 @@ export function BillingDashboardModule() {
   const [balanceYear, setBalanceYear] = useState(() => new Date().getFullYear());
   const [balanceReport, setBalanceReport] = useState<BillingOperationalBalanceResponse | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  const [balanceCalculating, setBalanceCalculating] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [balanceFilters, setBalanceFilters] = useState({ cups: "", tariff: "", invoicingMode: "" });
 
@@ -324,6 +326,21 @@ export function BillingDashboardModule() {
       setBalanceReport(null);
     } finally {
       setBalanceLoading(false);
+    }
+  }
+
+  async function recalculateOperationalBalance() {
+    setBalanceCalculating(true);
+    setBalanceError(null);
+    try {
+      const report = await recalculateBillingOperationalBalance(balanceYear, balanceFilters);
+      setBalanceReport(report);
+      if (report.year !== balanceYear) setBalanceYear(report.year);
+      setMessage({ tone: "success", text: "Balance Operativo actualizado." });
+    } catch (error) {
+      setBalanceError(error instanceof Error ? error.message : "Error actualizando Balance Operativo.");
+    } finally {
+      setBalanceCalculating(false);
     }
   }
 
@@ -573,12 +590,14 @@ export function BillingDashboardModule() {
           report={balanceReport}
           selectedYear={balanceYear}
           loading={balanceLoading}
+          calculating={balanceCalculating}
           error={balanceError}
           filters={balanceFilters}
           invoicingModes={invoicingModes}
           tariffs={tariffs}
           onFiltersChange={setBalanceFilters}
           onYearChange={setBalanceYear}
+          onRecalculate={() => void recalculateOperationalBalance()}
         />
       )}
 
@@ -635,22 +654,26 @@ function OperationalBalanceSection({
   report,
   selectedYear,
   loading,
+  calculating,
   error,
   filters,
   invoicingModes,
   tariffs,
   onFiltersChange,
-  onYearChange
+  onYearChange,
+  onRecalculate
 }: {
   report: BillingOperationalBalanceResponse | null;
   selectedYear: number;
   loading: boolean;
+  calculating: boolean;
   error: string | null;
   filters: { cups: string; tariff: string; invoicingMode: string };
   invoicingModes: Array<{ id: number; name: string }>;
   tariffs: string[];
   onFiltersChange: Dispatch<SetStateAction<{ cups: string; tariff: string; invoicingMode: string }>>;
   onYearChange: (year: number) => void;
+  onRecalculate: () => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["used-revenue"]));
   const years = useMemo(() => {
@@ -672,22 +695,29 @@ function OperationalBalanceSection({
     <section className="panel wide annual-report-panel billing-operational-balance-panel">
       <div className="annual-report-header">
         <PanelTitle icon={<FileText size={18} />} title="Balance Operativo" subtitle="Facturacion, consumos, costes y margen por fecha de factura" />
-        <label className="annual-report-year-filter">
-          <span>Ano</span>
-          <select value={selectedYear} onChange={(event) => onYearChange(Number(event.target.value))} disabled={loading}>
-            {years.map((year) => <option key={year} value={year}>{year}</option>)}
-          </select>
-        </label>
+        <div className="indexed-price-history-filters">
+          <label className="annual-report-year-filter">
+            <span>Ano</span>
+            <select value={selectedYear} onChange={(event) => onYearChange(Number(event.target.value))} disabled={loading || calculating}>
+              {years.map((year) => <option key={year} value={year}>{year}</option>)}
+            </select>
+          </label>
+          <button className="primary-button compact" disabled={loading || calculating} onClick={onRecalculate} type="button">
+            {calculating ? "Calculando..." : "Actualizar calculo"}
+          </button>
+        </div>
       </div>
       <div className="billing-operational-balance-filters filter-band">
-        <label>CUPS<input value={filters.cups} onChange={(event) => onFiltersChange((current) => ({ ...current, cups: event.target.value }))} placeholder="Todos" /></label>
-        <label>Tarifa ATR<select value={filters.tariff} onChange={(event) => onFiltersChange((current) => ({ ...current, tariff: event.target.value }))}><option value="">Todas</option>{tariffs.map((tariff) => <option key={tariff} value={tariff}>{tariff}</option>)}</select></label>
-        <label>Modo facturacion<select value={filters.invoicingMode} onChange={(event) => onFiltersChange((current) => ({ ...current, invoicingMode: event.target.value }))}><option value="">Todos</option>{invoicingModes.map((mode) => <option key={`${mode.id}-${mode.name}`} value={mode.name}>{mode.name}</option>)}</select></label>
-        <button className="secondary-button" type="button" onClick={() => onFiltersChange({ cups: "", tariff: "", invoicingMode: "" })}>Limpiar filtros</button>
+        <label>CUPS<input disabled={loading || calculating} value={filters.cups} onChange={(event) => onFiltersChange((current) => ({ ...current, cups: event.target.value }))} placeholder="Todos" /></label>
+        <label>Tarifa ATR<select disabled={loading || calculating} value={filters.tariff} onChange={(event) => onFiltersChange((current) => ({ ...current, tariff: event.target.value }))}><option value="">Todas</option>{tariffs.map((tariff) => <option key={tariff} value={tariff}>{tariff}</option>)}</select></label>
+        <label>Modo facturacion<select disabled={loading || calculating} value={filters.invoicingMode} onChange={(event) => onFiltersChange((current) => ({ ...current, invoicingMode: event.target.value }))}><option value="">Todos</option>{invoicingModes.map((mode) => <option key={`${mode.id}-${mode.name}`} value={mode.name}>{mode.name}</option>)}</select></label>
+        <button className="secondary-button" disabled={loading || calculating} type="button" onClick={() => onFiltersChange({ cups: "", tariff: "", invoicingMode: "" })}>Limpiar filtros</button>
       </div>
-      {loading && <div className="annual-report-loading">Cargando Balance Operativo...</div>}
+      {report?.calculatedAt && <div className="indexed-price-history-meta">Ultimo calculo: {formatDateTime(report.calculatedAt)}</div>}
+      {loading && <div className="annual-report-loading">Cargando Balance Operativo guardado...</div>}
+      {calculating && <div className="annual-report-loading">Calculando y guardando Balance Operativo...</div>}
       {error && <div className="form-message error">{error}</div>}
-      {report && (
+      {report && report.rows.length > 0 && (
         <div className="annual-report-tables">
           <section className="annual-report-table-section">
             <h3>Balance Operativo {report.year}</h3>
@@ -720,6 +750,12 @@ function OperationalBalanceSection({
               </table>
             </div>
           </section>
+        </div>
+      )}
+      {!loading && !calculating && !error && (!report || report.rows.length === 0) && (
+        <div className="empty-state compact">
+          <FileText size={18} />
+          <span>Sin calculo guardado para el ano y filtros seleccionados. Usa Actualizar calculo para generarlo.</span>
         </div>
       )}
     </section>

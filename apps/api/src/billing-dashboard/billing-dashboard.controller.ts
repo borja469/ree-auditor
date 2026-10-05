@@ -58,6 +58,11 @@ export class BillingDashboardController {
     return this.service.operationalBalance(typeof query.year === "string" ? query.year : undefined, query);
   }
 
+  @Post("operational-balance/recalculate")
+  recalculateOperationalBalance(@Body() body: Record<string, unknown>) {
+    return this.service.recalculateOperationalBalance(typeof body.year === "string" || typeof body.year === "number" ? body.year : undefined, body);
+  }
+
   @Get("reports/indexed-price-history")
   indexedPriceHistory(@Query() query: Record<string, unknown>) {
     return this.costs.indexedPriceHistory(query);

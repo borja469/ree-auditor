@@ -2366,6 +2366,23 @@ model CmIndexedPriceHistorySnapshot {
   @@map("cm_indexed_price_history_snapshots")
 }
 
+model CmOperationalBalanceSnapshot {
+  id                 String   @id @default(uuid()) @db.Uuid
+  year               Int
+  calculationVersion String   @map("calculation_version") @db.VarChar(80)
+  scopeKey           String   @default("ALL") @map("scope_key") @db.VarChar(160)
+  filtersJson        Json     @map("filters_json")
+  resultJson         Json     @map("result_json")
+  calculatedAt       DateTime @default(now()) @map("calculated_at")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@unique([year, calculationVersion, scopeKey], map: "ux_cm_operational_balance_snapshot_scope")
+  @@index([year])
+  @@index([calculatedAt])
+  @@map("cm_operational_balance_snapshots")
+}
+
 model CmInvoiceIntervalCost {
   id                    String                      @id @default(uuid()) @db.Uuid
   costRunId             String                      @map("cost_run_id") @db.Uuid

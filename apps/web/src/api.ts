@@ -474,6 +474,10 @@ export type BillingOperationalBalanceResponse = {
   availableYears: number[];
   months: string[];
   rows: BillingOperationalBalanceRow[];
+  calculationVersion?: string;
+  calculatedAt?: string | null;
+  fromCache?: boolean;
+  filters?: { cups: string; tariff: string; invoicingMode: string };
 };
 
 export type BillingImportBatch = {
@@ -4750,6 +4754,10 @@ export async function getBillingTariffs(): Promise<string[]> {
 
 export async function getBillingOperationalBalance(year: number | string, filters: { cups?: string; tariff?: string; invoicingMode?: string } = {}): Promise<BillingOperationalBalanceResponse> {
   return getJson(`/billing-dashboard/operational-balance${toQuery({ year, ...filters })}`);
+}
+
+export async function recalculateBillingOperationalBalance(year: number | string, filters: { cups?: string; tariff?: string; invoicingMode?: string } = {}): Promise<BillingOperationalBalanceResponse> {
+  return sendJson(`/billing-dashboard/operational-balance/recalculate`, "POST", "Calculando Balance Operativo", REQUEST_TIMEOUT_MS * 10, { year, ...filters });
 }
 
 export async function getBillingInvoiceCurve(id: string, filters: { source?: string; period?: string; skip?: number; take?: number } = {}): Promise<BillingInvoiceCurveResponse> {

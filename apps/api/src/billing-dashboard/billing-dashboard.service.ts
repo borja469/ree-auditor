@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceMarginStatus, CmInvoiceProfileType, CmInvoiceProcessingStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
@@ -36,6 +37,7 @@ const BILLING_MARGIN_JOB_DEFAULT_CONCURRENCY = 4;
 type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS" | "FULL_RECALCULATION";
 type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
 const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V1";
+const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V1";
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
 const OPERATIONAL_BALANCE_MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
@@ -61,6 +63,10 @@ export type OperationalBalanceResponse = {
   availableYears: number[];
   months: string[];
   rows: OperationalBalanceRow[];
+  calculationVersion?: string;
+  calculatedAt?: string | null;
+  fromCache?: boolean;
+  filters?: { cups: string; tariff: string; invoicingMode: string };
 };
 
 @Injectable()
@@ -256,15 +262,100 @@ export class BillingDashboardService {
   }
 
   async operationalBalance(yearInput?: number | string, filters: Record<string, unknown> = {}): Promise<OperationalBalanceResponse> {
+    const { year, normalizedFilters, scopeKey } = this.operationalBalanceRequest(yearInput, filters);
+    const [snapshot, availableYears] = await Promise.all([
+      this.prisma.cmOperationalBalanceSnapshot.findUnique({
+        where: {
+          year_calculationVersion_scopeKey: {
+            year,
+            calculationVersion: OPERATIONAL_BALANCE_CALCULATION_VERSION,
+            scopeKey
+          }
+        }
+      }),
+      this.operationalBalanceAvailableYears()
+    ]);
+    if (!snapshot) {
+      return {
+        year,
+        availableYears,
+        months: OPERATIONAL_BALANCE_MONTHS,
+        rows: [],
+        calculationVersion: OPERATIONAL_BALANCE_CALCULATION_VERSION,
+        calculatedAt: null,
+        fromCache: true
+      };
+    }
+    return {
+      ...(snapshot.resultJson as unknown as OperationalBalanceResponse),
+      availableYears,
+      calculationVersion: snapshot.calculationVersion,
+      calculatedAt: snapshot.calculatedAt.toISOString(),
+      fromCache: true,
+      filters: normalizedFilters
+    };
+  }
+
+  async recalculateOperationalBalance(yearInput?: number | string, filters: Record<string, unknown> = {}): Promise<OperationalBalanceResponse> {
+    const { year, normalizedFilters, scopeKey } = this.operationalBalanceRequest(yearInput, filters);
+    const report = await this.calculateOperationalBalance(year, normalizedFilters);
+    const snapshot = await this.prisma.cmOperationalBalanceSnapshot.upsert({
+      where: {
+        year_calculationVersion_scopeKey: {
+          year,
+          calculationVersion: OPERATIONAL_BALANCE_CALCULATION_VERSION,
+          scopeKey
+        }
+      },
+      create: {
+        year,
+        calculationVersion: OPERATIONAL_BALANCE_CALCULATION_VERSION,
+        scopeKey,
+        filtersJson: normalizedFilters as Prisma.InputJsonValue,
+        resultJson: report as Prisma.InputJsonValue,
+        calculatedAt: new Date()
+      },
+      update: {
+        filtersJson: normalizedFilters as Prisma.InputJsonValue,
+        resultJson: report as Prisma.InputJsonValue,
+        calculatedAt: new Date()
+      }
+    });
+    return {
+      ...report,
+      calculationVersion: snapshot.calculationVersion,
+      calculatedAt: snapshot.calculatedAt.toISOString(),
+      fromCache: false,
+      filters: normalizedFilters
+    };
+  }
+
+  private operationalBalanceRequest(yearInput?: number | string, filters: Record<string, unknown> = {}) {
     const requestedYear = Number(yearInput ?? new Date().getFullYear());
     const year = Number.isFinite(requestedYear) && requestedYear >= 2000 && requestedYear <= 2100 ? Math.trunc(requestedYear) : new Date().getFullYear();
+    const normalizedFilters = normalizeOperationalBalanceFilters(filters);
+    const scopeKey = operationalBalanceScopeKey(normalizedFilters);
+    return { year, normalizedFilters, scopeKey };
+  }
+
+  private async operationalBalanceAvailableYears() {
+    const rows = await this.prisma.$queryRaw<Array<{ year: number }>>`
+      SELECT DISTINCT EXTRACT(YEAR FROM invoice_date)::int AS year
+      FROM cm_invoices
+      WHERE invoice_date IS NOT NULL
+      ORDER BY year DESC
+    `;
+    return rows.map((row) => Number(row.year)).filter(Number.isFinite);
+  }
+
+  private async calculateOperationalBalance(year: number, filters: { cups: string; tariff: string; invoicingMode: string }): Promise<OperationalBalanceResponse> {
     const from = new Date(Date.UTC(year, 0, 1));
     const to = new Date(Date.UTC(year, 11, 31));
     const where: Prisma.CmInvoiceWhereInput = {
       invoiceDate: { gte: from, lte: to },
-      ...(typeof filters.cups === "string" && filters.cups.trim() ? { cups: { contains: filters.cups.trim(), mode: "insensitive" } } : {}),
-      ...(typeof filters.tariff === "string" && filters.tariff.trim() ? { tariffCode: { equals: filters.tariff.trim(), mode: "insensitive" } } : {}),
-      ...(typeof filters.invoicingMode === "string" && filters.invoicingMode.trim() ? { compatibleInvoicingModes: { some: { name: { equals: filters.invoicingMode.trim(), mode: "insensitive" } } } } : {})
+      ...(filters.cups ? { cups: { contains: filters.cups, mode: "insensitive" } } : {}),
+      ...(filters.tariff ? { tariffCode: { equals: filters.tariff, mode: "insensitive" } } : {}),
+      ...(filters.invoicingMode ? { compatibleInvoicingModes: { some: { name: { equals: filters.invoicingMode, mode: "insensitive" } } } } : {})
     };
     const invoices = await this.prisma.cmInvoice.findMany({
       where,
@@ -273,12 +364,7 @@ export class BillingDashboardService {
     });
     const invoiceIds = invoices.map((invoice) => invoice.id);
     const [availableYearsRows, curveTotals, costRuns, margins] = await Promise.all([
-      this.prisma.$queryRaw<Array<{ year: number }>>`
-        SELECT DISTINCT EXTRACT(YEAR FROM invoice_date)::int AS year
-        FROM cm_invoices
-        WHERE invoice_date IS NOT NULL
-        ORDER BY year DESC
-      `,
+      this.operationalBalanceAvailableYears(),
       invoiceIds.length
         ? this.prisma.cmInvoiceConsumptionCurve.groupBy({
             by: ["invoiceId"],
@@ -324,7 +410,7 @@ export class BillingDashboardService {
     }
     return buildOperationalBalanceReport({
       year,
-      availableYears: availableYearsRows.map((row) => Number(row.year)).filter(Number.isFinite),
+      availableYears: availableYearsRows,
       invoices,
       curveTotals,
       costRuns: [...latestCostRunByInvoice.values()],
@@ -2529,6 +2615,23 @@ function many2oneName(value: unknown) {
 
 function text(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeOperationalBalanceFilters(filters: Record<string, unknown>) {
+  return {
+    cups: text(filters.cups) ?? "",
+    tariff: text(filters.tariff) ?? "",
+    invoicingMode: text(filters.invoicingMode) ?? ""
+  };
+}
+
+function operationalBalanceScopeKey(filters: { cups: string; tariff: string; invoicingMode: string }) {
+  const payload = JSON.stringify({
+    cups: filters.cups,
+    tariff: filters.tariff,
+    invoicingMode: filters.invoicingMode
+  });
+  return createHash("sha1").update(payload).digest("hex");
 }
 
 function normalizeText(value?: string | null) {

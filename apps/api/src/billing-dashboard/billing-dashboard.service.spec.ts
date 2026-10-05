@@ -64,11 +64,14 @@ describe("Billing dashboard operational balance", () => {
           return [];
         }
       },
+      cmInvoiceConsumptionCurve: { groupBy: async () => [] },
+      cmInvoiceCostRun: { findMany: async () => [] },
+      cmInvoiceMarginSnapshot: { findMany: async () => [] },
       $queryRaw: async () => []
     };
     const service = new BillingDashboardService(prisma as never, null as never, null as never, null as never, null as never);
 
-    await service.operationalBalance(2026, { cups: "ES0022", tariff: "3.0TD", invoicingMode: "Indexada" });
+    await (service as never as { calculateOperationalBalance: (year: number, filters: { cups: string; tariff: string; invoicingMode: string }) => Promise<unknown> }).calculateOperationalBalance(2026, { cups: "ES0022", tariff: "3.0TD", invoicingMode: "Indexada" });
 
     assert.deepEqual(capturedWhere, {
       invoiceDate: { gte: new Date(Date.UTC(2026, 0, 1)), lte: new Date(Date.UTC(2026, 11, 31)) },
