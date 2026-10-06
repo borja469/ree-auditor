@@ -452,7 +452,7 @@ export type BillingInvoicesResponse = {
   rows: BillingInvoiceRow[];
 };
 
-export type BillingOperationalBalanceUnit = "COUNT" | "EUR" | "EUR_MWH" | "KWH";
+export type BillingOperationalBalanceUnit = "COUNT" | "EUR" | "EUR_MWH" | "KWH" | "PERCENT";
 export type BillingOperationalBalanceCell = {
   value: number | null;
   invoiceCount: number;
@@ -4772,6 +4772,10 @@ export async function getBillingJobs(filters: { take?: number | string; status?:
   return getJson(`/billing-dashboard/jobs${toQuery(filters)}`);
 }
 
+export async function cancelBillingJob(id: string): Promise<BillingJob> {
+  return sendJson(`/billing-dashboard/jobs/${encodeURIComponent(id)}/cancel`, "POST", "Cancelando job", REQUEST_TIMEOUT_MS, {});
+}
+
 export async function getBillingGisceConfig(): Promise<BillingGisceConfig> {
   return getJson(`/billing-dashboard/gisce/config`);
 }
@@ -4810,6 +4814,10 @@ export async function startBillingFullRecalculationJob(dateFrom: string, dateTo:
 
 export async function deleteBillingInvoicesByInvoiceDate(dateFrom: string, dateTo: string): Promise<BillingDeleteInvoicesResponse> {
   return sendJson(`/billing-dashboard/invoices/delete-range`, "POST", "Eliminando facturas", REQUEST_TIMEOUT_MS * 4, { dateFrom, dateTo });
+}
+
+export async function deleteBillingInvoice(id: string): Promise<{ deleted: boolean; invoiceId: string; invoiceNumber: string | null }> {
+  return sendJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}`, "DELETE", "Eliminando factura", REQUEST_TIMEOUT_MS * 2);
 }
 
 export async function processBillingInvoice(id: string): Promise<BillingInvoiceRow> {

@@ -157,6 +157,11 @@ export class BillingDashboardController {
     return this.service.listJobs(query);
   }
 
+  @Post("jobs/:id/cancel")
+  cancelJob(@Param("id") id: string) {
+    return this.service.cancelJob(id);
+  }
+
   @Post("jobs/imports")
   startImportJob(@Body() body: { dateFrom?: string; dateTo?: string }, @Headers("x-user") user?: string) {
     return this.service.startImportJob(String(body.dateFrom ?? ""), String(body.dateTo ?? ""), user);
@@ -195,6 +200,11 @@ export class BillingDashboardController {
   @Post("invoices/delete-range")
   deleteInvoicesByInvoiceDatePost(@Body() body: { dateFrom?: string; dateTo?: string }) {
     return this.service.deleteInvoicesByInvoiceDate(String(body.dateFrom ?? ""), String(body.dateTo ?? ""));
+  }
+
+  @Delete("invoices/:id")
+  deleteInvoice(@Param("id") id: string) {
+    return this.service.deleteInvoice(id);
   }
 
   @Post("invoices/:id/process")

@@ -10455,11 +10455,108 @@ select:disabled {
   gap: 10px;
 }
 
+.billing-operation-board {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.95fr) minmax(420px, 1.45fr) auto;
+  gap: 10px;
+  align-items: stretch;
+  margin-bottom: 10px;
+}
+
+.billing-operation-card,
+.billing-operation-danger {
+  min-width: 0;
+  padding: 11px;
+  background: #ffffff;
+  border: 1px solid #d8e2e8;
+  border-radius: 9px;
+}
+
+.billing-operation-danger {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  background: #fffafa;
+  border-color: #f0c9c5;
+}
+
+.billing-operation-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.billing-operation-card-head h3 {
+  margin: 0;
+  color: #17313f;
+  font-size: 0.86rem;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.billing-operation-card-head span {
+  min-width: 0;
+  color: #607482;
+  font-size: 0.74rem;
+  font-weight: 820;
+}
+
+.billing-operation-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px;
+}
+
+.billing-operation-fields label {
+  display: grid;
+  min-width: 128px;
+  gap: 4px;
+  color: #607482;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.billing-operation-fields input,
+.billing-operation-fields select {
+  height: 34px;
+  min-width: 0;
+  padding: 0 10px;
+  color: #17313f;
+  background: #f8fbfc;
+  border: 1px solid #d8e2e8;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 780;
+}
+
+.billing-processing-card .primary-button {
+  box-shadow: 0 8px 18px rgba(23, 68, 92, 0.12);
+}
+
+.billing-operational-summary {
+  margin: 0 0 10px;
+  padding: 7px 10px;
+  background: #f8fbfc;
+  border: 1px solid #d8e2e8;
+  border-radius: 9px;
+}
+
 .billing-filters-zone {
   display: grid;
   gap: 8px;
-  padding: 4px 0 12px;
+  padding: 8px 0 10px;
   border-bottom: 1px solid var(--color-border-soft);
+}
+
+.billing-filters-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .billing-filters-eyebrow {
@@ -10469,15 +10566,28 @@ select:disabled {
   text-transform: uppercase;
 }
 
+.billing-more-filters-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.74rem;
+}
+
 .billing-filters-grid {
   display: grid;
-  grid-template-columns: minmax(210px, 2fr) minmax(128px, 1fr) minmax(128px, 1fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(220px, 1.35fr);
-  grid-template-areas:
-    "search from to cups invoice invoice"
-    "polissa tariff status source issues actions";
   column-gap: 10px;
-  row-gap: 11px;
+  row-gap: 8px;
   align-items: end;
+}
+
+.billing-filters-main-grid {
+  grid-template-columns: minmax(230px, 2fr) minmax(130px, 1fr) minmax(130px, 1fr) minmax(150px, 1fr) minmax(160px, 1fr) minmax(220px, auto);
+  grid-template-areas: "search from to status issues actions";
+}
+
+.billing-filters-secondary-grid {
+  grid-template-columns: repeat(6, minmax(128px, 1fr));
+  padding-top: 8px;
+  border-top: 1px dashed #d8e2e8;
 }
 
 .billing-filter-field {
@@ -10590,6 +10700,31 @@ select:disabled {
   font-weight: 850;
 }
 
+.billing-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2px 0 0;
+}
+
+.billing-table-toolbar > div {
+  display: grid;
+  gap: 2px;
+}
+
+.billing-table-toolbar h3 {
+  margin: 0;
+  color: #17313f;
+  font-size: 1rem;
+}
+
+.billing-table-toolbar span {
+  color: #607482;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
 .billing-module-tabs,
 .billing-config-tabs {
   display: flex;
@@ -10663,22 +10798,96 @@ select:disabled {
 }
 
 .billing-invoices-table {
-  min-width: 1680px;
+  min-width: 1740px;
+}
+
+.billing-invoices-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .billing-invoices-table .icon-button {
   margin-right: 4px;
 }
 
+.billing-economic-cell,
+.billing-margin-cell {
+  color: #17313f;
+  font-weight: 860;
+}
+
+.billing-margin-cell {
+  font-weight: 950;
+}
+
 .billing-row-actions {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  position: relative;
   white-space: nowrap;
 }
 
 .billing-row-actions .icon-button {
   margin-right: 0;
+}
+
+.billing-row-view-button {
+  min-height: 30px;
+  padding: 0 10px;
+  gap: 5px;
+  font-size: 0.74rem;
+}
+
+.billing-row-more {
+  position: relative;
+}
+
+.billing-row-action-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 9;
+  display: grid;
+  min-width: 190px;
+  padding: 5px;
+  background: #ffffff;
+  border: 1px solid #d8e2e8;
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(21, 50, 63, 0.16);
+}
+
+.billing-row-action-menu button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 9px;
+  color: #17313f;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 850;
+  text-align: left;
+}
+
+.billing-row-action-menu button:hover:not(:disabled) {
+  background: #f2f7f9;
+}
+
+.billing-row-action-menu button.danger-menu-item {
+  color: #b91c1c;
+}
+
+.billing-row-action-menu button.danger-menu-item:hover:not(:disabled) {
+  background: #fef2f2;
+}
+
+.billing-row-action-menu button:disabled {
+  color: #9eb3bc;
+  cursor: not-allowed;
 }
 
 .regulated-prices-head {
@@ -11009,12 +11218,23 @@ select:disabled {
 }
 
 @media (max-width: 1280px) {
-  .billing-filters-grid {
-    grid-template-columns: minmax(190px, 1.6fr) repeat(3, minmax(120px, 1fr)) minmax(150px, 1.1fr);
+  .billing-operation-board {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-operation-danger {
+    justify-content: flex-start;
+  }
+
+  .billing-filters-main-grid {
+    grid-template-columns: minmax(190px, 1.6fr) repeat(3, minmax(120px, 1fr));
     grid-template-areas:
-      "search search from to cups"
-      "invoice polissa tariff status source"
-      "issues issues actions actions actions";
+      "search search from to"
+      "status issues actions actions";
+  }
+
+  .billing-filters-secondary-grid {
+    grid-template-columns: repeat(4, minmax(120px, 1fr));
   }
 }
 
@@ -11039,15 +11259,16 @@ select:disabled {
     flex: 1;
   }
 
-  .billing-filters-grid {
+  .billing-filters-main-grid,
+  .billing-filters-secondary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .billing-filters-main-grid {
     grid-template-areas:
       "search search"
       "from to"
-      "cups invoice"
-      "polissa tariff"
-      "status source"
-      "issues issues"
+      "status issues"
       "actions actions";
   }
 
@@ -11063,18 +11284,17 @@ select:disabled {
 }
 
 @media (max-width: 520px) {
-  .billing-filters-grid {
+  .billing-filters-main-grid,
+  .billing-filters-secondary-grid {
     grid-template-columns: 1fr;
+  }
+
+  .billing-filters-main-grid {
     grid-template-areas:
       "search"
       "from"
       "to"
-      "cups"
-      "invoice"
-      "polissa"
-      "tariff"
       "status"
-      "source"
       "issues"
       "actions";
   }

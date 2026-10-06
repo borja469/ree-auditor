@@ -122,6 +122,48 @@ describe("Billing dashboard operational balance", () => {
     assert.equal(billing.months[5].value, 0);
   });
 
+  it("adds invoice warning/error counts and PF consumption share by curve source", () => {
+    const report = buildOperationalBalanceReport({
+      year: 2026,
+      availableYears: [2026],
+      invoices: [{
+        id: "invoice-ok",
+        invoiceDate: new Date(Date.UTC(2026, 8, 1)),
+        processingStatus: CmInvoiceProcessingStatus.READY,
+        lines: [line("Tarifas Acceso / Energia", "P1", 1, 100)]
+      }, {
+        id: "invoice-warning",
+        invoiceDate: new Date(Date.UTC(2026, 8, 2)),
+        processingStatus: CmInvoiceProcessingStatus.WARNING,
+        lines: [line("Tarifas Acceso / Energia", "P1", 1, 200)]
+      }, {
+        id: "invoice-error",
+        invoiceDate: new Date(Date.UTC(2026, 8, 3)),
+        processingStatus: CmInvoiceProcessingStatus.ERROR,
+        lines: [line("Tarifas Acceso / Energia", "P1", 1, 300)]
+      }],
+      curveTotals: [],
+      curveSourceTotals: [
+        { invoiceId: "invoice-ok", consumptionSource: CmInvoiceConsumptionSource.F1, _sum: { consumptionPfKwh: 70 } },
+        { invoiceId: "invoice-warning", consumptionSource: CmInvoiceConsumptionSource.P1, _sum: { consumptionPfKwh: 30 } }
+      ],
+      costRuns: [],
+      margins: [],
+      intervalComponentSums: [],
+      powerComponentSums: []
+    });
+    const errors = report.rows.find((row) => row.key === "invoice-error-count")!;
+    const warnings = report.rows.find((row) => row.key === "invoice-warning-count")!;
+    const sourceShare = report.rows.find((row) => row.key === "consumption-source-share")!;
+
+    assert.equal(errors.months[8].value, 1);
+    assert.equal(warnings.months[8].value, 1);
+    assert.equal(sourceShare.months[8].value, 100);
+    assert.equal(sourceShare.children?.find((row) => row.key === "consumption-source-share:F1")?.months[8].value, 70);
+    assert.equal(sourceShare.children?.find((row) => row.key === "consumption-source-share:P1")?.months[8].value, 30);
+    assert.equal(sourceShare.children?.find((row) => row.key === "consumption-source-share:F1")?.total.value, 70);
+  });
+
   it("uses margin mappings for used revenue and persisted snapshots for margin", () => {
     const report = buildOperationalBalanceReport({
       year: 2026,
@@ -295,6 +337,10 @@ describe("Billing dashboard margin jobs", () => {
         update: async ({ data }: { data: { message?: string | null; status?: string } }) => {
           updates.push(data);
           return data;
+        },
+        updateMany: async ({ data }: { data: { message?: string | null; status?: string } }) => {
+          updates.push(data);
+          return { count: 1 };
         }
       },
       cmInvoiceCostRun: {

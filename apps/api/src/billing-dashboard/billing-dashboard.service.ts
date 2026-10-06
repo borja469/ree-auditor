@@ -44,7 +44,13 @@ const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V1";
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
 const OPERATIONAL_BALANCE_MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
-type OperationalBalanceUnit = "COUNT" | "EUR" | "EUR_MWH" | "KWH";
+class BillingJobCancelledError extends Error {
+  constructor() {
+    super("Job cancelado por el usuario.");
+  }
+}
+
+type OperationalBalanceUnit = "COUNT" | "EUR" | "EUR_MWH" | "KWH" | "PERCENT";
 type OperationalBalanceCell = {
   value: number | null;
   invoiceCount: number;
@@ -247,6 +253,21 @@ export class BillingDashboardService {
     return jobs.map(billingJobRow);
   }
 
+  async cancelJob(id: string) {
+    const job = await this.prisma.cmBillingJob.findUnique({ where: { id } });
+    if (!job) throw new NotFoundException("Job no encontrado.");
+    if (!BILLING_JOB_ACTIVE_STATUSES.includes(job.status)) return billingJobRow(job);
+    const cancelled = await this.prisma.cmBillingJob.update({
+      where: { id },
+      data: {
+        status: "CANCELLED",
+        finishedAt: new Date(),
+        message: "Cancelacion solicitada por el usuario. El proceso se detendra en el siguiente punto seguro."
+      }
+    });
+    return billingJobRow(cancelled);
+  }
+
   async listInvoicingModes() {
     const rows = await this.prisma.cmInvoiceInvoicingMode.groupBy({
       by: ["externalId", "name"],
@@ -366,13 +387,20 @@ export class BillingDashboardService {
       include: { lines: true }
     });
     const invoiceIds = invoices.map((invoice) => invoice.id);
-    const [availableYearsRows, curveTotals, costRuns, margins] = await Promise.all([
+    const [availableYearsRows, curveTotals, curveSourceTotals, costRuns, margins] = await Promise.all([
       this.operationalBalanceAvailableYears(),
       invoiceIds.length
         ? this.prisma.cmInvoiceConsumptionCurve.groupBy({
             by: ["invoiceId"],
             where: { invoiceId: { in: invoiceIds } },
             _sum: { consumptionPfKwh: true, consumptionBcKwh: true }
+          })
+        : Promise.resolve([]),
+      invoiceIds.length
+        ? this.prisma.cmInvoiceConsumptionCurve.groupBy({
+            by: ["invoiceId", "consumptionSource"],
+            where: { invoiceId: { in: invoiceIds } },
+            _sum: { consumptionPfKwh: true }
           })
         : Promise.resolve([]),
       invoiceIds.length
@@ -416,6 +444,7 @@ export class BillingDashboardService {
       availableYears: availableYearsRows,
       invoices,
       curveTotals,
+      curveSourceTotals,
       costRuns: [...latestCostRunByInvoice.values()],
       margins,
       intervalComponentSums,
@@ -724,6 +753,13 @@ export class BillingDashboardService {
     }, { maxWait: 10_000, timeout: 120_000 });
   }
 
+  async deleteInvoice(id: string) {
+    const invoice = await this.prisma.cmInvoice.findUnique({ where: { id }, select: { id: true, invoiceNumber: true } });
+    if (!invoice) throw new NotFoundException("Factura no encontrada.");
+    await this.prisma.cmInvoice.delete({ where: { id } });
+    return { deleted: true, invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber };
+  }
+
   async processInvoice(invoiceId: string) {
     const invoice = await this.prisma.cmInvoice.findUnique({ where: { id: invoiceId }, include: { lines: true } });
     if (!invoice) throw new NotFoundException("Factura no encontrada.");
@@ -937,16 +973,32 @@ export class BillingDashboardService {
     });
   }
 
-  private async runImportJob(jobId: string, dateFrom: string, dateTo: string) {
-    await this.prisma.cmBillingJob.update({
-      where: { id: jobId },
-      data: { status: "RUNNING", startedAt: new Date(), message: "Importando facturas desde GISCE." }
+  private async updateActiveBillingJob(jobId: string, data: Prisma.CmBillingJobUpdateInput) {
+    const result = await this.prisma.cmBillingJob.updateMany({
+      where: { id: jobId, status: { not: "CANCELLED" } },
+      data
     });
+    if (result.count === 0) throw new BillingJobCancelledError();
+  }
+
+  private async markBillingJobRunning(jobId: string, data: Prisma.CmBillingJobUpdateInput = {}) {
+    const result = await this.prisma.cmBillingJob.updateMany({
+      where: { id: jobId, status: { in: BILLING_JOB_ACTIVE_STATUSES } },
+      data: { status: "RUNNING", startedAt: new Date(), ...data }
+    });
+    if (result.count === 0) throw new BillingJobCancelledError();
+  }
+
+  private async ignoreCancelledJob(error: unknown) {
+    if (error instanceof BillingJobCancelledError) return true;
+    return false;
+  }
+
+  private async runImportJob(jobId: string, dateFrom: string, dateTo: string) {
     try {
+      await this.markBillingJobRunning(jobId, { message: "Importando facturas desde GISCE." });
       const batch = await this.importInvoices(dateFrom, dateTo);
-      await this.prisma.cmBillingJob.update({
-        where: { id: jobId },
-        data: {
+      await this.updateActiveBillingJob(jobId, {
           status: batch.status === "ERROR" ? "ERROR" : "SUCCESS",
           totalItems: batch.totalFound,
           processedItems: batch.processedCount,
@@ -956,9 +1008,9 @@ export class BillingDashboardService {
           result: batch as unknown as Prisma.InputJsonValue,
           message: batch.message ?? `Importacion finalizada: ${batch.processedCount} facturas procesadas.`,
           finishedAt: new Date()
-        }
       });
     } catch (error) {
+      if (await this.ignoreCancelledJob(error)) return;
       await this.failJob(jobId, error);
     }
   }
@@ -973,11 +1025,8 @@ export class BillingDashboardService {
       orderBy: { createdAt: "asc" },
       select: { id: true, invoiceNumber: true, gisceInvoiceId: true }
     });
-    await this.prisma.cmBillingJob.update({
-      where: { id: jobId },
-      data: { status: "RUNNING", startedAt: new Date(), totalItems: queue.length, message: "Procesando facturas importadas y warnings." }
-    });
     try {
+      await this.markBillingJobRunning(jobId, { totalItems: queue.length, message: "Procesando facturas importadas y warnings." });
       const invoices = queue.length
         ? await this.prisma.cmInvoice.findMany({ where: { id: { in: queue.map((invoice) => invoice.id) } }, include: { lines: true } })
         : [];
@@ -1009,22 +1058,17 @@ export class BillingDashboardService {
         errorCount += results.filter((row) => String(row.processingStatus) === CmInvoiceProcessingStatus.ERROR).length;
         const currentItem = results.at(-1);
         const currentLabel = currentItem ? (currentItem.invoiceNumber ?? currentItem.id) : null;
-        await this.prisma.cmBillingJob.update({
-          where: { id: jobId },
-          data: {
+        await this.updateActiveBillingJob(jobId, {
             processedItems,
             successCount,
             warningCount,
             errorCount,
             currentItem: currentLabel ? String(currentLabel) : null,
             message: `Facturas procesadas: ${processedItems}. Pendientes en cola: ${Math.max(queue.length - processedItems, 0)}. Concurrencia: ${concurrency}.`
-          }
         });
       }
       const remainingPending = await this.prisma.cmInvoice.count({ where: { processingStatus: { in: BILLING_PROCESS_PENDING_STATUSES } } });
-      await this.prisma.cmBillingJob.update({
-        where: { id: jobId },
-        data: {
+      await this.updateActiveBillingJob(jobId, {
           status: "SUCCESS",
           processedItems,
           successCount,
@@ -1033,9 +1077,9 @@ export class BillingDashboardService {
           result: { processed: processedItems, remainingPending } as Prisma.InputJsonValue,
           message: `Procesamiento finalizado. Procesadas: ${processedItems}. Pendientes o warning actuales: ${remainingPending}.`,
           finishedAt: new Date()
-        }
       });
     } catch (error) {
+      if (await this.ignoreCancelledJob(error)) return;
       await this.failJob(jobId, error, { processedItems, successCount, warningCount, errorCount });
     }
   }
@@ -1052,11 +1096,8 @@ export class BillingDashboardService {
       include: { lines: true }
     });
     result.totalFound = queue.length;
-    await this.prisma.cmBillingJob.update({
-      where: { id: jobId },
-      data: { status: "RUNNING", startedAt: new Date(), totalItems: queue.length, message: `Calculando margenes por rango de fecha factura. Concurrencia: ${Math.min(concurrency, Math.max(queue.length, 1))}.` }
-    });
     try {
+      await this.markBillingJobRunning(jobId, { totalItems: queue.length, message: `Calculando margenes por rango de fecha factura. Concurrencia: ${Math.min(concurrency, Math.max(queue.length, 1))}.` });
       let cursor = 0;
       const workerCount = Math.min(concurrency, queue.length || 1);
       await Promise.all(Array.from({ length: workerCount }, async () => {
@@ -1077,28 +1118,23 @@ export class BillingDashboardService {
             counters.errorCount += 1;
             result.errors += 1;
           }
-          await this.prisma.cmBillingJob.update({
-            where: { id: jobId },
-            data: {
+          await this.updateActiveBillingJob(jobId, {
               ...counters,
               currentItem: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId),
               result: result as unknown as Prisma.InputJsonValue,
               message: `Margenes procesados: ${counters.processedItems} / ${queue.length}.`
-            }
           });
         }
       }));
-      await this.prisma.cmBillingJob.update({
-        where: { id: jobId },
-        data: {
+      await this.updateActiveBillingJob(jobId, {
           status: counters.errorCount ? "ERROR" : "SUCCESS",
           ...counters,
           result: result as unknown as Prisma.InputJsonValue,
           message: `Calculo de margenes finalizado. OK: ${result.ok}. Warnings: ${result.warnings}. Sin curva: ${result.withoutCurve}. Sin costes: ${result.withoutCosts}.`,
           finishedAt: new Date()
-        }
       });
     } catch (error) {
+      if (await this.ignoreCancelledJob(error)) return;
       await this.failJob(jobId, error, counters);
     }
   }
@@ -1114,20 +1150,14 @@ export class BillingDashboardService {
       include: { lines: true }
     });
     result.totalFound = queue.length;
-    await this.prisma.cmBillingJob.update({
-      where: { id: jobId },
-      data: { status: "RUNNING", startedAt: new Date(), totalItems: queue.length, result: result as unknown as Prisma.InputJsonValue, message: "Calculando costes y margenes por rango de fecha factura." }
-    });
     try {
+      await this.markBillingJobRunning(jobId, { totalItems: queue.length, result: result as unknown as Prisma.InputJsonValue, message: "Calculando costes y margenes por rango de fecha factura." });
       const sharedCostContextRange = invoiceConsumptionDateRange(queue);
       const sharedCostContext = sharedCostContextRange
         ? await this.costsService.buildSharedCostContext(sharedCostContextRange.start, sharedCostContextRange.end)
         : null;
       const concurrency = billingCostJobConcurrency();
-      await this.prisma.cmBillingJob.update({
-        where: { id: jobId },
-        data: { message: `Calculando costes y margenes. Concurrencia: ${Math.min(concurrency, Math.max(queue.length, 1))}.` }
-      });
+      await this.updateActiveBillingJob(jobId, { message: `Calculando costes y margenes. Concurrencia: ${Math.min(concurrency, Math.max(queue.length, 1))}.` });
       let cursor = 0;
       const workerCount = Math.min(concurrency, queue.length || 1);
       await Promise.all(Array.from({ length: workerCount }, async () => {
@@ -1156,29 +1186,24 @@ export class BillingDashboardService {
             if (outcome.code === "WITHOUT_PF") result.withoutPf += 1;
             if (outcome.code === "WITHOUT_MAPPED_CONCEPTS") result.withoutMappedConcepts += 1;
           }
-          await this.prisma.cmBillingJob.update({
-            where: { id: jobId },
-            data: {
+          await this.updateActiveBillingJob(jobId, {
               ...counters,
               currentItem: currentLabel,
               result: result as unknown as Prisma.InputJsonValue,
               message: `Costes y margenes procesados: ${counters.processedItems} / ${queue.length}.`
-            }
           });
         }
       }));
 
-      await this.prisma.cmBillingJob.update({
-        where: { id: jobId },
-        data: {
+      await this.updateActiveBillingJob(jobId, {
           status: counters.errorCount ? "ERROR" : "SUCCESS",
           ...counters,
           result: result as unknown as Prisma.InputJsonValue,
           message: `Calculo de costes y margenes finalizado. OK: ${result.ok}. Warnings: ${result.warnings}. Sin curva: ${result.withoutCurve}.`,
           finishedAt: new Date()
-        }
       });
     } catch (error) {
+      if (await this.ignoreCancelledJob(error)) return;
       await this.failJob(jobId, error, counters);
     }
   }
@@ -1203,16 +1228,11 @@ export class BillingDashboardService {
       withoutMappedConcepts: 0,
       skipped: 0
     };
-    await this.prisma.cmBillingJob.update({
-      where: { id: jobId },
-      data: {
-        status: "RUNNING",
-        startedAt: new Date(),
+    try {
+      await this.markBillingJobRunning(jobId, {
         currentItem: "IMPORT_INVOICES",
         message: "Fase 1/3: importando facturas GISCE."
-      }
-    });
-    try {
+      });
       const importBatch = await this.importInvoicesForFullJob(jobId, dateFrom, effectiveDateTo, dateTo);
       result.import = importBatch as unknown as Prisma.JsonValue;
       if (requestedTo.getTime() > to.getTime()) {
@@ -1223,13 +1243,10 @@ export class BillingDashboardService {
           note: "El rango de importacion se ha limitado al dia actual para evitar consultas futuras en GISCE."
         } as Prisma.JsonValue;
       }
-      await this.prisma.cmBillingJob.update({
-        where: { id: jobId },
-        data: {
+      await this.updateActiveBillingJob(jobId, {
           result: result as unknown as Prisma.InputJsonValue,
           currentItem: "PROCESS_CURVES",
           message: "Fase 2/3: reconstruyendo curvas y perfiles."
-        }
       });
 
       const queue = await this.prisma.cmInvoice.findMany({
@@ -1238,10 +1255,7 @@ export class BillingDashboardService {
         include: { lines: true }
       });
       result.totalFound = queue.length;
-      await this.prisma.cmBillingJob.update({
-        where: { id: jobId },
-        data: { totalItems: queue.length, result: result as unknown as Prisma.InputJsonValue }
-      });
+      await this.updateActiveBillingJob(jobId, { totalItems: queue.length, result: result as unknown as Prisma.InputJsonValue });
       const sharedCostContextRange = invoiceConsumptionDateRange(queue);
       const sharedCostContext = sharedCostContextRange
         ? await this.costsService.buildSharedCostContext(sharedCostContextRange.start, sharedCostContextRange.end)
@@ -1270,26 +1284,20 @@ export class BillingDashboardService {
             result.errors += 1;
           }
           curveProcessed += 1;
-          await this.prisma.cmBillingJob.update({
-            where: { id: jobId },
-            data: {
+          await this.updateActiveBillingJob(jobId, {
               ...counters,
               currentItem: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId),
               result: result as unknown as Prisma.InputJsonValue,
               message: `Fase 2/3: curvas procesadas ${curveProcessed} / ${queue.length}. Concurrencia: ${Math.min(curveConcurrency, Math.max(queue.length, 1))}.`
-            }
           });
         }
       }));
 
       const concurrency = billingCostJobConcurrency();
-      await this.prisma.cmBillingJob.update({
-        where: { id: jobId },
-        data: {
+      await this.updateActiveBillingJob(jobId, {
           result: result as unknown as Prisma.InputJsonValue,
           currentItem: "CALCULATE_COSTS_AND_MARGINS",
           message: `Fase 3/3: calculando costes y margenes. Concurrencia: ${Math.min(concurrency, Math.max(costQueue.length, 1))}.`
-        }
       });
       let cursor = 0;
       const workerCount = Math.min(concurrency, costQueue.length || 1);
@@ -1319,29 +1327,24 @@ export class BillingDashboardService {
             if (outcome.code === "WITHOUT_PF") result.withoutPf += 1;
             if (outcome.code === "WITHOUT_MAPPED_CONCEPTS") result.withoutMappedConcepts += 1;
           }
-        await this.prisma.cmBillingJob.update({
-          where: { id: jobId },
-          data: {
+        await this.updateActiveBillingJob(jobId, {
             ...counters,
               currentItem: currentLabel,
             result: result as unknown as Prisma.InputJsonValue,
             message: `Fase 3/3: costes y margenes procesados ${counters.processedItems} / ${queue.length}.`
-          }
         });
       }
       }));
 
-      await this.prisma.cmBillingJob.update({
-        where: { id: jobId },
-        data: {
+      await this.updateActiveBillingJob(jobId, {
           status: counters.errorCount ? "ERROR" : "SUCCESS",
           ...counters,
           result: result as unknown as Prisma.InputJsonValue,
           message: `Proceso completo finalizado. OK: ${result.ok}. Warnings: ${result.warnings}. Sin curva: ${result.withoutCurve}. Sin costes: ${result.withoutCosts}.`,
           finishedAt: new Date()
-        }
       });
     } catch (error) {
+      if (await this.ignoreCancelledJob(error)) return;
       await this.failJob(jobId, error, counters);
     }
   }
@@ -1365,13 +1368,10 @@ export class BillingDashboardService {
     if (days.length === 0) return aggregate;
     for (let index = 0; index < days.length; index += 1) {
       const day = days[index];
-      await this.prisma.cmBillingJob.update({
-        where: { id: jobId },
-        data: {
+      await this.updateActiveBillingJob(jobId, {
           currentItem: `IMPORT_INVOICES ${day}`,
           result: { import: aggregate } as Prisma.InputJsonValue,
           message: `Fase 1/3: importando facturas GISCE ${index + 1} / ${days.length} (${day}).`
-        }
       });
       try {
         const batch = await this.importInvoices(day, day);
@@ -1534,8 +1534,8 @@ export class BillingDashboardService {
   }
 
   private async failJob(jobId: string, error: unknown, counters?: { processedItems: number; successCount: number; warningCount?: number; errorCount: number }) {
-    await this.prisma.cmBillingJob.update({
-      where: { id: jobId },
+    await this.prisma.cmBillingJob.updateMany({
+      where: { id: jobId, status: { not: "CANCELLED" } },
       data: {
         status: "ERROR",
         ...(counters ?? {}),
@@ -2229,9 +2229,11 @@ export function buildOperationalBalanceReport(input: {
     id: string;
     invoiceDate: Date | string | null;
     billedEnergyKwh?: Prisma.Decimal | number | string | null;
+    processingStatus?: CmInvoiceProcessingStatus | string;
     lines: Array<{ accountName: string | null; lineName: string | null; quantity?: Prisma.Decimal | number | string | null; priceUnit?: Prisma.Decimal | number | string | null; priceSubtotal: Prisma.Decimal | number | string | null }>;
   }>;
   curveTotals: Array<{ invoiceId: string; _sum: { consumptionPfKwh: Prisma.Decimal | number | string | null; consumptionBcKwh: Prisma.Decimal | number | string | null } }>;
+  curveSourceTotals?: Array<{ invoiceId: string; consumptionSource: CmInvoiceConsumptionSource | string; _sum: { consumptionPfKwh: Prisma.Decimal | number | string | null } }>;
   costRuns: Array<{ id: string; invoiceId: string; incidentsCount: number; status: CmInvoiceCostRunStatus | string }>;
   margins: Array<{
     invoiceId: string;
@@ -2247,6 +2249,15 @@ export function buildOperationalBalanceReport(input: {
 }): OperationalBalanceResponse {
   const rows = new OperationalBalanceRowsBuilder();
   rows.ensureRow("invoice-count", "Numero de facturas", "COUNT", 0);
+  rows.ensureRow("invoice-error-count", "Facturas con error", "COUNT", 0);
+  rows.ensureRow("invoice-warning-count", "Facturas con warning", "COUNT", 0);
+  rows.ensureRow("consumption-source-share", "% consumo por tipo de medida", "PERCENT", 0);
+  rows.ensureRow("consumption-source-share:F1", "F1", "PERCENT", 1, "consumption-source-share");
+  rows.ensureRow("consumption-source-share:P1", "TgP1", "PERCENT", 1, "consumption-source-share");
+  rows.ensureRow("consumption-source-share:F5D", "F5D", "PERCENT", 1, "consumption-source-share");
+  rows.ensureRow("consumption-source-share:P5D", "P5D", "PERCENT", 1, "consumption-source-share");
+  rows.ensureRow("consumption-source-share:PROFILE", "Perfil", "PERCENT", 1, "consumption-source-share");
+  rows.ensureRow("consumption-source-share:MISSING", "Sin medida", "PERCENT", 1, "consumption-source-share");
   rows.ensureRow("billing", "Facturacion", "EUR", 0);
   rows.ensureRow("billed-pf", "Consumo facturado PF", "KWH", 0);
   rows.ensureRow("calculated-pf", "Consumo calculado PF", "KWH", 0);
@@ -2261,12 +2272,21 @@ export function buildOperationalBalanceReport(input: {
   const invoicesById = new Map(input.invoices.map((invoice) => [invoice.id, invoice]));
   const monthByInvoice = new Map<string, number>();
   const invoiceCounts = Array.from({ length: 12 }, () => 0);
+  const costRunByInvoice = new Map(input.costRuns.map((run) => [run.invoiceId, run]));
+  const latestMarginByInvoiceAndRun = new Map<string, (typeof input.margins)[number]>();
+  for (const margin of input.margins) {
+    const key = `${margin.invoiceId}|${margin.costRunId}`;
+    if (!latestMarginByInvoiceAndRun.has(key)) latestMarginByInvoiceAndRun.set(key, margin);
+  }
   for (const invoice of input.invoices) {
     const month = invoiceMonth(invoice.invoiceDate);
     if (month === null) continue;
     monthByInvoice.set(invoice.id, month);
     invoiceCounts[month] += 1;
     rows.add("invoice-count", "Numero de facturas", "COUNT", 0, month, 1, coverage(1, 1, 0));
+    const statusSummary = operationalInvoiceStatusSummary(invoice, costRunByInvoice.get(invoice.id), latestMarginByInvoiceAndRun);
+    if (statusSummary.hasError) rows.add("invoice-error-count", "Facturas con error", "COUNT", 0, month, 1, coverage(1, 1, 0));
+    if (statusSummary.hasWarning) rows.add("invoice-warning-count", "Facturas con warning", "COUNT", 0, month, 1, coverage(1, 1, 0));
     const lineSummary = summarizeInvoiceLineConcepts(invoice.lines.map((line) => ({
       accountName: line.accountName,
       lineName: line.lineName,
@@ -2287,6 +2307,27 @@ export function buildOperationalBalanceReport(input: {
   }
 
   const curveTotalsByInvoice = new Map(input.curveTotals.map((row) => [row.invoiceId, row]));
+  const monthlyPfBySource = Array.from({ length: 12 }, () => new Map<string, number>());
+  const monthlyPfTotal = Array.from({ length: 12 }, () => 0);
+  for (const sourceTotal of input.curveSourceTotals ?? []) {
+    const month = monthByInvoice.get(sourceTotal.invoiceId);
+    if (month === undefined) continue;
+    const pf = numericLike(sourceTotal._sum.consumptionPfKwh) ?? 0;
+    if (!pf) continue;
+    const sourceKey = operationalConsumptionSourceKey(sourceTotal.consumptionSource);
+    const sourceMap = monthlyPfBySource[month];
+    sourceMap.set(sourceKey, (sourceMap.get(sourceKey) ?? 0) + pf);
+    monthlyPfTotal[month] += pf;
+  }
+  for (let month = 0; month < 12; month += 1) {
+    const total = monthlyPfTotal[month];
+    if (total <= 0) continue;
+    rows.add("consumption-source-share", "% consumo por tipo de medida", "PERCENT", 0, month, 100, coverage(invoiceCounts[month], invoiceCounts[month], 0));
+    for (const source of ["F1", "P1", "F5D", "P5D", "PROFILE", "MISSING"]) {
+      const value = ((monthlyPfBySource[month].get(source) ?? 0) / total) * 100;
+      rows.add(`consumption-source-share:${source}`, operationalConsumptionSourceLabel(source), "PERCENT", 1, month, value, zeroCoverage(), "consumption-source-share");
+    }
+  }
   for (const invoice of input.invoices) {
     const month = monthByInvoice.get(invoice.id);
     if (month === undefined) continue;
@@ -2297,11 +2338,6 @@ export function buildOperationalBalanceReport(input: {
     rows.add("calculated-bc", "Consumo calculado BC", "KWH", 0, month, bc ?? 0, coverage(1, bc === null ? 0 : 1, 0));
   }
 
-  const latestMarginByInvoiceAndRun = new Map<string, (typeof input.margins)[number]>();
-  for (const margin of input.margins) {
-    const key = `${margin.invoiceId}|${margin.costRunId}`;
-    if (!latestMarginByInvoiceAndRun.has(key)) latestMarginByInvoiceAndRun.set(key, margin);
-  }
   const marginCostRunIds = new Set<string>();
   const costRunById = new Map(input.costRuns.map((run) => [run.id, run]));
   for (const run of input.costRuns) {
@@ -2346,9 +2382,12 @@ export function buildOperationalBalanceReport(input: {
     rows.add(`costs:${natureKey}:${component.componentCode}`, costComponentLabel(component.componentCode), "EUR", 2, month, value, zeroCoverage(), `costs:${natureKey}`);
   }
 
-  rows.applyInvoiceUniverse(invoiceCounts, ["billing", "billed-pf", "calculated-pf", "calculated-bc", "used-revenue", "costs", "margin"]);
+  rows.applyInvoiceUniverse(invoiceCounts, ["invoice-error-count", "invoice-warning-count", "consumption-source-share", "billing", "billed-pf", "calculated-pf", "calculated-bc", "used-revenue", "costs", "margin"]);
   const baseRows = rows.toRows([
     "invoice-count",
+    "invoice-error-count",
+    "invoice-warning-count",
+    "consumption-source-share",
     "billing",
     "billed-pf",
     "calculated-pf",
@@ -2357,6 +2396,7 @@ export function buildOperationalBalanceReport(input: {
     "costs",
     "margin"
   ]);
+  applyConsumptionSourceShareTotals(baseRows, monthlyPfBySource, monthlyPfTotal);
   const calculatedPf = baseRows.find((row) => row.key === "calculated-pf");
   const outputRows = insertOperationalRateRows(baseRows, calculatedPf);
   return {
@@ -2408,6 +2448,50 @@ function toEurMwhCell(eurCell: OperationalBalanceCell, pfCell: OperationalBalanc
 function lastOperationalKeyPart(key: string) {
   const parts = key.split(":");
   return parts[parts.length - 1] ?? key;
+}
+
+function operationalConsumptionSourceKey(source: CmInvoiceConsumptionSource | string) {
+  if (source === CmInvoiceConsumptionSource.P1 || source === "P1") return "P1";
+  if (source === CmInvoiceConsumptionSource.F1 || source === "F1") return "F1";
+  if (source === CmInvoiceConsumptionSource.F5D || source === "F5D") return "F5D";
+  if (source === CmInvoiceConsumptionSource.P5D || source === "P5D") return "P5D";
+  if (source === CmInvoiceConsumptionSource.MISSING || source === "MISSING") return "MISSING";
+  return "PROFILE";
+}
+
+function operationalConsumptionSourceLabel(source: string) {
+  if (source === "P1") return "TgP1";
+  if (source === "PROFILE") return "Perfil";
+  if (source === "MISSING") return "Sin medida";
+  return source;
+}
+
+function applyConsumptionSourceShareTotals(rows: OperationalBalanceRow[], monthlyPfBySource: Array<Map<string, number>>, monthlyPfTotal: number[]) {
+  const totalPf = monthlyPfTotal.reduce((sum, value) => sum + value, 0);
+  const parent = rows.find((row) => row.key === "consumption-source-share");
+  if (parent) parent.total.value = totalPf > 0 ? 100 : 0;
+  for (const child of parent?.children ?? []) {
+    const source = lastOperationalKeyPart(child.key);
+    const sourcePf = monthlyPfBySource.reduce((sum, monthMap) => sum + (monthMap.get(source) ?? 0), 0);
+    child.total.value = totalPf > 0 ? (sourcePf / totalPf) * 100 : 0;
+  }
+}
+
+function operationalInvoiceStatusSummary(
+  invoice: { id: string; processingStatus?: CmInvoiceProcessingStatus | string },
+  costRun: { id: string; status: CmInvoiceCostRunStatus | string; incidentsCount: number } | undefined,
+  marginsByInvoiceAndRun: Map<string, { marginStatus: CmInvoiceMarginStatus | string }>
+) {
+  const curveError = invoice.processingStatus === CmInvoiceProcessingStatus.ERROR;
+  const costError = costRun?.status === CmInvoiceCostRunStatus.ERROR;
+  const curveWarning = invoice.processingStatus === CmInvoiceProcessingStatus.WARNING;
+  const costWarning = Boolean(costRun && (costRun.status === CmInvoiceCostRunStatus.WARNING || costRun.incidentsCount > 0));
+  const margin = costRun ? marginsByInvoiceAndRun.get(`${invoice.id}|${costRun.id}`) : undefined;
+  const marginWarning = margin?.marginStatus === CmInvoiceMarginStatus.WARNING;
+  return {
+    hasError: Boolean(curveError || costError),
+    hasWarning: !curveError && !costError && Boolean(curveWarning || costWarning || marginWarning)
+  };
 }
 
 function marginRevenueByNature(detailsJson: Prisma.JsonValue | null | undefined): { ENERGY: number | null; POWER: number | null } {

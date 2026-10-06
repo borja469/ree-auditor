@@ -1,8 +1,10 @@
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
-import { Calculator, ChevronDown, ChevronRight, Download, Eye, FileSpreadsheet, FileText, Info, Play, PlugZap, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
+import { Calculator, ChevronDown, ChevronRight, Download, Eye, FileSpreadsheet, FileText, Info, MoreHorizontal, Play, PlugZap, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
 import {
   calculateBillingInvoiceCostsAndMargin,
+  cancelBillingJob,
   createBillingRegulatedPriceVersion,
+  deleteBillingInvoice,
   deleteBillingInvoicesByInvoiceDate,
   deleteBillingRegulatedPriceVersion,
   downloadBillingInvoiceCostRunAudit,
@@ -92,6 +94,8 @@ export function BillingDashboardModule() {
   const [tariffs, setTariffs] = useState<string[]>([]);
   const [selectedJob, setSelectedJob] = useState<BillingJob | null>(null);
   const [loading, setLoading] = useState(false);
+  const [cancellingJobId, setCancellingJobId] = useState<string | null>(null);
+  const [rowMenuId, setRowMenuId] = useState<string | null>(null);
   const [rowActionId, setRowActionId] = useState<string | null>(null);
   const [configLoading, setConfigLoading] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error" | "info"; text: string }>();
@@ -117,6 +121,7 @@ export function BillingDashboardModule() {
   const rows = response?.rows ?? [];
   const summary = response?.summary;
   const activeJob = jobs.find(isActiveBillingJob);
+  const latestImportJob = jobs.find((job) => job.type === "IMPORT_INVOICES" && Boolean(job.finishedAt));
   const disabled = loading || configLoading || Boolean(activeJob);
   const visibleFrom = response?.total ? page * pageSize + 1 : 0;
   const visibleTo = response ? Math.min((page + 1) * pageSize, response.total) : 0;
@@ -265,6 +270,26 @@ export function BillingDashboardModule() {
     }
   }
 
+  async function runDeleteInvoice(row: BillingInvoiceRow) {
+    const label = row.invoiceNumber ?? String(row.gisceInvoiceId);
+    const confirmed = window.confirm(`Se eliminara solo la factura ${label}, incluyendo lineas, curva, costes y margen asociados. Despues podras importarla de nuevo desde GISCE. ¿Continuar?`);
+    if (!confirmed) return;
+    setRowActionId(row.id);
+    try {
+      await deleteBillingInvoice(row.id);
+      if (detail?.id === row.id) {
+        setDetail(null);
+        setCosts(null);
+      }
+      setMessage({ tone: "success", text: `Factura ${label} eliminada.` });
+      await load(page);
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error eliminando factura." });
+    } finally {
+      setRowActionId(null);
+    }
+  }
+
   async function runProcessPending() {
     setLoading(true);
     try {
@@ -312,6 +337,24 @@ export function BillingDashboardModule() {
       setRegulatedVersions(rows);
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando precios de costes." });
+    }
+  }
+
+  async function cancelJob(job: BillingJob) {
+    if (!isActiveBillingJob(job)) return;
+    const confirmed = window.confirm(`Se cancelara el job ${billingJobTypeLabel(job.type)}. Se detendra en el siguiente punto seguro. Continuar?`);
+    if (!confirmed) return;
+    setCancellingJobId(job.id);
+    try {
+      const cancelled = await cancelBillingJob(job.id);
+      setJobs((current) => current.map((item) => (item.id === cancelled.id ? cancelled : item)));
+      setSelectedJob((current) => (current?.id === cancelled.id ? cancelled : current));
+      setMessage({ tone: "info", text: "Cancelacion solicitada. El job se detendra en el siguiente punto seguro." });
+      await refreshJobs();
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cancelando el job." });
+    } finally {
+      setCancellingJobId(null);
     }
   }
 
@@ -570,20 +613,35 @@ export function BillingDashboardModule() {
       </>}
 
       {billingSection === "invoices" && <>
-      <section className="data-card">
-        <div className="data-card-header"><h3>Importar facturas</h3></div>
-        <div className="filter-band">
-          <label>Fecha factura desde<input disabled={disabled} type="date" value={importFrom} onChange={(event) => setImportFrom(event.target.value)} /></label>
-          <label>Fecha factura hasta<input disabled={disabled} type="date" value={importTo} onChange={(event) => setImportTo(event.target.value)} /></label>
-          <button className="primary-button" disabled={disabled} onClick={() => void runImport()} type="button"><RefreshCw size={16} /> Importar GISCE</button>
-          <button className="secondary-button" disabled={disabled} onClick={() => void runProcessPending()} type="button"><Play size={16} /> Procesar pendientes</button>
-          <label>Modo<select disabled={disabled} value={marginMode} onChange={(event) => setMarginMode(event.target.value as "PENDING_ONLY" | "RECALCULATE")}><option value="PENDING_ONLY">Calcular pendientes</option><option value="RECALCULATE">Recalcular rango</option></select></label>
-          <button className="secondary-button" disabled={disabled} onClick={() => void runCalculateCostsAndMargins()} type="button"><Calculator size={16} /> Calcular costes y margenes</button>
-          <button className="secondary-button" disabled={disabled} onClick={() => void runFullRecalculation()} type="button"><Play size={16} /> Proceso completo</button>
+      <section className="billing-operation-board">
+        <div className="billing-operation-card">
+          <div className="billing-operation-card-head">
+            <h3>Importacion</h3>
+            <span>Ultima importacion: {latestImportJob?.finishedAt ? formatDateTime(latestImportJob.finishedAt) : "-"}</span>
+          </div>
+          <div className="billing-operation-fields">
+            <label>Fecha factura desde<input disabled={disabled} type="date" value={importFrom} onChange={(event) => setImportFrom(event.target.value)} /></label>
+            <label>Fecha factura hasta<input disabled={disabled} type="date" value={importTo} onChange={(event) => setImportTo(event.target.value)} /></label>
+            <button className="primary-button" disabled={disabled} onClick={() => void runImport()} type="button"><RefreshCw size={16} /> Importar GISCE</button>
+          </div>
+        </div>
+        <div className="billing-operation-card billing-processing-card">
+          <div className="billing-operation-card-head">
+            <h3>Procesamiento</h3>
+            {activeJob && <span className="ops-status-badge processing">{billingJobTypeLabel(activeJob.type)}: {activeJob.message ?? activeJob.status}</span>}
+          </div>
+          <div className="billing-operation-fields">
+            <label>Modo<select disabled={disabled} value={marginMode} onChange={(event) => setMarginMode(event.target.value as "PENDING_ONLY" | "RECALCULATE")}><option value="PENDING_ONLY">Calcular pendientes</option><option value="RECALCULATE">Recalcular rango</option></select></label>
+            <button className="secondary-button" disabled={disabled} onClick={() => void runProcessPending()} type="button"><Play size={16} /> Procesar pendientes</button>
+            <button className="primary-button" disabled={disabled} onClick={() => void runCalculateCostsAndMargins()} type="button"><Calculator size={16} /> Calcular costes y margenes</button>
+            <button className="secondary-button" disabled={disabled} onClick={() => void runFullRecalculation()} type="button"><Play size={16} /> Proceso completo</button>
+          </div>
+        </div>
+        <div className="billing-operation-danger">
           <button className="secondary-button danger-button" disabled={disabled} onClick={() => void runDeleteInvoices()} type="button"><Trash2 size={16} /> Eliminar rango</button>
-          {activeJob && <span className="ops-status-badge processing">{billingJobTypeLabel(activeJob.type)}: {activeJob.message ?? activeJob.status}</span>}
         </div>
       </section>
+      <BillingSummaryStrip summary={summary} />
       </>}
 
       {billingSection === "jobs" && (
@@ -594,8 +652,8 @@ export function BillingDashboardModule() {
         </div>
         <div className="mercado-table-shell compact">
           <table className="mercado-table forecast-table compact billing-jobs-table">
-            <thead><tr><th>Inicio</th><th>Tipo</th><th>Rango</th><th>Paginas GISCE</th><th>Encontradas</th><th>Nuevas/Sin curva</th><th>Actualizadas/Sin costes</th><th>Sin cambios/Sin PF</th><th>Procesadas</th><th>Estado</th><th>Mensaje</th><th>Progreso</th><th>OK</th><th>Warnings</th><th>Errores</th><th>Info</th></tr></thead>
-            <tbody>{jobs.map((job) => <tr key={job.id}><td>{formatDateTime(job.startedAt ?? job.createdAt)}</td><td>{billingJobTypeLabel(job.type)}</td><td>{billingJobRange(job)}</td><td className="number">{billingJobGiscePages(job)}</td><td className="number">{billingJobFound(job)}</td><td className="number">{billingJobCreated(job)}</td><td className="number">{billingJobUpdated(job)}</td><td className="number">{billingJobUnchanged(job)}</td><td className="number">{billingJobProcessed(job)}</td><td><JobStatusBadge job={job} /></td><td>{job.message ?? "-"}</td><td className="number">{formatJobProgress(job)}</td><td className="number">{job.successCount.toLocaleString("es-ES")}</td><td className="number">{job.warningCount.toLocaleString("es-ES")}</td><td className="number">{job.errorCount.toLocaleString("es-ES")}</td><td><button className="icon-button" title="Ver informacion del job" onClick={() => setSelectedJob(job)} type="button"><Info size={16} /></button></td></tr>)}{jobs.length === 0 && <tr><td colSpan={16}>Sin trabajos registrados.</td></tr>}</tbody>
+            <thead><tr><th>Inicio</th><th>Fin</th><th>Tipo</th><th>Rango</th><th>Paginas GISCE</th><th>Encontradas</th><th>Nuevas/Sin curva</th><th>Actualizadas/Sin costes</th><th>Sin cambios/Sin PF</th><th>Procesadas</th><th>Estado</th><th>Mensaje</th><th>Progreso</th><th>OK</th><th>Warnings</th><th>Errores</th><th>Acciones</th></tr></thead>
+            <tbody>{jobs.map((job) => <tr key={job.id}><td>{formatDateTime(job.startedAt ?? job.createdAt)}</td><td>{job.finishedAt ? formatDateTime(job.finishedAt) : "-"}</td><td>{billingJobTypeLabel(job.type)}</td><td>{billingJobRange(job)}</td><td className="number">{billingJobGiscePages(job)}</td><td className="number">{billingJobFound(job)}</td><td className="number">{billingJobCreated(job)}</td><td className="number">{billingJobUpdated(job)}</td><td className="number">{billingJobUnchanged(job)}</td><td className="number">{billingJobProcessed(job)}</td><td><JobStatusBadge job={job} /></td><td>{job.message ?? "-"}</td><td className="number">{formatJobProgress(job)}</td><td className="number">{job.successCount.toLocaleString("es-ES")}</td><td className="number">{job.warningCount.toLocaleString("es-ES")}</td><td className="number">{job.errorCount.toLocaleString("es-ES")}</td><td><div className="billing-row-actions"><button className="icon-button" title="Ver informacion del job" onClick={() => setSelectedJob(job)} type="button"><Info size={16} /></button>{isActiveBillingJob(job) && <button className="icon-button danger-button" disabled={cancellingJobId === job.id} title="Cancelar job" onClick={() => void cancelJob(job)} type="button"><X size={16} /></button>}</div></td></tr>)}{jobs.length === 0 && <tr><td colSpan={17}>Sin trabajos registrados.</td></tr>}</tbody>
           </table>
         </div>
       </section>
@@ -620,11 +678,14 @@ export function BillingDashboardModule() {
 
       {billingSection === "invoices" && (
       <section className="panel wide billing-invoices-panel">
-        <div className="data-card-header">
-          <h3>Facturas</h3>
-        </div>
         <BillingFiltersPanel filters={filters} invoicingModes={invoicingModes} disabled={disabled} onFilterChange={updateFilter} onClear={clearFilters} onSubmit={() => void load(page)} />
-        <div className="billing-results-count">{loading ? "Cargando..." : `${visibleFrom}-${visibleTo} de ${(response?.total ?? 0).toLocaleString("es-ES")} facturas`}</div>
+        <div className="billing-table-toolbar">
+          <div>
+            <h3>Facturas</h3>
+            <span>{loading ? "Cargando..." : `${visibleFrom}-${visibleTo} de ${(response?.total ?? 0).toLocaleString("es-ES")} facturas`}</span>
+          </div>
+          <button className="secondary-button" disabled={disabled} onClick={() => void load(page)} type="button"><RefreshCw size={16} /> Actualizar</button>
+        </div>
         <div className="table-scroll">
           <table className="omie-liquidation-table billing-invoices-table">
             <thead>
@@ -632,7 +693,7 @@ export function BillingDashboardModule() {
                 <SortTh label="Factura" field="invoiceNumber" sort={sort} onSort={toggleSort} />
                 <SortTh label="Fecha factura" field="invoiceDate" sort={sort} onSort={toggleSort} />
                 <SortTh label="CUPS" field="cups" sort={sort} onSort={toggleSort} />
-                <th>Poliza</th><th>Periodo consumo</th><th>Tarifa</th><SortTh label="PF kWh" field="pf" sort={sort} onSort={toggleSort} align="right" /><th>Curva</th><SortTh label="Costes EUR" field="costs" sort={sort} onSort={toggleSort} align="right" /><th className="number">Importe asociado</th><SortTh label="Margen EUR" field="margin" sort={sort} onSort={toggleSort} align="right" /><SortTh label="Margen EUR/MWh" field="marginEurMwh" sort={sort} onSort={toggleSort} align="right" /><SortTh label="Estado" field="globalStatus" sort={sort} onSort={toggleSort} /><th>Incidencias</th><th>Accion</th>
+                <th>Poliza</th><th>Periodo consumo</th><th>Tarifa</th><SortTh label="Consumo PF (kWh)" field="pf" sort={sort} onSort={toggleSort} align="right" /><th>Origen calculo</th><SortTh label="Costes" field="costs" sort={sort} onSort={toggleSort} align="right" /><th className="number">Ingresos</th><SortTh label="Margen €" field="margin" sort={sort} onSort={toggleSort} align="right" /><SortTh label="Margen €/MWh" field="marginEurMwh" sort={sort} onSort={toggleSort} align="right" /><SortTh label="Estado" field="globalStatus" sort={sort} onSort={toggleSort} /><th>Incidencias</th><th>Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -640,9 +701,9 @@ export function BillingDashboardModule() {
                 <tr key={row.id} onDoubleClick={() => void openDetail(row.id)}>
                   <td><button className="link-button" onClick={() => void openDetail(row.id)} type="button">{row.invoiceNumber ?? row.gisceInvoiceId}</button></td>
                   <td>{formatDate(row.invoiceDate)}</td><td>{row.cups}</td><td>{row.polissaNumber ?? "-"}</td><td>{formatDate(row.periodStart)} - {formatDate(row.periodEnd)}</td><td>{row.tariffCode ?? "-"}</td>
-                  <td className="number">{row.pfTotalKwh === null || row.pfTotalKwh === undefined ? "-" : formatEnergy(row.pfTotalKwh)}</td><td title={curveTooltip(row)}>{row.curveSummaryText ?? curveSummaryText(row)}</td><td className="number">{formatCurrencyEuro(row.totalCostEur)}</td><td className="number">{formatCurrencyEuro(row.associatedRevenueEur)}</td><td className={`number ${marginToneClass(row.marginEur)}`}>{formatCurrencyEuro(row.marginEur)}</td><td className={`number ${marginToneClass(row.marginEurMwh)}`}>{row.marginEurMwh === null || row.marginEurMwh === undefined ? "-" : `${formatNumberFixed(row.marginEurMwh, 2)} €/MWh`}</td>
-                  <td><GlobalBillingStatusBadge status={row.globalStatus ?? "CURVE_PENDING"} /></td><td title={issuesTooltip(row)}>{(row.totalIssueCount ?? row.issueCount) ? <span className="ops-status-badge partial">{(row.totalIssueCount ?? row.issueCount).toLocaleString("es-ES")}</span> : "-"}</td>
-                  <td><div className="billing-row-actions"><button className="icon-button" title="Ver detalle" onClick={() => void openDetail(row.id)} type="button"><Eye size={16} /></button><button className="icon-button" disabled={Boolean(activeJob) || rowActionId === row.id} title="Procesar/reprocesar curva" onClick={() => void runProcessOne(row)} type="button"><Play size={16} /></button><button className="icon-button" disabled={!rowCanCalculateCosts(row) || rowActionId === row.id} title="Calcular/recalcular costes y margen" onClick={() => void runCalculateCostsAndMarginForRow(row)} type="button"><Calculator size={16} /></button><button className="icon-button" disabled={!row.costRunId || rowActionId === row.id} title="Descargar Excel de auditoria" onClick={() => void exportAuditForRow(row)} type="button"><Download size={16} /></button></div></td>
+                  <td className="number">{row.pfTotalKwh === null || row.pfTotalKwh === undefined ? "-" : formatEnergy(row.pfTotalKwh)}</td><td title={curveTooltip(row)}>{row.curveSummaryText ?? curveSummaryText(row)}</td><td className="number billing-economic-cell">{formatCurrencyEuro(row.totalCostEur)}</td><td className="number billing-economic-cell">{formatCurrencyEuro(row.associatedRevenueEur)}</td><td className={`number billing-margin-cell ${marginToneClass(row.marginEur)}`}>{formatCurrencyEuro(row.marginEur)}</td><td className={`number billing-margin-cell ${marginToneClass(row.marginEurMwh)}`}>{row.marginEurMwh === null || row.marginEurMwh === undefined ? "-" : `${formatNumberFixed(row.marginEurMwh, 2)} €/MWh`}</td>
+                  <td><GlobalBillingStatusBadge status={row.globalStatus ?? "CURVE_PENDING"} /></td><td title={issuesTooltip(row)}>{formatInvoiceIssuesBadge(row)}</td>
+                  <td><div className="billing-row-actions"><button className="secondary-button billing-row-view-button" title="Ver detalle de factura" onClick={() => void openDetail(row.id)} type="button"><Eye size={14} /> Ver</button><div className="billing-row-more"><button className="icon-button" title="Mas acciones" onClick={() => setRowMenuId((current) => current === row.id ? null : row.id)} type="button"><MoreHorizontal size={16} /></button>{rowMenuId === row.id && <div className="billing-row-action-menu"><button disabled={Boolean(activeJob) || rowActionId === row.id} onClick={() => { setRowMenuId(null); void runProcessOne(row); }} type="button"><Play size={14} /> Procesar curva</button><button disabled={!rowCanCalculateCosts(row) || rowActionId === row.id} onClick={() => { setRowMenuId(null); void runCalculateCostsAndMarginForRow(row); }} type="button"><Calculator size={14} /> Calcular costes y margen</button><button disabled={!row.costRunId || rowActionId === row.id} onClick={() => { setRowMenuId(null); void exportAuditForRow(row); }} type="button"><Download size={14} /> Descargar Excel</button><button className="danger-menu-item" disabled={Boolean(activeJob) || rowActionId === row.id} onClick={() => { setRowMenuId(null); void runDeleteInvoice(row); }} type="button"><Trash2 size={14} /> Eliminar factura</button></div>}</div></div></td>
                 </tr>
               ))}
               {rows.length === 0 && <tr><td colSpan={15}>Sin facturas para los filtros seleccionados.</td></tr>}
@@ -655,7 +716,6 @@ export function BillingDashboardModule() {
           <span>Pagina {page + 1}</span>
           <button disabled={disabled || !response?.hasNext} onClick={() => { const next = page + 1; setPage(next); void load(next); }} type="button">Siguiente</button>
         </div>
-        <BillingSummaryStrip summary={summary} />
       </section>
       )}
 
@@ -804,9 +864,10 @@ function flattenOperationalBalanceRows(rows: BillingOperationalBalanceRow[], exp
   return output;
 }
 
-function formatOperationalBalanceValue(value: number | null, unit: "COUNT" | "EUR" | "EUR_MWH" | "KWH") {
+function formatOperationalBalanceValue(value: number | null, unit: "COUNT" | "EUR" | "EUR_MWH" | "KWH" | "PERCENT") {
   if (value === null || value === undefined || !Number.isFinite(value)) return "";
   if (unit === "COUNT") return value.toLocaleString("es-ES", { maximumFractionDigits: 0 });
+  if (unit === "PERCENT") return `${value.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
   if (unit === "EUR_MWH") return `${value.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €/MWh`;
   if (Math.abs(value) < 0.0000001) return unit === "EUR" ? formatCurrencyEuro(0) : formatEnergy(0);
   return unit === "EUR" ? formatCurrencyEuro(value) : formatEnergy(value);
@@ -972,47 +1033,53 @@ function CostNatureBadge({ nature }: { nature: "ENERGY" | "POWER" }) {
   return <span className="billing-cost-nature-badge">{nature === "POWER" ? "Potencia" : "Energ\u00eda"}</span>;
 }
 function BillingFiltersPanel({ filters, invoicingModes, disabled, onFilterChange, onClear, onSubmit }: { filters: typeof INITIAL_BILLING_FILTERS; invoicingModes: Array<{ id: number; name: string }>; disabled: boolean; onFilterChange: (key: keyof typeof INITIAL_BILLING_FILTERS, value: string) => void; onClear: () => void; onSubmit: () => void }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   return (
     <div className="billing-filters-zone">
-      <span className="billing-filters-eyebrow">Filtros</span>
-      <div className="billing-filters-grid">
-        <label className="billing-filter-field billing-filter-search">Búsqueda<span className="billing-search-input"><Search size={15} /><input placeholder="Factura, CUPS o póliza" value={filters.search} onChange={(event) => onFilterChange("search", event.target.value)} /></span></label>
-        <label className="billing-filter-field billing-filter-date-from">Fecha desde<input type="date" value={filters.invoiceDateFrom} onChange={(event) => onFilterChange("invoiceDateFrom", event.target.value)} /></label>
-        <label className="billing-filter-field billing-filter-date-to">Fecha hasta<input type="date" value={filters.invoiceDateTo} onChange={(event) => onFilterChange("invoiceDateTo", event.target.value)} /></label>
-        <label className="billing-filter-field billing-filter-cups">CUPS<input value={filters.cups} onChange={(event) => onFilterChange("cups", event.target.value)} /></label>
-        <label className="billing-filter-field billing-filter-invoice">Número factura<input value={filters.invoiceNumber} onChange={(event) => onFilterChange("invoiceNumber", event.target.value)} /></label>
-        <label className="billing-filter-field billing-filter-polissa">Póliza<input value={filters.polissa} onChange={(event) => onFilterChange("polissa", event.target.value)} /></label>
-        <label className="billing-filter-field billing-filter-tariff">Tarifa<input value={filters.tariff} onChange={(event) => onFilterChange("tariff", event.target.value)} /></label>
-        <label className="billing-filter-field">Modo de facturacion<select value={filters.invoicingMode} onChange={(event) => onFilterChange("invoicingMode", event.target.value)}><option value="">Todos</option>{invoicingModes.map((mode) => <option key={`${mode.id}-${mode.name}`} value={mode.name}>{mode.name}</option>)}</select></label>
-        <label className="billing-filter-field billing-filter-status">Estado<select value={filters.status} onChange={(event) => onFilterChange("status", event.target.value)}>{STATUS_OPTIONS.map((option) => <option key={option || "all"} value={option}>{statusLabel(option)}</option>)}</select></label>
-        <label className="billing-filter-field">Estado margen<select value={filters.marginStatus} onChange={(event) => onFilterChange("marginStatus", event.target.value)}><option value="">Todos</option><option value="READY">READY</option><option value="WARNING">WARNING</option><option value="NOT_AVAILABLE">NOT_AVAILABLE</option></select></label>
-        <label className="billing-filter-field">Margen min<input type="number" step="0.01" value={filters.marginEurMin} onChange={(event) => onFilterChange("marginEurMin", event.target.value)} /></label>
-        <label className="billing-filter-field">Margen max<input type="number" step="0.01" value={filters.marginEurMax} onChange={(event) => onFilterChange("marginEurMax", event.target.value)} /></label>
-        <label className="billing-filter-field">Margen €/MWh min<input type="number" step="0.01" value={filters.marginEurMwhMin} onChange={(event) => onFilterChange("marginEurMwhMin", event.target.value)} /></label>
-        <label className="billing-filter-field">Margen €/MWh max<input type="number" step="0.01" value={filters.marginEurMwhMax} onChange={(event) => onFilterChange("marginEurMwhMax", event.target.value)} /></label>
-        <label className="billing-filter-field billing-filter-source">Origen curva<select value={filters.curveSource} onChange={(event) => onFilterChange("curveSource", event.target.value)}>{CURVE_SOURCES.map((option) => <option key={option || "all"} value={option}>{formatCurveSource(option) || "Todos"}</option>)}</select></label>
-        <label className="billing-filter-field billing-filter-issues">Incidencias<select value={filters.withIssues} onChange={(event) => onFilterChange("withIssues", event.target.value)}><option value="">Todas</option><option value="true">Con incidencias</option><option value="false">Sin incidencias</option></select></label>
-        <label className="billing-filter-field">Incidencias total<select value={filters.hasAnyIssues} onChange={(event) => onFilterChange("hasAnyIssues", event.target.value)}><option value="">Todas</option><option value="true">Con incidencias</option><option value="false">Sin incidencias</option></select></label>
+      <div className="billing-filters-head">
+        <span className="billing-filters-eyebrow">Filtros</span>
+        <button className="secondary-button billing-more-filters-button" type="button" onClick={() => setAdvancedOpen((current) => !current)}>{advancedOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />} Más filtros</button>
+      </div>
+      <div className="billing-filters-grid billing-filters-main-grid">
+        <label className="billing-filter-field billing-filter-search">Búsqueda<span className="billing-search-input"><Search size={15} /><input disabled={disabled} placeholder="Factura, CUPS o póliza" value={filters.search} onChange={(event) => onFilterChange("search", event.target.value)} /></span></label>
+        <label className="billing-filter-field billing-filter-date-from">Fecha desde<input disabled={disabled} type="date" value={filters.invoiceDateFrom} onChange={(event) => onFilterChange("invoiceDateFrom", event.target.value)} /></label>
+        <label className="billing-filter-field billing-filter-date-to">Fecha hasta<input disabled={disabled} type="date" value={filters.invoiceDateTo} onChange={(event) => onFilterChange("invoiceDateTo", event.target.value)} /></label>
+        <label className="billing-filter-field billing-filter-status">Estado<select disabled={disabled} value={filters.status} onChange={(event) => onFilterChange("status", event.target.value)}>{STATUS_OPTIONS.map((option) => <option key={option || "all"} value={option}>{statusLabel(option)}</option>)}</select></label>
+        <label className="billing-filter-field billing-filter-issues">Incidencias totales<select disabled={disabled} value={filters.hasAnyIssues} onChange={(event) => onFilterChange("hasAnyIssues", event.target.value)}><option value="">Todas</option><option value="true">Con incidencias</option><option value="false">Sin incidencias</option></select></label>
         <div className="billing-filter-actions">
           <button className="secondary-button billing-clear-filters-button" disabled={disabled} onClick={onClear} type="button">Limpiar filtros</button>
           <button className="primary-button" disabled={disabled} onClick={onSubmit} type="button"><Search size={16} /> Consultar</button>
         </div>
       </div>
+      {advancedOpen && <div className="billing-filters-grid billing-filters-secondary-grid">
+        <label className="billing-filter-field billing-filter-cups">CUPS<input disabled={disabled} value={filters.cups} onChange={(event) => onFilterChange("cups", event.target.value)} /></label>
+        <label className="billing-filter-field billing-filter-invoice">Numero factura<input disabled={disabled} value={filters.invoiceNumber} onChange={(event) => onFilterChange("invoiceNumber", event.target.value)} /></label>
+        <label className="billing-filter-field billing-filter-polissa">Poliza<input disabled={disabled} value={filters.polissa} onChange={(event) => onFilterChange("polissa", event.target.value)} /></label>
+        <label className="billing-filter-field billing-filter-tariff">Tarifa<input disabled={disabled} value={filters.tariff} onChange={(event) => onFilterChange("tariff", event.target.value)} /></label>
+        <label className="billing-filter-field billing-filter-source">Origen curva<select disabled={disabled} value={filters.curveSource} onChange={(event) => onFilterChange("curveSource", event.target.value)}>{CURVE_SOURCES.map((option) => <option key={option || "all"} value={option}>{formatCurveSource(option) || "Todos"}</option>)}</select></label>
+        <label className="billing-filter-field">Modo de facturacion<select disabled={disabled} value={filters.invoicingMode} onChange={(event) => onFilterChange("invoicingMode", event.target.value)}><option value="">Todos</option>{invoicingModes.map((mode) => <option key={`${mode.id}-${mode.name}`} value={mode.name}>{mode.name}</option>)}</select></label>
+        <label className="billing-filter-field">Estado margen<select disabled={disabled} value={filters.marginStatus} onChange={(event) => onFilterChange("marginStatus", event.target.value)}><option value="">Todos</option><option value="READY">Correcto</option><option value="WARNING">Con avisos</option><option value="NOT_AVAILABLE">No disponible</option></select></label>
+        <label className="billing-filter-field">Margen minimo<input disabled={disabled} type="number" step="0.01" value={filters.marginEurMin} onChange={(event) => onFilterChange("marginEurMin", event.target.value)} /></label>
+        <label className="billing-filter-field">Margen maximo<input disabled={disabled} type="number" step="0.01" value={filters.marginEurMax} onChange={(event) => onFilterChange("marginEurMax", event.target.value)} /></label>
+        <label className="billing-filter-field">Margen €/MWh minimo<input disabled={disabled} type="number" step="0.01" value={filters.marginEurMwhMin} onChange={(event) => onFilterChange("marginEurMwhMin", event.target.value)} /></label>
+        <label className="billing-filter-field">Margen €/MWh maximo<input disabled={disabled} type="number" step="0.01" value={filters.marginEurMwhMax} onChange={(event) => onFilterChange("marginEurMwhMax", event.target.value)} /></label>
+        <label className="billing-filter-field">Incidencias curva<select disabled={disabled} value={filters.withIssues} onChange={(event) => onFilterChange("withIssues", event.target.value)}><option value="">Todas</option><option value="true">Con incidencias</option><option value="false">Sin incidencias</option></select></label>
+      </div>}
     </div>
   );
 }
 function BillingSummaryStrip({ summary }: { summary: BillingInvoicesResponse["summary"] | undefined }) {
+  const invoices = summary?.invoices ?? 0;
+  const ready = summary?.ready ?? 0;
+  const pending = Math.max(invoices - ready, 0);
+  const withIssues = summary?.withIssues ?? 0;
   const items = [
-    { label: "Facturas", value: summary?.invoices ?? 0 },
-    { label: "Preparadas", value: summary?.ready ?? 0 },
-    { label: "Facturas con F1", value: summary?.withF1 ?? 0 },
-    { label: "Facturas con TgP1", value: summary?.withP1 ?? 0 },
-    { label: "Facturas con F5D", value: summary?.withF5d ?? 0 },
-    { label: "Facturas con P5D", value: summary?.withP5d ?? 0 },
-    { label: "Facturas con perfilado", value: summary?.withProfile ?? 0 },
-    { label: "Con incidencias", value: summary?.withIssues ?? 0, tone: summary?.withIssues ? "bad" : "good" }
+    { label: "Facturas", value: invoices },
+    { label: "Preparadas", value: ready, tone: "good" },
+    { label: "Pendientes", value: pending, tone: pending ? "bad" : "good" },
+    { label: "Con incidencias", value: withIssues, tone: withIssues ? "bad" : "good" }
   ];
-  return <div className="billing-summary-strip">{items.map((item) => <span key={item.label} className={item.tone ?? ""}><b>{item.label}</b><strong>{item.value.toLocaleString("es-ES")}</strong></span>)}</div>;
+  return <div className="billing-summary-strip billing-operational-summary">{items.map((item) => <span key={item.label} className={item.tone ?? ""}><b>{item.label}</b><strong>{item.value.toLocaleString("es-ES")}</strong></span>)}</div>;
 }
 function BillingJobInfoModal({ job, onClose }: { job: BillingJob; onClose: () => void }) {
   const detailRows = billingJobDetailRows(job);
@@ -1128,20 +1195,24 @@ function GlobalBillingStatusBadge({ status }: { status: string }) {
 }
 function globalStatusLabel(status: string) {
   const labels: Record<string, string> = {
-    CURVE_PENDING: "Curva pendiente",
+    CURVE_PENDING: "Pendiente",
     READY_FOR_COSTS: "Lista para costes",
-    COSTS_WARNING: "Costes warning",
+    COSTS_WARNING: "Con avisos",
     READY_FOR_MARGIN: "Lista para margen",
-    MARGIN_WARNING: "Margen warning",
-    MARGIN_OK: "Margen OK"
+    MARGIN_WARNING: "Con avisos",
+    MARGIN_OK: "Correcto",
+    ERROR: "Error",
+    PENDING: "Pendiente",
+    COMPLETED: "Correcto",
+    OK: "Correcto"
   };
   return labels[status] ?? status;
 }
-function JobStatusBadge({ job }: { job: BillingJob }) { const tone = job.status === "SUCCESS" ? "valid" : job.status === "ERROR" ? "error" : "processing"; return <span className={`ops-status-badge ${tone}`}>{billingJobStatusLabel(job.status)}</span>; }
+function JobStatusBadge({ job }: { job: BillingJob }) { const tone = job.status === "SUCCESS" ? "valid" : job.status === "ERROR" ? "error" : job.status === "CANCELLED" ? "muted" : "processing"; return <span className={`ops-status-badge ${tone}`}>{billingJobStatusLabel(job.status)}</span>; }
 function isActiveBillingJob(job: BillingJob) { return job.status === "QUEUED" || job.status === "RUNNING"; }
 function billingJobTypeLabel(type: string) { return type === "IMPORT_INVOICES" ? "Importacion GISCE" : type === "PROCESS_PENDING" ? "Procesar pendientes" : type === "CALCULATE_MARGINS" ? "Calcular margenes" : type === "CALCULATE_COSTS_AND_MARGINS" ? "Calcular costes y margenes" : type === "FULL_RECALCULATION" ? "Proceso completo" : type; }
 function billingJobModalTitle(job: BillingJob) { return job.type === "IMPORT_INVOICES" ? "Importacion GISCE" : billingJobTypeLabel(job.type); }
-function billingJobStatusLabel(status: string) { return status === "QUEUED" ? "En cola" : status === "RUNNING" ? "En curso" : status === "SUCCESS" ? "Finalizado" : status === "ERROR" ? "Error" : status; }
+function billingJobStatusLabel(status: string) { return status === "QUEUED" ? "En cola" : status === "RUNNING" ? "En curso" : status === "SUCCESS" ? "Finalizado" : status === "ERROR" ? "Error" : status === "CANCELLED" ? "Cancelado" : status; }
 function formatJobProgress(job: BillingJob) { return job.totalItems > 0 ? `${job.processedItems.toLocaleString("es-ES")} / ${job.totalItems.toLocaleString("es-ES")}` : job.processedItems.toLocaleString("es-ES"); }
 function billingJobRange(job: BillingJob) {
   const dateFrom = typeof job.params?.dateFrom === "string" ? job.params.dateFrom : null;
@@ -1258,6 +1329,11 @@ function curveTooltip(row: BillingInvoiceRow) {
 }
 function issuesTooltip(row: BillingInvoiceRow) {
   return [`Curva: ${row.curveIssueCount ?? row.issueCount ?? 0}`, `Costes: ${row.costIssueCount ?? 0}`, `Margen: ${row.marginIssueCount ?? 0}`].join("\n");
+}
+function formatInvoiceIssuesBadge(row: BillingInvoiceRow) {
+  const total = row.totalIssueCount ?? row.issueCount ?? 0;
+  if (!total) return "-";
+  return <span className="ops-status-badge partial">{total.toLocaleString("es-ES")} incidencias</span>;
 }
 function marginToneClass(value: number | null | undefined) {
   if (value === null || value === undefined) return "";
