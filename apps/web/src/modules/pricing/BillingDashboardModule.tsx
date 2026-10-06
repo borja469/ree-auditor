@@ -117,6 +117,7 @@ export function BillingDashboardModule() {
   const [balanceCalculating, setBalanceCalculating] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [balanceFilters, setBalanceFilters] = useState({ cups: "", tariff: "", invoicingMode: "" });
+  const [appliedBalanceFilters, setAppliedBalanceFilters] = useState({ cups: "", tariff: "", invoicingMode: "" });
 
   const rows = response?.rows ?? [];
   const summary = response?.summary;
@@ -178,7 +179,7 @@ export function BillingDashboardModule() {
   useEffect(() => {
     if (billingSection !== "balance") return;
     void loadOperationalBalance(balanceYear);
-  }, [billingSection, balanceYear, balanceFilters]);
+  }, [billingSection, balanceYear, appliedBalanceFilters]);
 
   async function refreshJobs() {
     try {
@@ -358,11 +359,11 @@ export function BillingDashboardModule() {
     }
   }
 
-  async function loadOperationalBalance(year = balanceYear) {
+  async function loadOperationalBalance(year = balanceYear, filtersToLoad = appliedBalanceFilters) {
     setBalanceLoading(true);
     setBalanceError(null);
     try {
-      const report = await getBillingOperationalBalance(year, balanceFilters);
+      const report = await getBillingOperationalBalance(year, filtersToLoad);
       setBalanceReport(report);
       if (report.year !== year) setBalanceYear(report.year);
     } catch (error) {
@@ -376,8 +377,10 @@ export function BillingDashboardModule() {
   async function recalculateOperationalBalance() {
     setBalanceCalculating(true);
     setBalanceError(null);
+    const filtersToApply = { ...balanceFilters };
     try {
-      const report = await recalculateBillingOperationalBalance(balanceYear, balanceFilters);
+      const report = await recalculateBillingOperationalBalance(balanceYear, filtersToApply);
+      setAppliedBalanceFilters(filtersToApply);
       setBalanceReport(report);
       if (report.year !== balanceYear) setBalanceYear(report.year);
       setMessage({ tone: "success", text: "Balance Operativo actualizado." });
@@ -386,6 +389,12 @@ export function BillingDashboardModule() {
     } finally {
       setBalanceCalculating(false);
     }
+  }
+
+  function applyOperationalBalanceFilters(nextFilters = balanceFilters) {
+    const filtersToApply = { ...nextFilters };
+    setAppliedBalanceFilters(filtersToApply);
+    void loadOperationalBalance(balanceYear, filtersToApply);
   }
 
   async function loadInvoicingModes() {
@@ -670,6 +679,7 @@ export function BillingDashboardModule() {
           invoicingModes={invoicingModes}
           tariffs={tariffs}
           onFiltersChange={setBalanceFilters}
+          onApplyFilters={applyOperationalBalanceFilters}
           onYearChange={setBalanceYear}
           onRecalculate={() => void recalculateOperationalBalance()}
         />
@@ -736,6 +746,7 @@ function OperationalBalanceSection({
   invoicingModes,
   tariffs,
   onFiltersChange,
+  onApplyFilters,
   onYearChange,
   onRecalculate
 }: {
@@ -748,6 +759,7 @@ function OperationalBalanceSection({
   invoicingModes: Array<{ id: number; name: string }>;
   tariffs: string[];
   onFiltersChange: Dispatch<SetStateAction<{ cups: string; tariff: string; invoicingMode: string }>>;
+  onApplyFilters: (filters?: { cups: string; tariff: string; invoicingMode: string }) => void;
   onYearChange: (year: number) => void;
   onRecalculate: () => void;
 }) {
@@ -787,7 +799,8 @@ function OperationalBalanceSection({
         <label>CUPS<input disabled={loading || calculating} value={filters.cups} onChange={(event) => onFiltersChange((current) => ({ ...current, cups: event.target.value }))} placeholder="Todos" /></label>
         <label>Tarifa ATR<select disabled={loading || calculating} value={filters.tariff} onChange={(event) => onFiltersChange((current) => ({ ...current, tariff: event.target.value }))}><option value="">Todas</option>{tariffs.map((tariff) => <option key={tariff} value={tariff}>{tariff}</option>)}</select></label>
         <label>Modo facturacion<select disabled={loading || calculating} value={filters.invoicingMode} onChange={(event) => onFiltersChange((current) => ({ ...current, invoicingMode: event.target.value }))}><option value="">Todos</option>{invoicingModes.map((mode) => <option key={`${mode.id}-${mode.name}`} value={mode.name}>{mode.name}</option>)}</select></label>
-        <button className="secondary-button" disabled={loading || calculating} type="button" onClick={() => onFiltersChange({ cups: "", tariff: "", invoicingMode: "" })}>Limpiar filtros</button>
+        <button className="secondary-button" disabled={loading || calculating} type="button" onClick={() => onApplyFilters()}>Consultar</button>
+        <button className="secondary-button" disabled={loading || calculating} type="button" onClick={() => { const emptyFilters = { cups: "", tariff: "", invoicingMode: "" }; onFiltersChange(emptyFilters); onApplyFilters(emptyFilters); }}>Limpiar filtros</button>
       </div>
       {report?.calculatedAt && <div className="indexed-price-history-meta">Ultimo calculo: {formatDateTime(report.calculatedAt)}</div>}
       {loading && <div className="annual-report-loading">Cargando Balance Operativo guardado...</div>}
