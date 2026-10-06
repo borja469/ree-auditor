@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceMarginStatus } from "@prisma/client";
+import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceMarginStatus, CmInvoiceProcessingStatus } from "@prisma/client";
 import { BillingDashboardService, buildOperationalBalanceReport, inferSourceResolutionMinutes, normalizeGiscePriceList, normalizeMeasuresToQuarterHour, selectMeasureCandidate, type CurveIssue, type NormalizedMeasureCandidate } from "./billing-dashboard.service";
 
 function candidate(consumption: number): NormalizedMeasureCandidate {
@@ -272,6 +272,61 @@ describe("Billing dashboard operational balance", () => {
     assert.equal(revenue.months[2].invoiceCount, 2);
     assert.equal(revenue.months[2].calculatedInvoiceCount, 1);
     assert.equal(revenue.months[2].missingInvoiceCount, 1);
+  });
+});
+
+describe("Billing dashboard margin jobs", () => {
+  it("recalcula margenes contra el ultimo run existente sin recalcular costes", async () => {
+    let calculateCostsCalled = false;
+    const updates: Array<{ message?: string | null; status?: string }> = [];
+    const invoice = {
+      id: "invoice-1",
+      invoiceNumber: "FE-1",
+      gisceInvoiceId: 1,
+      processingStatus: CmInvoiceProcessingStatus.READY,
+      expectedIntervals: 1,
+      lines: [line("Tarifas Acceso / Energia", "P1", 1, 100)]
+    };
+    const prisma = {
+      cmInvoice: {
+        findMany: async () => [invoice]
+      },
+      cmBillingJob: {
+        update: async ({ data }: { data: { message?: string | null; status?: string } }) => {
+          updates.push(data);
+          return data;
+        }
+      },
+      cmInvoiceCostRun: {
+        findFirst: async () => ({ id: "run-1", invoiceId: invoice.id, incidentsCount: 0, status: CmInvoiceCostRunStatus.COMPLETED })
+      },
+      cmInvoiceMarginSnapshot: {
+        findUnique: async () => null,
+        upsert: async () => ({ id: "margin-1" })
+      },
+      cmInvoiceIntervalCostComponent: {
+        groupBy: async () => [{ componentCode: "OMIE_MD", _sum: { costEur: 80 } }]
+      },
+      cmInvoicePowerCostComponent: {
+        groupBy: async () => []
+      },
+      cmInvoiceConsumptionCurve: {
+        aggregate: async () => ({ _sum: { consumptionPfKwh: 1000 } })
+      }
+    };
+    const costsService = {
+      calculateCosts: async () => {
+        calculateCostsCalled = true;
+        throw new Error("No debe recalcular costes");
+      }
+    };
+    const service = new BillingDashboardService(prisma as never, null as never, null as never, null as never, costsService as never);
+
+    await (service as never as { runCalculateMarginsJob: (jobId: string, dateFrom: string, dateTo: string, mode: "RECALCULATE") => Promise<void> }).runCalculateMarginsJob("job-1", "2026-09-01", "2026-09-30", "RECALCULATE");
+
+    assert.equal(calculateCostsCalled, false);
+    assert.ok(updates.some((update) => update.message?.includes("Margenes procesados")));
+    assert.equal(updates.at(-1)?.status, "SUCCESS");
   });
 });
 

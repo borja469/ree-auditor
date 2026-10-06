@@ -20,6 +20,7 @@ import {
   updateBillingRegulatedPriceVersion,
   saveBillingGisceConfig,
   startBillingImportJob,
+  startBillingCalculateCostsAndMarginsJob,
   startBillingFullRecalculationJob,
   startBillingProcessPendingJob,
   testBillingGisceConnection,
@@ -374,6 +375,20 @@ export function BillingDashboardModule() {
     }
   }
 
+  async function runCalculateCostsAndMargins() {
+    setLoading(true);
+    try {
+      const job = await startBillingCalculateCostsAndMarginsJob(importFrom, importTo, marginMode);
+      setJobs((current) => [job, ...current.filter((item) => item.id !== job.id)].slice(0, 10));
+      setMessage({ tone: "info", text: job.message ?? "Calculo de costes y margenes lanzado." });
+      await refreshJobs();
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error lanzando el calculo de costes y margenes." });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function startNewRegulatedVersion(code = regulatedTab) {
     setEditingRegulatedId(null);
     setRegulatedDraft(defaultRegulatedDraft(code));
@@ -562,8 +577,9 @@ export function BillingDashboardModule() {
           <label>Fecha factura hasta<input disabled={disabled} type="date" value={importTo} onChange={(event) => setImportTo(event.target.value)} /></label>
           <button className="primary-button" disabled={disabled} onClick={() => void runImport()} type="button"><RefreshCw size={16} /> Importar GISCE</button>
           <button className="secondary-button" disabled={disabled} onClick={() => void runProcessPending()} type="button"><Play size={16} /> Procesar pendientes</button>
-          <label>Margen<select disabled={disabled} value={marginMode} onChange={(event) => setMarginMode(event.target.value as "PENDING_ONLY" | "RECALCULATE")}><option value="PENDING_ONLY">Calcular pendientes</option><option value="RECALCULATE">Recalcular rango</option></select></label>
-          <button className="secondary-button" disabled={disabled} onClick={() => void runFullRecalculation()} type="button"><Play size={16} /> Calcular costes y margenes</button>
+          <label>Modo<select disabled={disabled} value={marginMode} onChange={(event) => setMarginMode(event.target.value as "PENDING_ONLY" | "RECALCULATE")}><option value="PENDING_ONLY">Calcular pendientes</option><option value="RECALCULATE">Recalcular rango</option></select></label>
+          <button className="secondary-button" disabled={disabled} onClick={() => void runCalculateCostsAndMargins()} type="button"><Calculator size={16} /> Calcular costes y margenes</button>
+          <button className="secondary-button" disabled={disabled} onClick={() => void runFullRecalculation()} type="button"><Play size={16} /> Proceso completo</button>
           <button className="secondary-button danger-button" disabled={disabled} onClick={() => void runDeleteInvoices()} type="button"><Trash2 size={16} /> Eliminar rango</button>
           {activeJob && <span className="ops-status-badge processing">{billingJobTypeLabel(activeJob.type)}: {activeJob.message ?? activeJob.status}</span>}
         </div>
@@ -1123,7 +1139,7 @@ function globalStatusLabel(status: string) {
 }
 function JobStatusBadge({ job }: { job: BillingJob }) { const tone = job.status === "SUCCESS" ? "valid" : job.status === "ERROR" ? "error" : "processing"; return <span className={`ops-status-badge ${tone}`}>{billingJobStatusLabel(job.status)}</span>; }
 function isActiveBillingJob(job: BillingJob) { return job.status === "QUEUED" || job.status === "RUNNING"; }
-function billingJobTypeLabel(type: string) { return type === "IMPORT_INVOICES" ? "Importacion GISCE" : type === "PROCESS_PENDING" ? "Procesar pendientes" : type === "CALCULATE_MARGINS" ? "Calcular costes y margenes" : type === "FULL_RECALCULATION" ? "Proceso completo" : type; }
+function billingJobTypeLabel(type: string) { return type === "IMPORT_INVOICES" ? "Importacion GISCE" : type === "PROCESS_PENDING" ? "Procesar pendientes" : type === "CALCULATE_MARGINS" ? "Calcular margenes" : type === "CALCULATE_COSTS_AND_MARGINS" ? "Calcular costes y margenes" : type === "FULL_RECALCULATION" ? "Proceso completo" : type; }
 function billingJobModalTitle(job: BillingJob) { return job.type === "IMPORT_INVOICES" ? "Importacion GISCE" : billingJobTypeLabel(job.type); }
 function billingJobStatusLabel(status: string) { return status === "QUEUED" ? "En cola" : status === "RUNNING" ? "En curso" : status === "SUCCESS" ? "Finalizado" : status === "ERROR" ? "Error" : status; }
 function formatJobProgress(job: BillingJob) { return job.totalItems > 0 ? `${job.processedItems.toLocaleString("es-ES")} / ${job.totalItems.toLocaleString("es-ES")}` : job.processedItems.toLocaleString("es-ES"); }
@@ -1134,7 +1150,7 @@ function billingJobRange(job: BillingJob) {
   return "-";
 }
 function billingJobGiscePages(job: BillingJob) {
-  if (job.type === "CALCULATE_MARGINS") return "-";
+  if (isBillingEconomicRangeJob(job)) return "-";
   const importResult = billingJobImportResult(job);
   const pages = typeof importResult?.giscePages === "number" ? importResult.giscePages : typeof job.result?.giscePages === "number" ? job.result.giscePages : null;
   return pages === null ? "-" : pages.toLocaleString("es-ES");
@@ -1144,19 +1160,19 @@ function billingJobFound(job: BillingJob) {
   return totalFound === null ? "-" : totalFound.toLocaleString("es-ES");
 }
 function billingJobCreated(job: BillingJob) {
-  if (job.type === "CALCULATE_MARGINS") return resultNumber(job, "withoutCurve");
+  if (isBillingEconomicRangeJob(job)) return resultNumber(job, "withoutCurve");
   const importResult = billingJobImportResult(job);
   const createdCount = typeof importResult?.createdCount === "number" ? importResult.createdCount : typeof job.result?.createdCount === "number" ? job.result.createdCount : null;
   return createdCount === null ? "-" : createdCount.toLocaleString("es-ES");
 }
 function billingJobUpdated(job: BillingJob) {
-  if (job.type === "CALCULATE_MARGINS") return resultNumber(job, "withoutCosts");
+  if (isBillingEconomicRangeJob(job)) return resultNumber(job, "withoutCosts");
   const importResult = billingJobImportResult(job);
   const updatedCount = typeof importResult?.updatedCount === "number" ? importResult.updatedCount : typeof job.result?.updatedCount === "number" ? job.result.updatedCount : null;
   return updatedCount === null ? "-" : updatedCount.toLocaleString("es-ES");
 }
 function billingJobUnchanged(job: BillingJob) {
-  if (job.type === "CALCULATE_MARGINS") return resultNumber(job, "withoutPf");
+  if (isBillingEconomicRangeJob(job)) return resultNumber(job, "withoutPf");
   const importResult = billingJobImportResult(job);
   const unchangedCount = typeof importResult?.unchangedCount === "number" ? importResult.unchangedCount : typeof job.result?.unchangedCount === "number" ? job.result.unchangedCount : null;
   return unchangedCount === null ? "-" : unchangedCount.toLocaleString("es-ES");
@@ -1194,10 +1210,13 @@ function billingJobDetailRows(job: BillingJob) {
 function billingJobPeriodLabel(job: BillingJob) {
   const dateFrom = typeof job.params?.dateFrom === "string" ? formatDateOnlyEs(job.params.dateFrom) : null;
   const dateTo = typeof job.params?.dateTo === "string" ? formatDateOnlyEs(job.params.dateTo) : null;
-  const byInvoiceDate = job.type === "CALCULATE_MARGINS" || job.type === "FULL_RECALCULATION";
+  const byInvoiceDate = isBillingEconomicRangeJob(job) || job.type === "FULL_RECALCULATION";
   if (dateFrom && dateTo && dateFrom === dateTo) return { label: byInvoiceDate ? "Fecha factura" : "Fecha de importacion", value: dateFrom };
   if (dateFrom || dateTo) return { label: byInvoiceDate ? "Rango fecha factura" : "Periodo importado", value: `${dateFrom ?? "-"} - ${dateTo ?? "-"}` };
   return null;
+}
+function isBillingEconomicRangeJob(job: BillingJob) {
+  return job.type === "CALCULATE_MARGINS" || job.type === "CALCULATE_COSTS_AND_MARGINS";
 }
 function billingJobResultSummary(job: BillingJob) {
   const processed = billingJobProcessed(job);

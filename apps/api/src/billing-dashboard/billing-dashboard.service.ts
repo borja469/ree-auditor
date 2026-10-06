@@ -4,11 +4,11 @@ import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceMarginStat
 import { PrismaService } from "../prisma/prisma.service";
 import { buildPricingCalendarRange, getMadridParts } from "../pricing-base/calendar_builder";
 import { resolvePricingPeriod } from "../pricing-base/pricing_period_adapter";
-import { RegulatedLossesService } from "../ree-losses/regulated-losses.service";
+import { RegulatedLossesService, type RegulatedLossHourlyValue } from "../ree-losses/regulated-losses.service";
 import { ReeLossesRegulatoryEngine } from "../ree-losses/regulatory-engine.service";
 import { normalizePeriodo, normalizeTarifa } from "../ree-losses/period-engine";
 import { GisceClientService, GisceConfigInput, GisceF1Item, GisceF5dItem, GisceInvoiceItem, GisceInvoiceLineItem, GisceP1Item, GisceP5dItem } from "./gisce-client.service";
-import { BillingDashboardCostsService } from "./billing-dashboard-costs.service";
+import { BillingDashboardCostsService, type BillingCostRunSharedContext } from "./billing-dashboard-costs.service";
 import { costComponentNature, type CostComponent, type CostNature } from "./billing-dashboard-costs.service";
 import { resolvePeriodTariff } from "./billing-dashboard-tariff-period";
 
@@ -33,9 +33,12 @@ const BILLING_JOB_ACTIVE_STATUSES = ["QUEUED", "RUNNING"];
 const BILLING_JOB_PROCESS_BATCH_SIZE = 5;
 const BILLING_PROCESS_PENDING_STATUSES = [CmInvoiceProcessingStatus.IMPORTED, CmInvoiceProcessingStatus.WARNING];
 const BILLING_MARGIN_JOB_DEFAULT_CONCURRENCY = 4;
+const BILLING_COST_JOB_DEFAULT_CONCURRENCY = 4;
+const BILLING_CURVE_JOB_DEFAULT_CONCURRENCY = 4;
 
-type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS" | "FULL_RECALCULATION";
+type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS" | "CALCULATE_COSTS_AND_MARGINS" | "FULL_RECALCULATION";
 type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
+const BILLING_JOB_EXCLUSIVE_TYPES: BillingJobType[] = ["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "CALCULATE_COSTS_AND_MARGINS", "FULL_RECALCULATION"];
 const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V1";
 const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V1";
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
@@ -423,7 +426,7 @@ export class BillingDashboardService {
   async startImportJob(dateFrom: string, dateTo: string, requestedBy?: string) {
     assertDate(dateFrom, "dateFrom");
     assertDate(dateTo, "dateTo");
-    const active = await this.findActiveBillingJob(["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "FULL_RECALCULATION"]);
+    const active = await this.findActiveBillingJob(BILLING_JOB_EXCLUSIVE_TYPES);
     if (active) return billingJobRow(active);
     const job = await this.prisma.cmBillingJob.create({
       data: {
@@ -439,7 +442,7 @@ export class BillingDashboardService {
   }
 
   async startProcessPendingJob(limit = BILLING_JOB_PROCESS_BATCH_SIZE, requestedBy?: string) {
-    const active = await this.findActiveBillingJob(["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "FULL_RECALCULATION"]);
+    const active = await this.findActiveBillingJob(BILLING_JOB_EXCLUSIVE_TYPES);
     if (active) return billingJobRow(active);
     const batchSize = Math.min(Math.max(Number(limit) || BILLING_JOB_PROCESS_BATCH_SIZE, 1), 20);
     const totalItems = await this.prisma.cmInvoice.count({ where: { processingStatus: { in: BILLING_PROCESS_PENDING_STATUSES } } });
@@ -461,7 +464,7 @@ export class BillingDashboardService {
     assertDate(dateFrom, "dateFrom");
     assertDate(dateTo, "dateTo");
     const normalizedMode: MarginJobMode = mode === "RECALCULATE" ? "RECALCULATE" : "PENDING_ONLY";
-    const active = await this.findActiveBillingJob(["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "FULL_RECALCULATION"]);
+    const active = await this.findActiveBillingJob(BILLING_JOB_EXCLUSIVE_TYPES);
     if (active) return billingJobRow(active);
     const job = await this.prisma.cmBillingJob.create({
       data: {
@@ -469,10 +472,29 @@ export class BillingDashboardService {
         status: "QUEUED",
         requestedBy: text(requestedBy),
         params: { dateFrom, dateTo, mode: normalizedMode },
-        message: "Calculo de costes y margenes en cola."
+        message: "Calculo de margenes en cola."
       }
     });
     void this.runCalculateMarginsJob(job.id, dateFrom, dateTo, normalizedMode);
+    return billingJobRow(job);
+  }
+
+  async startCalculateCostsAndMarginsJob(dateFrom: string, dateTo: string, mode: MarginJobMode = "PENDING_ONLY", requestedBy?: string) {
+    assertDate(dateFrom, "dateFrom");
+    assertDate(dateTo, "dateTo");
+    const normalizedMode: MarginJobMode = mode === "RECALCULATE" ? "RECALCULATE" : "PENDING_ONLY";
+    const active = await this.findActiveBillingJob(BILLING_JOB_EXCLUSIVE_TYPES);
+    if (active) return billingJobRow(active);
+    const job = await this.prisma.cmBillingJob.create({
+      data: {
+        type: "CALCULATE_COSTS_AND_MARGINS",
+        status: "QUEUED",
+        requestedBy: text(requestedBy),
+        params: { dateFrom, dateTo, mode: normalizedMode },
+        message: "Calculo de costes y margenes en cola."
+      }
+    });
+    void this.runCalculateCostsAndMarginsJob(job.id, dateFrom, dateTo, normalizedMode);
     return billingJobRow(job);
   }
 
@@ -480,7 +502,7 @@ export class BillingDashboardService {
     assertDate(dateFrom, "dateFrom");
     assertDate(dateTo, "dateTo");
     const normalizedMode: MarginJobMode = mode === "RECALCULATE" ? "RECALCULATE" : "PENDING_ONLY";
-    const active = await this.findActiveBillingJob(["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "FULL_RECALCULATION"]);
+    const active = await this.findActiveBillingJob(BILLING_JOB_EXCLUSIVE_TYPES);
     if (active) return billingJobRow(active);
     const job = await this.prisma.cmBillingJob.create({
       data: {
@@ -705,17 +727,21 @@ export class BillingDashboardService {
   async processInvoice(invoiceId: string) {
     const invoice = await this.prisma.cmInvoice.findUnique({ where: { id: invoiceId }, include: { lines: true } });
     if (!invoice) throw new NotFoundException("Factura no encontrada.");
+    return this.processInvoiceRecord(invoice);
+  }
+
+  private async processInvoiceRecord(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, context?: CurveProcessingContext | null) {
     if (!invoice.periodStart || !invoice.periodEnd || !invoice.tariffCode) {
-      await this.markInvoice(invoiceId, "ERROR", "La factura no tiene periodo o tarifa suficiente para construir curva.");
+      await this.markInvoice(invoice.id, "ERROR", "La factura no tiene periodo o tarifa suficiente para construir curva.");
       throw new BadRequestException("La factura no tiene periodo o tarifa suficiente para construir curva.");
     }
     const tariff = normalizeTarifa(invoice.tariffCode);
     if (!tariff) {
-      await this.markInvoice(invoiceId, "ERROR", `Tarifa no soportada: ${invoice.tariffCode}.`);
+      await this.markInvoice(invoice.id, "ERROR", `Tarifa no soportada: ${invoice.tariffCode}.`);
       throw new BadRequestException(`Tarifa no soportada: ${invoice.tariffCode}.`);
     }
 
-    await this.markInvoice(invoiceId, "PROCESSING", null);
+    await this.markInvoice(invoice.id, "PROCESSING", null);
     try {
       const issues: CurveIssue[] = [];
       const periodStart = dateOnly(invoice.periodStart)!;
@@ -731,9 +757,9 @@ export class BillingDashboardService {
       const rawIds = await this.storeRawCurves(invoice.id, f1, f5d, p1, p5d);
 
       const [periodContext, profiles, losses] = await Promise.all([
-        this.regulatoryEngine.buildPeriodContext(),
-        this.loadProfiles(periodStart, periodEnd, tariff),
-        this.lossesService.loadHourlyLosses(buildPricingCalendarRange(periodStart, periodEnd), tariff)
+        this.curvePeriodContext(context),
+        this.curveProfiles(periodStart, periodEnd, tariff, context),
+        this.curveLosses(periodStart, periodEnd, tariff, context)
       ]);
       const intervals = calendar.map((interval) => ({
         ...interval,
@@ -952,20 +978,35 @@ export class BillingDashboardService {
       data: { status: "RUNNING", startedAt: new Date(), totalItems: queue.length, message: "Procesando facturas importadas y warnings." }
     });
     try {
+      const invoices = queue.length
+        ? await this.prisma.cmInvoice.findMany({ where: { id: { in: queue.map((invoice) => invoice.id) } }, include: { lines: true } })
+        : [];
+      const invoiceById = new Map(invoices.map((invoice) => [invoice.id, invoice]));
+      const context = await this.buildCurveProcessingContext(invoices);
+      const concurrency = Math.min(billingCurveJobConcurrency(), Math.max(queue.length, 1));
       for (let index = 0; index < queue.length; index += batchSize) {
         const batch = queue.slice(index, index + batchSize);
-        const results = [];
-        for (const invoice of batch) {
-          try {
-            results.push(await this.processInvoice(invoice.id));
-          } catch (error) {
-            results.push({ id: invoice.id, invoiceNumber: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId), processingStatus: "ERROR", processingMessage: error instanceof Error ? error.message : String(error) });
+        let cursor = 0;
+        const results: Array<{ id: string; invoiceNumber?: string | null; processingStatus: CmInvoiceProcessingStatus | "ERROR"; processingMessage?: string | null }> = [];
+        await Promise.all(Array.from({ length: Math.min(concurrency, batch.length || 1) }, async () => {
+          while (cursor < batch.length) {
+            const item = batch[cursor++];
+            const invoice = invoiceById.get(item.id);
+            if (!invoice) {
+              results.push({ id: item.id, invoiceNumber: item.invoiceNumber ?? String(item.gisceInvoiceId), processingStatus: "ERROR", processingMessage: "Factura no encontrada." });
+              continue;
+            }
+            try {
+              results.push(await this.processInvoiceRecord(invoice, context));
+            } catch (error) {
+              results.push({ id: item.id, invoiceNumber: item.invoiceNumber ?? String(item.gisceInvoiceId), processingStatus: "ERROR", processingMessage: error instanceof Error ? error.message : String(error) });
+            }
           }
-        }
+        }));
         processedItems += results.length;
         successCount += results.filter((row) => row.processingStatus === CmInvoiceProcessingStatus.READY).length;
         warningCount += results.filter((row) => row.processingStatus === CmInvoiceProcessingStatus.WARNING).length;
-        errorCount += results.filter((row) => row.processingStatus === CmInvoiceProcessingStatus.ERROR || row.processingStatus === "ERROR").length;
+        errorCount += results.filter((row) => String(row.processingStatus) === CmInvoiceProcessingStatus.ERROR).length;
         const currentItem = results.at(-1);
         const currentLabel = currentItem ? (currentItem.invoiceNumber ?? currentItem.id) : null;
         await this.prisma.cmBillingJob.update({
@@ -976,7 +1017,7 @@ export class BillingDashboardService {
             warningCount,
             errorCount,
             currentItem: currentLabel ? String(currentLabel) : null,
-            message: `Facturas procesadas: ${processedItems}. Pendientes en cola: ${Math.max(queue.length - processedItems, 0)}.`
+            message: `Facturas procesadas: ${processedItems}. Pendientes en cola: ${Math.max(queue.length - processedItems, 0)}. Concurrencia: ${concurrency}.`
           }
         });
       }
@@ -1013,7 +1054,7 @@ export class BillingDashboardService {
     result.totalFound = queue.length;
     await this.prisma.cmBillingJob.update({
       where: { id: jobId },
-      data: { status: "RUNNING", startedAt: new Date(), totalItems: queue.length, message: `Calculando costes y margenes por rango de fecha factura. Concurrencia: ${Math.min(concurrency, Math.max(queue.length, 1))}.` }
+      data: { status: "RUNNING", startedAt: new Date(), totalItems: queue.length, message: `Calculando margenes por rango de fecha factura. Concurrencia: ${Math.min(concurrency, Math.max(queue.length, 1))}.` }
     });
     try {
       let cursor = 0;
@@ -1022,7 +1063,7 @@ export class BillingDashboardService {
         while (cursor < queue.length) {
           const invoice = queue[cursor++];
           try {
-            const outcome = await this.calculateCostsAndStoreMarginSnapshot(invoice, mode);
+            const outcome = await this.calculateAndStoreMarginSnapshot(invoice, mode);
             counters.processedItems += 1;
             result.processedCount += outcome.processed ? 1 : 0;
             if (outcome.code === "OK") { counters.successCount += 1; result.ok += 1; }
@@ -1042,7 +1083,7 @@ export class BillingDashboardService {
               ...counters,
               currentItem: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId),
               result: result as unknown as Prisma.InputJsonValue,
-              message: `Costes y margenes procesados: ${counters.processedItems} / ${queue.length}.`
+              message: `Margenes procesados: ${counters.processedItems} / ${queue.length}.`
             }
           });
         }
@@ -1053,7 +1094,87 @@ export class BillingDashboardService {
           status: counters.errorCount ? "ERROR" : "SUCCESS",
           ...counters,
           result: result as unknown as Prisma.InputJsonValue,
-          message: `Calculo de costes y margenes finalizado. OK: ${result.ok}. Warnings: ${result.warnings}. Sin curva: ${result.withoutCurve}. Sin costes: ${result.withoutCosts}.`,
+          message: `Calculo de margenes finalizado. OK: ${result.ok}. Warnings: ${result.warnings}. Sin curva: ${result.withoutCurve}. Sin costes: ${result.withoutCosts}.`,
+          finishedAt: new Date()
+        }
+      });
+    } catch (error) {
+      await this.failJob(jobId, error, counters);
+    }
+  }
+
+  private async runCalculateCostsAndMarginsJob(jobId: string, dateFrom: string, dateTo: string, mode: MarginJobMode) {
+    const from = parseDateOnly(dateFrom);
+    const to = parseDateOnly(dateTo);
+    const counters = { processedItems: 0, successCount: 0, warningCount: 0, errorCount: 0 };
+    const result = { totalFound: 0, processedCount: 0, ok: 0, warnings: 0, errors: 0, withoutCurve: 0, withoutCosts: 0, withoutPf: 0, withoutMappedConcepts: 0, skipped: 0 };
+    const queue = await this.prisma.cmInvoice.findMany({
+      where: { invoiceDate: { gte: from, lte: to } },
+      orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
+      include: { lines: true }
+    });
+    result.totalFound = queue.length;
+    await this.prisma.cmBillingJob.update({
+      where: { id: jobId },
+      data: { status: "RUNNING", startedAt: new Date(), totalItems: queue.length, result: result as unknown as Prisma.InputJsonValue, message: "Calculando costes y margenes por rango de fecha factura." }
+    });
+    try {
+      const sharedCostContextRange = invoiceConsumptionDateRange(queue);
+      const sharedCostContext = sharedCostContextRange
+        ? await this.costsService.buildSharedCostContext(sharedCostContextRange.start, sharedCostContextRange.end)
+        : null;
+      const concurrency = billingCostJobConcurrency();
+      await this.prisma.cmBillingJob.update({
+        where: { id: jobId },
+        data: { message: `Calculando costes y margenes. Concurrencia: ${Math.min(concurrency, Math.max(queue.length, 1))}.` }
+      });
+      let cursor = 0;
+      const workerCount = Math.min(concurrency, queue.length || 1);
+      await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (cursor < queue.length) {
+          const invoice = queue[cursor++];
+          let outcome: { code: string; processed: boolean } | null = null;
+          let failed = false;
+          const currentLabel = invoice.invoiceNumber ?? String(invoice.gisceInvoiceId);
+          try {
+            outcome = await this.calculateCostsAndStoreMarginSnapshot(invoice, mode, sharedCostContext, "SUMMARY_ONLY");
+          } catch {
+            failed = true;
+          }
+
+          counters.processedItems += 1;
+          if (failed || !outcome) {
+            counters.errorCount += 1;
+            result.errors += 1;
+          } else {
+            result.processedCount += outcome.processed ? 1 : 0;
+            if (!outcome.processed && (outcome.code === "OK" || outcome.code === "WARNING")) result.skipped += 1;
+            if (outcome.code === "OK") { counters.successCount += 1; result.ok += 1; }
+            if (outcome.code === "WARNING") { counters.warningCount += 1; result.warnings += 1; }
+            if (outcome.code === "WITHOUT_CURVE") result.withoutCurve += 1;
+            if (outcome.code === "WITHOUT_COSTS") result.withoutCosts += 1;
+            if (outcome.code === "WITHOUT_PF") result.withoutPf += 1;
+            if (outcome.code === "WITHOUT_MAPPED_CONCEPTS") result.withoutMappedConcepts += 1;
+          }
+          await this.prisma.cmBillingJob.update({
+            where: { id: jobId },
+            data: {
+              ...counters,
+              currentItem: currentLabel,
+              result: result as unknown as Prisma.InputJsonValue,
+              message: `Costes y margenes procesados: ${counters.processedItems} / ${queue.length}.`
+            }
+          });
+        }
+      }));
+
+      await this.prisma.cmBillingJob.update({
+        where: { id: jobId },
+        data: {
+          status: counters.errorCount ? "ERROR" : "SUCCESS",
+          ...counters,
+          result: result as unknown as Prisma.InputJsonValue,
+          message: `Calculo de costes y margenes finalizado. OK: ${result.ok}. Warnings: ${result.warnings}. Sin curva: ${result.withoutCurve}.`,
           finishedAt: new Date()
         }
       });
@@ -1064,7 +1185,9 @@ export class BillingDashboardService {
 
   private async runFullRecalculationJob(jobId: string, dateFrom: string, dateTo: string, mode: MarginJobMode) {
     const from = parseDateOnly(dateFrom);
-    const to = parseDateOnly(dateTo);
+    const requestedTo = parseDateOnly(dateTo);
+    const effectiveDateTo = minIsoDate(dateTo, todayIsoDate());
+    const to = parseDateOnly(effectiveDateTo);
     const counters = { processedItems: 0, successCount: 0, warningCount: 0, errorCount: 0 };
     const result = {
       mode,
@@ -1090,8 +1213,16 @@ export class BillingDashboardService {
       }
     });
     try {
-      const importBatch = await this.importInvoices(dateFrom, dateTo);
+      const importBatch = await this.importInvoicesForFullJob(jobId, dateFrom, effectiveDateTo, dateTo);
       result.import = importBatch as unknown as Prisma.JsonValue;
+      if (requestedTo.getTime() > to.getTime()) {
+        result.import = {
+          ...(result.import as Record<string, unknown>),
+          requestedDateTo: dateTo,
+          effectiveDateTo,
+          note: "El rango de importacion se ha limitado al dia actual para evitar consultas futuras en GISCE."
+        } as Prisma.JsonValue;
+      }
       await this.prisma.cmBillingJob.update({
         where: { id: jobId },
         data: {
@@ -1111,58 +1242,94 @@ export class BillingDashboardService {
         where: { id: jobId },
         data: { totalItems: queue.length, result: result as unknown as Prisma.InputJsonValue }
       });
+      const sharedCostContextRange = invoiceConsumptionDateRange(queue);
+      const sharedCostContext = sharedCostContextRange
+        ? await this.costsService.buildSharedCostContext(sharedCostContextRange.start, sharedCostContextRange.end)
+        : null;
+      const curveContext = await this.buildCurveProcessingContext(queue);
 
-      for (const invoice of queue) {
-        const shouldProcessCurve = mode === "RECALCULATE" || invoice.processingStatus === CmInvoiceProcessingStatus.IMPORTED || invoice.processingStatus === CmInvoiceProcessingStatus.WARNING;
-        let invoiceForCosts = invoice;
-        try {
-          if (shouldProcessCurve) {
-            const processed = await this.processInvoice(invoice.id);
-            invoiceForCosts = { ...invoice, ...processed };
+      const costQueue: Array<Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>> = [];
+      let curveProcessed = 0;
+      const curveConcurrency = billingCurveJobConcurrency();
+      let curveCursor = 0;
+      const curveWorkerCount = Math.min(curveConcurrency, queue.length || 1);
+      await Promise.all(Array.from({ length: curveWorkerCount }, async () => {
+        while (curveCursor < queue.length) {
+          const invoice = queue[curveCursor++];
+          const shouldProcessCurve = mode === "RECALCULATE" || invoice.processingStatus === CmInvoiceProcessingStatus.IMPORTED || invoice.processingStatus === CmInvoiceProcessingStatus.WARNING;
+          let invoiceForCosts = invoice;
+          try {
+            if (shouldProcessCurve) {
+              const processed = await this.processInvoiceRecord(invoice, curveContext);
+              invoiceForCosts = { ...invoice, ...processed };
+            }
+            costQueue.push(invoiceForCosts);
+          } catch (error) {
+            counters.processedItems += 1;
+            counters.errorCount += 1;
+            result.errors += 1;
           }
-        } catch (error) {
-          counters.processedItems += 1;
-          counters.errorCount += 1;
-          result.errors += 1;
+          curveProcessed += 1;
           await this.prisma.cmBillingJob.update({
             where: { id: jobId },
             data: {
               ...counters,
               currentItem: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId),
               result: result as unknown as Prisma.InputJsonValue,
-              message: `Fase 2/3: curvas procesadas ${counters.processedItems} / ${queue.length}.`
+              message: `Fase 2/3: curvas procesadas ${curveProcessed} / ${queue.length}. Concurrencia: ${Math.min(curveConcurrency, Math.max(queue.length, 1))}.`
             }
           });
-          continue;
         }
+      }));
 
+      const concurrency = billingCostJobConcurrency();
+      await this.prisma.cmBillingJob.update({
+        where: { id: jobId },
+        data: {
+          result: result as unknown as Prisma.InputJsonValue,
+          currentItem: "CALCULATE_COSTS_AND_MARGINS",
+          message: `Fase 3/3: calculando costes y margenes. Concurrencia: ${Math.min(concurrency, Math.max(costQueue.length, 1))}.`
+        }
+      });
+      let cursor = 0;
+      const workerCount = Math.min(concurrency, costQueue.length || 1);
+      await Promise.all(Array.from({ length: workerCount }, async () => {
+        while (cursor < costQueue.length) {
+          const invoice = costQueue[cursor++];
+          let outcome: { code: string; processed: boolean } | null = null;
+          let failed = false;
+          const currentLabel = invoice.invoiceNumber ?? String(invoice.gisceInvoiceId);
         try {
-          const outcome = await this.calculateCostsAndStoreMarginSnapshot(invoiceForCosts, mode);
-          counters.processedItems += 1;
-          result.processedCount += outcome.processed ? 1 : 0;
-          if (!outcome.processed && (outcome.code === "OK" || outcome.code === "WARNING")) result.skipped += 1;
-          if (outcome.code === "OK") { counters.successCount += 1; result.ok += 1; }
-          if (outcome.code === "WARNING") { counters.warningCount += 1; result.warnings += 1; }
-          if (outcome.code === "WITHOUT_CURVE") result.withoutCurve += 1;
-          if (outcome.code === "WITHOUT_COSTS") result.withoutCosts += 1;
-          if (outcome.code === "WITHOUT_PF") result.withoutPf += 1;
-          if (outcome.code === "WITHOUT_MAPPED_CONCEPTS") result.withoutMappedConcepts += 1;
+            outcome = await this.calculateCostsAndStoreMarginSnapshot(invoice, mode, sharedCostContext, "SUMMARY_ONLY");
         } catch (error) {
-          counters.processedItems += 1;
-          counters.errorCount += 1;
-          result.errors += 1;
+            failed = true;
         }
 
+          counters.processedItems += 1;
+          if (failed || !outcome) {
+            counters.errorCount += 1;
+            result.errors += 1;
+          } else {
+            result.processedCount += outcome.processed ? 1 : 0;
+            if (!outcome.processed && (outcome.code === "OK" || outcome.code === "WARNING")) result.skipped += 1;
+            if (outcome.code === "OK") { counters.successCount += 1; result.ok += 1; }
+            if (outcome.code === "WARNING") { counters.warningCount += 1; result.warnings += 1; }
+            if (outcome.code === "WITHOUT_CURVE") result.withoutCurve += 1;
+            if (outcome.code === "WITHOUT_COSTS") result.withoutCosts += 1;
+            if (outcome.code === "WITHOUT_PF") result.withoutPf += 1;
+            if (outcome.code === "WITHOUT_MAPPED_CONCEPTS") result.withoutMappedConcepts += 1;
+          }
         await this.prisma.cmBillingJob.update({
           where: { id: jobId },
           data: {
             ...counters,
-            currentItem: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId),
+              currentItem: currentLabel,
             result: result as unknown as Prisma.InputJsonValue,
             message: `Fase 3/3: costes y margenes procesados ${counters.processedItems} / ${queue.length}.`
           }
         });
       }
+      }));
 
       await this.prisma.cmBillingJob.update({
         where: { id: jobId },
@@ -1179,7 +1346,72 @@ export class BillingDashboardService {
     }
   }
 
-  private async calculateCostsAndStoreMarginSnapshot(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, mode: MarginJobMode) {
+  private async importInvoicesForFullJob(jobId: string, dateFrom: string, effectiveDateTo: string, requestedDateTo: string) {
+    const days = enumerateIsoDates(dateFrom, effectiveDateTo);
+    const aggregate = {
+      requestedDateFrom: dateFrom,
+      requestedDateTo,
+      effectiveDateFrom: dateFrom,
+      effectiveDateTo,
+      days: days.length,
+      totalFound: 0,
+      processedCount: 0,
+      createdCount: 0,
+      updatedCount: 0,
+      unchangedCount: 0,
+      errorCount: 0,
+      batches: [] as Array<{ date: string; status: string; totalFound: number; processedCount: number; createdCount: number; updatedCount: number; unchangedCount: number; errorCount: number; message: string | null }>
+    };
+    if (days.length === 0) return aggregate;
+    for (let index = 0; index < days.length; index += 1) {
+      const day = days[index];
+      await this.prisma.cmBillingJob.update({
+        where: { id: jobId },
+        data: {
+          currentItem: `IMPORT_INVOICES ${day}`,
+          result: { import: aggregate } as Prisma.InputJsonValue,
+          message: `Fase 1/3: importando facturas GISCE ${index + 1} / ${days.length} (${day}).`
+        }
+      });
+      try {
+        const batch = await this.importInvoices(day, day);
+        const summary = {
+          date: day,
+          status: batch.status,
+          totalFound: batch.totalFound,
+          processedCount: batch.processedCount,
+          createdCount: batch.createdCount,
+          updatedCount: batch.updatedCount,
+          unchangedCount: batch.unchangedCount,
+          errorCount: batch.errorCount,
+          message: batch.message
+        };
+        aggregate.totalFound += batch.totalFound;
+        aggregate.processedCount += batch.processedCount;
+        aggregate.createdCount += batch.createdCount;
+        aggregate.updatedCount += batch.updatedCount;
+        aggregate.unchangedCount += batch.unchangedCount;
+        aggregate.errorCount += batch.errorCount;
+        aggregate.batches.push(summary);
+      } catch (error) {
+        aggregate.errorCount += 1;
+        aggregate.batches.push({
+          date: day,
+          status: "ERROR",
+          totalFound: 0,
+          processedCount: 0,
+          createdCount: 0,
+          updatedCount: 0,
+          unchangedCount: 0,
+          errorCount: 1,
+          message: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+    return aggregate;
+  }
+
+  private async calculateCostsAndStoreMarginSnapshot(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, mode: MarginJobMode, sharedCostContext?: BillingCostRunSharedContext | null, persistenceMode: "DETAIL" | "SUMMARY_ONLY" = "DETAIL") {
     if (invoice.processingStatus !== CmInvoiceProcessingStatus.READY && invoice.processingStatus !== CmInvoiceProcessingStatus.WARNING) return { code: "WITHOUT_CURVE", processed: false };
     if (invoice.expectedIntervals <= 0) return { code: "WITHOUT_CURVE", processed: false };
     const latestCostRun = await this.prisma.cmInvoiceCostRun.findFirst({ where: { invoiceId: invoice.id }, orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }] });
@@ -1192,7 +1424,7 @@ export class BillingDashboardService {
         return this.calculateAndStoreMarginSnapshot(invoice, "PENDING_ONLY", latestCostRun.id);
       }
     }
-    const costs = await this.costsService.calculateCosts(invoice.id);
+    const costs = await this.costsService.calculateCosts(invoice.id, sharedCostContext, persistenceMode);
     return this.calculateAndStoreMarginSnapshot(invoice, "RECALCULATE", costs.latestRun?.id ?? undefined);
   }
 
@@ -1241,23 +1473,28 @@ export class BillingDashboardService {
     return { code: margin.status === CmInvoiceMarginStatus.WARNING ? "WARNING" : "OK", processed: true };
   }
 
-  private async buildMarginSnapshot(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, costRun: { id: string; incidentsCount: number; status: CmInvoiceCostRunStatus }) {
-    const [components, powerComponents, curve] = await Promise.all([
-      this.prisma.cmInvoiceIntervalCostComponent.groupBy({
-        by: ["componentCode"],
-        where: { intervalCost: { costRunId: costRun.id }, status: "OK", costEur: { not: null } },
-        _sum: { costEur: true }
-      }),
-      this.prisma.cmInvoicePowerCostComponent.groupBy({
-        by: ["componentCode"],
-        where: { costRunId: costRun.id, status: "OK", costEur: { not: null } },
-        _sum: { costEur: true }
-      }),
-      this.prisma.cmInvoiceConsumptionCurve.aggregate({ where: { invoiceId: invoice.id }, _sum: { consumptionPfKwh: true } })
-    ]);
-    const costsByNature: Record<CostNature, number> = { ENERGY: 0, POWER: 0 };
-    for (const component of components) costsByNature[costComponentNature(component.componentCode as CostComponent)] += Number(component._sum.costEur ?? 0);
-    for (const component of powerComponents) costsByNature[costComponentNature(component.componentCode as CostComponent)] += Number(component._sum.costEur ?? 0);
+  private async buildMarginSnapshot(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, costRun: { id: string; incidentsCount: number; status: CmInvoiceCostRunStatus; summaryJson?: Prisma.JsonValue | null }) {
+    const summaryCostsByNature = costsByNatureFromRunSummary(costRun.summaryJson ?? null);
+    const [components, powerComponents, curve] = summaryCostsByNature
+      ? [[], [], await this.prisma.cmInvoiceConsumptionCurve.aggregate({ where: { invoiceId: invoice.id }, _sum: { consumptionPfKwh: true } })] as const
+      : await Promise.all([
+          this.prisma.cmInvoiceIntervalCostComponent.groupBy({
+            by: ["componentCode"],
+            where: { intervalCost: { costRunId: costRun.id }, status: "OK", costEur: { not: null } },
+            _sum: { costEur: true }
+          }),
+          this.prisma.cmInvoicePowerCostComponent.groupBy({
+            by: ["componentCode"],
+            where: { costRunId: costRun.id, status: "OK", costEur: { not: null } },
+            _sum: { costEur: true }
+          }),
+          this.prisma.cmInvoiceConsumptionCurve.aggregate({ where: { invoiceId: invoice.id }, _sum: { consumptionPfKwh: true } })
+        ]);
+    const costsByNature: Record<CostNature, number> = summaryCostsByNature ?? { ENERGY: 0, POWER: 0 };
+    if (!summaryCostsByNature) {
+      for (const component of components) costsByNature[costComponentNature(component.componentCode as CostComponent)] += Number(component._sum.costEur ?? 0);
+      for (const component of powerComponents) costsByNature[costComponentNature(component.componentCode as CostComponent)] += Number(component._sum.costEur ?? 0);
+    }
     const lineSummary = summarizeInvoiceLineConcepts(invoice.lines);
     const pfTotalKwh = decimalToNumber(curve._sum.consumptionPfKwh);
     const pfMwh = pfTotalKwh && pfTotalKwh > 0 ? pfTotalKwh / 1000 : null;
@@ -1509,12 +1746,57 @@ export class BillingDashboardService {
     return map;
   }
 
+  private async buildCurveProcessingContext(invoices: Array<{ periodStart: Date | null; periodEnd: Date | null }>): Promise<CurveProcessingContext | null> {
+    const range = invoiceConsumptionDateRange(invoices);
+    if (!range) return null;
+    return {
+      periodStart: range.start,
+      periodEnd: range.end,
+      periodContext: this.regulatoryEngine.buildPeriodContext(),
+      profilesByTariff: new Map(),
+      lossesByTariff: new Map()
+    };
+  }
+
+  private curvePeriodContext(context?: CurveProcessingContext | null) {
+    return context?.periodContext ?? this.regulatoryEngine.buildPeriodContext();
+  }
+
+  private curveProfiles(periodStart: string, periodEnd: string, tariff: string, context?: CurveProcessingContext | null) {
+    if (!context) return this.loadProfiles(periodStart, periodEnd, tariff);
+    const key = normalizeTarifa(tariff) ?? tariff;
+    let promise = context.profilesByTariff.get(key);
+    if (!promise) {
+      promise = this.loadProfiles(context.periodStart, context.periodEnd, key);
+      context.profilesByTariff.set(key, promise);
+    }
+    return promise;
+  }
+
+  private curveLosses(periodStart: string, periodEnd: string, tariff: string, context?: CurveProcessingContext | null) {
+    if (!context) return this.lossesService.loadHourlyLosses(buildPricingCalendarRange(periodStart, periodEnd), tariff);
+    const key = normalizeTarifa(tariff) ?? tariff;
+    let promise = context.lossesByTariff.get(key);
+    if (!promise) {
+      promise = this.lossesService.loadHourlyLosses(buildPricingCalendarRange(context.periodStart, context.periodEnd), key);
+      context.lossesByTariff.set(key, promise);
+    }
+    return promise;
+  }
+
   private markInvoice(id: string, status: keyof typeof CmInvoiceProcessingStatus, message: string | null) {
     return this.prisma.cmInvoice.update({ where: { id }, data: { processingStatus: status, processingMessage: message } });
   }
 }
 
 type ProfileValue = { value: number; type: CmInvoiceProfileType; versionId: string; rowId: string };
+type CurveProcessingContext = {
+  periodStart: string;
+  periodEnd: string;
+  periodContext: ReturnType<ReeLossesRegulatoryEngine["buildPeriodContext"]>;
+  profilesByTariff: Map<string, Promise<Map<string, ProfileValue>>>;
+  lossesByTariff: Map<string, Promise<Map<string, RegulatedLossHourlyValue>>>;
+};
 export type CurveIssueCode =
   | "CURVE_INCOMPLETE"
   | "PROFILE_NOT_FOUND"
@@ -2566,6 +2848,27 @@ function dateOnly(value?: Date | null) {
   return value ? value.toISOString().slice(0, 10) : null;
 }
 
+function invoiceConsumptionDateRange(invoices: Array<{ periodStart: Date | null; periodEnd: Date | null }>) {
+  const dates = invoices.flatMap((invoice) => [dateOnly(invoice.periodStart), dateOnly(invoice.periodEnd)]).filter((item): item is string => Boolean(item)).sort();
+  if (dates.length === 0) return null;
+  return { start: dates[0], end: dates.at(-1) ?? dates[0] };
+}
+
+function enumerateIsoDates(dateFrom: string, dateTo: string) {
+  if (dateFrom > dateTo) return [];
+  const dates: string[] = [];
+  for (let cursor = dateFrom; cursor <= dateTo; cursor = addIsoDays(cursor, 1)) dates.push(cursor);
+  return dates;
+}
+
+function minIsoDate(left: string, right: string) {
+  return left <= right ? left : right;
+}
+
+function todayIsoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function addIsoDays(value: string, days: number) {
   const date = parseDateOnly(value);
   date.setUTCDate(date.getUTCDate() + days);
@@ -2583,6 +2886,31 @@ function parseInteger(value: unknown, fallback: number, min: number, max: number
 
 function billingMarginJobConcurrency() {
   return parseInteger(process.env.BILLING_MARGIN_JOB_CONCURRENCY, BILLING_MARGIN_JOB_DEFAULT_CONCURRENCY, 1, 6);
+}
+
+function billingCostJobConcurrency() {
+  return parseInteger(process.env.BILLING_COST_JOB_CONCURRENCY, BILLING_COST_JOB_DEFAULT_CONCURRENCY, 1, 8);
+}
+
+function billingCurveJobConcurrency() {
+  return parseInteger(process.env.BILLING_CURVE_JOB_CONCURRENCY, BILLING_CURVE_JOB_DEFAULT_CONCURRENCY, 1, 8);
+}
+
+function costsByNatureFromRunSummary(value: Prisma.JsonValue | null): Record<CostNature, number> | null {
+  if (!Array.isArray(value)) return null;
+  const result: Record<CostNature, number> = { ENERGY: 0, POWER: 0 };
+  let found = false;
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const nature = row.nature === "POWER" ? "POWER" : row.nature === "ENERGY" ? "ENERGY" : null;
+    if (!nature) continue;
+    const cost = Number(row.costEur ?? 0);
+    if (!Number.isFinite(cost)) continue;
+    result[nature] += cost;
+    found = true;
+  }
+  return found ? result : null;
 }
 
 function integer(value: unknown) {

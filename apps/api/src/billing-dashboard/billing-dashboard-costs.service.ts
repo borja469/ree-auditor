@@ -178,6 +178,13 @@ type PowerCostComponentResult = {
 
 type RegulatedVersionRow = Prisma.RegulatedPriceVersionGetPayload<{ include: ReturnType<typeof regulatedPriceContextInclude> }>;
 type RegulatedPriceContext = { byCode: Map<RegulatedPriceCode, RegulatedVersionRow[]> };
+export type BillingCostRunSharedContext = {
+  omie: Map<string, SourcePrice>;
+  hourly: ReturnType<typeof groupLiquidations>;
+  qh: ReturnType<typeof groupLiquidations>;
+  regulatedContext: RegulatedPriceContext | null;
+};
+export type BillingCostPersistenceMode = "DETAIL" | "SUMMARY_ONLY";
 type IndexedPriceAccumulator = { total: number; hours: number; weightedTotal: number; weightTotal: number; weighted: boolean; incidents: Set<string> };
 type IndexedPriceHourDetail = {
   date: string;
@@ -207,11 +214,11 @@ export class BillingDashboardCostsService {
     private readonly regulatedLosses?: RegulatedLossesService
   ) {}
 
-  async calculateCosts(invoiceId: string) {
-    if (!billingJobProfilingEnabled()) return this.calculateCostsInternal(invoiceId);
+  async calculateCosts(invoiceId: string, sharedContext?: BillingCostRunSharedContext | null, persistenceMode: BillingCostPersistenceMode = "DETAIL") {
+    if (!billingJobProfilingEnabled()) return this.calculateCostsInternal(invoiceId, undefined, sharedContext, persistenceMode);
     const phases: Record<string, number> = {};
     const started = Date.now();
-    const { result, profile } = await this.prisma.profileQueries(() => this.calculateCostsInternal(invoiceId, phases));
+    const { result, profile } = await this.prisma.profileQueries(() => this.calculateCostsInternal(invoiceId, phases, sharedContext, persistenceMode));
     const totalMs = Date.now() - started;
     console.log(JSON.stringify({
       scope: "billing-costs",
@@ -223,7 +230,17 @@ export class BillingDashboardCostsService {
     return result;
   }
 
-  private async calculateCostsInternal(invoiceId: string, phases?: Record<string, number>) {
+  async buildSharedCostContext(fechaInicio: string, fechaFin: string): Promise<BillingCostRunSharedContext> {
+    const [omie, hourly, qh, regulatedContext] = await Promise.all([
+      this.loadOmie(fechaInicio, fechaFin),
+      this.loadHourlyLiquidations(fechaInicio, fechaFin),
+      this.loadQhLiquidations(fechaInicio, fechaFin),
+      this.loadRegulatedPriceContext(fechaInicio, fechaFin)
+    ]);
+    return { omie, hourly, qh, regulatedContext };
+  }
+
+  private async calculateCostsInternal(invoiceId: string, phases?: Record<string, number>, sharedContext?: BillingCostRunSharedContext | null, persistenceMode: BillingCostPersistenceMode = "DETAIL") {
     const invoice = await timePhase(phases, "loadInvoiceMs", () => this.prisma.cmInvoice.findUnique({
       where: { id: invoiceId },
       select: {
@@ -267,8 +284,8 @@ export class BillingDashboardCostsService {
     );
 
     try {
-      const result = await timePhase(phases, "buildCostRunMs", () => this.buildCostRun(invoice.curve, invoice.tariffCode, invoice.periodStart, invoice.periodEnd, invoice.lines));
-      await timePhase(phases, "persistCostRunMs", () => this.persistCostRun(run.id, invoiceId, result));
+      const result = await timePhase(phases, "buildCostRunMs", () => this.buildCostRun(invoice.curve, invoice.tariffCode, invoice.periodStart, invoice.periodEnd, invoice.lines, sharedContext));
+      await timePhase(phases, "persistCostRunMs", () => this.persistCostRun(run.id, invoiceId, result, persistenceMode));
       const updatedRun = await timePhase(phases, "loadPersistedRunMs", () => this.prisma.cmInvoiceCostRun.findUnique({ where: { id: run.id } }));
       if (!updatedRun) return timePhase(phases, "getCostsMs", () => this.getCosts(invoiceId, run.id));
       return costsResponseFromCalculatedResult(updatedRun, result);
@@ -304,7 +321,10 @@ export class BillingDashboardCostsService {
       where: { costRunId: run.id },
       orderBy: [{ tariffPeriod: "asc" }, { startDate: "asc" }]
     });
-    const componentSummary = summarizeComponents(components.map(componentRow), powerComponents.map(powerComponentRow));
+    const storedSummary = parseStoredComponentSummary(run.summaryJson);
+    const componentSummary = components.length > 0
+      ? summarizeComponents(components.map(componentRow), powerComponents.map(powerComponentRow))
+      : storedSummary;
     return {
       status: run.status === "COMPLETED" && run.incidentsCount === 0 ? "COSTS_READY" : run.status,
       latestRun: costRunRow(run),
@@ -320,7 +340,9 @@ export class BillingDashboardCostsService {
           totalCostEur: decimalToNumber(run.totalCostEur)
         },
       powerDetails: powerComponents.map(powerComponentRow),
-      liquidationVersions: summarizeLiquidationVersions(components.map(componentRow))
+      liquidationVersions: components.length > 0
+        ? summarizeLiquidationVersions(components.map(componentRow))
+        : summarizeLiquidationVersionsFromSummary(componentSummary)
     };
   }
 
@@ -739,16 +761,12 @@ export class BillingDashboardCostsService {
     return results.filter((item) => requested.has(item.componentCode) && costComponentNature(item.componentCode) === "ENERGY");
   }
 
-  private async buildCostRun(curve: CurveIntervalForCosts[], invoiceTariffCode?: string | null, periodStart?: Date | null, periodEnd?: Date | null, lines: InvoiceLineForCosts[] = []) {
+  private async buildCostRun(curve: CurveIntervalForCosts[], invoiceTariffCode?: string | null, periodStart?: Date | null, periodEnd?: Date | null, lines: InvoiceLineForCosts[] = [], sharedContext?: BillingCostRunSharedContext | null) {
     const timeKeys = buildMadridQuarterKeys(curve.map((row) => row.datetime));
     const dateRange = buildDateRange([...timeKeys.values()].map((item) => item.fecha));
     const tariffCode = normalizeTariffCode(invoiceTariffCode);
-    const [omie, hourly, qh, regulatedContext] = await Promise.all([
-      this.loadOmie(dateRange.start, dateRange.end),
-      this.loadHourlyLiquidations(dateRange.start, dateRange.end),
-      this.loadQhLiquidations(dateRange.start, dateRange.end),
-      this.loadRegulatedPriceContext(dateRange.start, dateRange.end)
-    ]);
+    const context = sharedContext ?? await this.buildSharedCostContext(dateRange.start, dateRange.end);
+    const { omie, hourly, qh, regulatedContext } = context;
 
     const intervalCosts = [];
     const allComponents: CostComponentResult[] = [];
@@ -1364,9 +1382,9 @@ export class BillingDashboardCostsService {
     return { byCode };
   }
 
-  private async persistCostRun(runId: string, invoiceId: string, result: Awaited<ReturnType<BillingDashboardCostsService["buildCostRun"]>>) {
+  private async persistCostRun(runId: string, invoiceId: string, result: Awaited<ReturnType<BillingDashboardCostsService["buildCostRun"]>>, persistenceMode: BillingCostPersistenceMode = "DETAIL") {
     await this.prisma.$transaction(async (tx) => {
-      if (result.intervalCosts.length > 0) {
+      if (persistenceMode === "DETAIL" && result.intervalCosts.length > 0) {
         await tx.cmInvoiceIntervalCost.createMany({
           data: result.intervalCosts.map((item) => ({
             id: item.id,
@@ -1533,6 +1551,7 @@ export function calculateCostComponent(componentCode: CostComponent, energyBasis
     return unresolved(componentCode, energyBasis === "PF" ? "INVALID_PF" : "INVALID_BC", energyBasis, energyKwh, source);
   }
   if (!source) {
+    if (isOptionalSettlementComponent(componentCode)) return optionalSettlementComponent(componentCode, energyBasis, energyKwh);
     return unresolved(componentCode, notFoundCode, energyBasis, energyKwh, null);
   }
   if (source.sourceErrorCode) {
@@ -1564,6 +1583,35 @@ export function calculateCostComponent(componentCode: CostComponent, energyBasis
     status: "OK",
     incidentCode: null
   };
+}
+
+function optionalSettlementComponent(componentCode: Extract<CostComponent, "BS3" | "RAD3">, energyBasis: "BC" | "PF", energyKwh: number): CostComponentResult {
+  return {
+    componentCode,
+    energyBasis,
+    energyKwh,
+    energyMwh: energyKwh / 1000,
+    priceEurMwh: null,
+    baseAmountEur: null,
+    percentage: null,
+    costEur: 0,
+    sourceTable: null,
+    sourceRowId: null,
+    sourceVersion: null,
+    regulatedPriceVersionId: null,
+    regulatedPriceVersionName: null,
+    sourceValidFrom: null,
+    sourceValidTo: null,
+    sourceTariffCode: null,
+    sourceTariffPeriod: null,
+    sourceResolutionMinutes: 15,
+    status: "OK",
+    incidentCode: null
+  };
+}
+
+function isOptionalSettlementComponent(componentCode: CostComponent): componentCode is Extract<CostComponent, "BS3" | "RAD3"> {
+  return componentCode === "BS3" || componentCode === "RAD3";
 }
 
 export function buildMadridQuarterKeys(instants: Date[]) {
@@ -1860,6 +1908,54 @@ function summarizeLiquidationVersions(components: CostComponentResult[]) {
     componentCode,
     versions: [...new Set(components.filter((item) => item.componentCode === componentCode).map((item) => item.sourceVersion).filter((item): item is PricingSettlementVersion => item !== null))]
   }));
+}
+
+function summarizeLiquidationVersionsFromSummary(summary: ComponentSummary[]) {
+  return LIQUIDATION_COMPONENTS.map((componentCode) => ({
+    componentCode,
+    versions: summary.find((item) => item.componentCode === componentCode)?.versions ?? []
+  }));
+}
+
+function parseStoredComponentSummary(value: Prisma.JsonValue | null): ComponentSummary[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const row = item as Record<string, unknown>;
+    const componentCode = typeof row.componentCode === "string" && isStoredCostComponent(row.componentCode) ? row.componentCode : null;
+    if (!componentCode) return [];
+    const nature = row.nature === "POWER" ? "POWER" : "ENERGY";
+    const calculationBasis = row.calculationBasis === "BC" || row.calculationBasis === "PF" || row.calculationBasis === "ECONOMIC_AMOUNT" || row.calculationBasis === "CONTRACTED_POWER" ? row.calculationBasis : null;
+    return [{
+      componentCode,
+      nature,
+      calculationBasis,
+      costEur: numberOrZero(row.costEur),
+      weightedPriceEurMwh: numberOrNull(row.weightedPriceEurMwh),
+      intervals: integerOrZero(row.intervals),
+      incidents: integerOrZero(row.incidents),
+      versions: Array.isArray(row.versions) ? row.versions.filter((version): version is string => typeof version === "string") : []
+    }];
+  });
+}
+
+function isStoredCostComponent(value: string): value is CostComponent {
+  return (HISTORICAL_COST_COMPONENTS as readonly string[]).includes(value);
+}
+
+function numberOrZero(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function numberOrNull(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function integerOrZero(value: unknown) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : 0;
 }
 
 function isExpectedMissingSettlementIncident(code: string) {

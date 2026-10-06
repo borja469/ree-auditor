@@ -452,7 +452,7 @@ void describe("Billing dashboard costs phase 2", () => {
     assert.equal(imuSummary.calculationBasis, "ECONOMIC_AMOUNT");
   });
 
-  void it("calcula IMU con la base disponible y conserva warnings en los componentes ausentes", async () => {
+  void it("calcula IMU con la base disponible y no marca BS3/RAD3 ausentes como warning", async () => {
     const instant = new Date("2026-08-01T00:00:00.000Z");
     const key = buildMadridQuarterKeys([instant]).get(instant.toISOString());
     const service = new BillingDashboardCostsService({}, regulatedService());
@@ -466,11 +466,13 @@ void describe("Billing dashboard costs phase 2", () => {
     const result = await service.buildCostRun([curveInterval(instant, 100, 80)], "2.0TD");
     assert.equal(component(result, 0, "BS3").status, "OK");
     assert.equal(component(result, 0, "BS3").costEur, 0);
-    assert.equal(component(result, 0, "RAD3").status, "WARNING");
+    assert.equal(component(result, 0, "RAD3").status, "OK");
+    assert.equal(component(result, 0, "RAD3").incidentCode, null);
+    assert.equal(component(result, 0, "RAD3").costEur, 0);
     assert.equal(component(result, 0, "IMU").status, "OK");
     assert.equal(component(result, 0, "IMU").incidentCode, null);
     assert.ok((component(result, 0, "IMU").costEur ?? 0) > 0);
-    assert.deepEqual(result.intervalCosts[0].incidentCodes, ["RAD3_NOT_FOUND"]);
+    assert.deepEqual(result.intervalCosts[0].incidentCodes, []);
     assert.equal(result.intervalCosts[0].status, "OK");
     assert.equal(result.counts.incidents, 0);
     assert.equal(result.counts.warning, 0);
