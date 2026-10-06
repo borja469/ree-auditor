@@ -721,36 +721,42 @@ export class BillingDashboardService {
         lte: to
       }
     };
-    return this.prisma.$transaction(async (tx) => {
-      const invoices = await tx.cmInvoice.findMany({
-        where,
-        select: { id: true }
-      });
-      const invoiceIds = invoices.map((invoice) => invoice.id);
-      const childWhere = { invoiceId: { in: invoiceIds } };
-      const [lines, f1Raw, f5dRaw, p1Raw, p5dRaw, curve] = invoiceIds.length
-        ? await Promise.all([
-            tx.cmInvoiceLine.deleteMany({ where: childWhere }),
-            tx.cmInvoiceCurveF1Raw.deleteMany({ where: childWhere }),
-            tx.cmInvoiceCurveF5dRaw.deleteMany({ where: childWhere }),
-            tx.cmInvoiceCurveP1Raw.deleteMany({ where: childWhere }),
-            tx.cmInvoiceCurveP5dRaw.deleteMany({ where: childWhere }),
-            tx.cmInvoiceConsumptionCurve.deleteMany({ where: childWhere })
-          ])
-        : [{ count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }];
-      const deleted = await tx.cmInvoice.deleteMany({ where });
-      return {
-        invoiceDateFrom: dateFrom,
-        invoiceDateTo: dateTo,
-        deletedInvoices: deleted.count,
-        deletedLines: lines.count,
-        deletedF1Raw: f1Raw.count,
-        deletedF5dRaw: f5dRaw.count,
-        deletedP1Raw: p1Raw.count,
-        deletedP5dRaw: p5dRaw.count,
-        deletedCurveRows: curve.count
-      };
-    }, { maxWait: 10_000, timeout: 120_000 });
+    const invoices = await this.prisma.cmInvoice.findMany({
+      where,
+      select: { id: true }
+    });
+    const invoiceIds = invoices.map((invoice) => invoice.id);
+    const result = {
+      invoiceDateFrom: dateFrom,
+      invoiceDateTo: dateTo,
+      deletedInvoices: 0,
+      deletedLines: 0,
+      deletedF1Raw: 0,
+      deletedF5dRaw: 0,
+      deletedP1Raw: 0,
+      deletedP5dRaw: 0,
+      deletedCurveRows: 0
+    };
+    for (const chunk of chunks(invoiceIds, 200)) {
+      const childWhere = { invoiceId: { in: chunk } };
+      const [lines, f1Raw, f5dRaw, p1Raw, p5dRaw, curve] = await Promise.all([
+        this.prisma.cmInvoiceLine.count({ where: childWhere }),
+        this.prisma.cmInvoiceCurveF1Raw.count({ where: childWhere }),
+        this.prisma.cmInvoiceCurveF5dRaw.count({ where: childWhere }),
+        this.prisma.cmInvoiceCurveP1Raw.count({ where: childWhere }),
+        this.prisma.cmInvoiceCurveP5dRaw.count({ where: childWhere }),
+        this.prisma.cmInvoiceConsumptionCurve.count({ where: childWhere })
+      ]);
+      result.deletedLines += lines;
+      result.deletedF1Raw += f1Raw;
+      result.deletedF5dRaw += f5dRaw;
+      result.deletedP1Raw += p1Raw;
+      result.deletedP5dRaw += p5dRaw;
+      result.deletedCurveRows += curve;
+      const deleted = await this.prisma.cmInvoice.deleteMany({ where: { id: { in: chunk } } });
+      result.deletedInvoices += deleted.count;
+    }
+    return result;
   }
 
   async deleteInvoice(id: string) {
@@ -2184,6 +2190,12 @@ function coverage(invoiceCount: number, calculatedInvoiceCount: number, warningI
 
 function zeroCoverage() {
   return coverage(0, 0, 0);
+}
+
+function chunks<T>(items: T[], size: number) {
+  const output: T[][] = [];
+  for (let index = 0; index < items.length; index += size) output.push(items.slice(index, index + size));
+  return output;
 }
 
 function invoiceMonth(value: Date | string | null | undefined) {
