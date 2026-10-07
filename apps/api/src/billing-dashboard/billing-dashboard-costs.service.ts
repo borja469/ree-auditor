@@ -245,6 +245,7 @@ export class BillingDashboardCostsService {
       where: { id: invoiceId },
       select: {
         id: true,
+        economicSign: true,
         periodStart: true,
         periodEnd: true,
         tariffCode: true,
@@ -284,7 +285,7 @@ export class BillingDashboardCostsService {
     );
 
     try {
-      const result = await timePhase(phases, "buildCostRunMs", () => this.buildCostRun(invoice.curve, invoice.tariffCode, invoice.periodStart, invoice.periodEnd, invoice.lines, sharedContext));
+      const result = await timePhase(phases, "buildCostRunMs", () => this.buildCostRun(invoice.curve, invoice.tariffCode, invoice.periodStart, invoice.periodEnd, invoice.lines, sharedContext, invoice.economicSign));
       await timePhase(phases, "persistCostRunMs", () => this.persistCostRun(run.id, invoiceId, result, persistenceMode));
       const updatedRun = await timePhase(phases, "loadPersistedRunMs", () => this.prisma.cmInvoiceCostRun.findUnique({ where: { id: run.id } }));
       if (!updatedRun) return timePhase(phases, "getCostsMs", () => this.getCosts(invoiceId, run.id));
@@ -761,7 +762,7 @@ export class BillingDashboardCostsService {
     return results.filter((item) => requested.has(item.componentCode) && costComponentNature(item.componentCode) === "ENERGY");
   }
 
-  private async buildCostRun(curve: CurveIntervalForCosts[], invoiceTariffCode?: string | null, periodStart?: Date | null, periodEnd?: Date | null, lines: InvoiceLineForCosts[] = [], sharedContext?: BillingCostRunSharedContext | null) {
+  private async buildCostRun(curve: CurveIntervalForCosts[], invoiceTariffCode?: string | null, periodStart?: Date | null, periodEnd?: Date | null, lines: InvoiceLineForCosts[] = [], sharedContext?: BillingCostRunSharedContext | null, economicSign = 1) {
     const timeKeys = buildMadridQuarterKeys(curve.map((row) => row.datetime));
     const dateRange = buildDateRange([...timeKeys.values()].map((item) => item.fecha));
     const tariffCode = normalizeTariffCode(invoiceTariffCode);
@@ -818,6 +819,7 @@ export class BillingDashboardCostsService {
     const powerCosts = regulatedContext
       ? this.buildPowerCostComponents(invoiceTariffCode, periodStart, periodEnd, lines, regulatedContext)
       : await this.buildPowerCostComponentsLegacy(invoiceTariffCode, periodStart, periodEnd, lines);
+    applyEconomicSignToCostResults(intervalCosts, powerCosts, economicSign);
     const totalOmie = sumComponents(allComponents, "OMIE_MD");
     const totalLiquidations = LIQUIDATION_COMPONENTS.reduce((sum, component) => sum + sumComponents(allComponents, component), 0);
     const totalConfigured = CONFIGURED_COMPONENTS.reduce((sum, component) => sum + sumComponents(allComponents, component), 0);
@@ -2265,6 +2267,38 @@ function sanitizeFileName(value: string) {
 
 function sumComponents(components: CostComponentResult[], componentCode: CostComponent) {
   return components.filter((item) => item.componentCode === componentCode).reduce((sum, item) => sum + (item.costEur ?? 0), 0);
+}
+
+function applyEconomicSignToCostResults(
+  intervalCosts: Array<{
+    liquidationsCostEur: number;
+    regulatedCostEur: number;
+    configuredCostEur: number;
+    tollsChargesCostEur: number;
+    derivedCostEur: number;
+    totalCostEur: number;
+    components: CostComponentResult[];
+  }>,
+  powerCosts: PowerCostComponentResult[],
+  economicSign: number | null | undefined
+) {
+  const sign = economicSign === -1 ? -1 : 1;
+  if (sign === 1) return;
+  for (const interval of intervalCosts) {
+    interval.liquidationsCostEur *= sign;
+    interval.regulatedCostEur *= sign;
+    interval.configuredCostEur *= sign;
+    interval.tollsChargesCostEur *= sign;
+    interval.derivedCostEur *= sign;
+    interval.totalCostEur *= sign;
+    for (const component of interval.components) {
+      if (component.costEur !== null) component.costEur *= sign;
+      if (component.baseAmountEur !== null) component.baseAmountEur *= sign;
+    }
+  }
+  for (const component of powerCosts) {
+    if (component.costEur !== null) component.costEur *= sign;
+  }
 }
 
 function normalizeContractedPowerByPeriod(lines: InvoiceLineForCosts[]) {

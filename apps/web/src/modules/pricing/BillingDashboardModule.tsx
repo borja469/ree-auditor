@@ -907,7 +907,7 @@ function InvoiceDetailModal({ detail, costs, onClose, onProcess, onCalculateCost
   const energyTotal = detail.billedEnergyKwh ?? totalEnergy(detail.energyByPeriod);
   const groupedIssues = groupIssues(detail.issues);
   const lineSummary = useMemo(() => summarizeInvoiceLines(detail.lines), [detail.lines]);
-  const marginSummary = useMemo(() => buildInvoiceMargin(lineSummary, costs, detail.curveSummary.pfTotalKwh), [lineSummary, costs, detail.curveSummary.pfTotalKwh]);
+  const marginSummary = useMemo(() => buildInvoiceMargin(lineSummary, costs, detail.curveSummary.pfTotalKwh, detail.economicSign), [lineSummary, costs, detail.curveSummary.pfTotalKwh, detail.economicSign]);
   const curveSources = curveSourceRows(detail);
   const exportRunId = costs?.latestRun?.id || "";
   const reconciliationTotal = detail.reconciliation.reduce((total, row) => ({
@@ -1380,31 +1380,34 @@ function summarizeInvoiceLines(lines: BillingInvoiceDetail["lines"]) {
     total
   };
 }
-function buildInvoiceMargin(lineSummary: ReturnType<typeof summarizeInvoiceLines>, costs: BillingCostsResponse | null, pfTotalKwh: number | null | undefined) {
+function buildInvoiceMargin(lineSummary: ReturnType<typeof summarizeInvoiceLines>, costs: BillingCostsResponse | null, pfTotalKwh: number | null | undefined, economicSign?: number | null) {
   const hasRun = Boolean(costs?.latestRun);
+  const sign = economicSign === -1 ? -1 : 1;
   const energyCost = hasRun ? sumCostByNature(costs, "ENERGY") : null;
   const powerCost = hasRun ? sumCostByNature(costs, "POWER") : null;
   const rows = lineSummary.rows.map((row) => {
-    if (!hasRun) return { ...row, costEur: null as number | null, differenceEur: null as number | null, participatesInMargin: false };
+    const amount = row.amount * sign;
+    if (!hasRun) return { ...row, amount, costEur: null as number | null, differenceEur: null as number | null, participatesInMargin: false };
     if (isEnergyInvoiceConcept(row.concept)) {
       const costEur = energyCost ?? 0;
-      return { ...row, costEur, differenceEur: row.amount - costEur, participatesInMargin: true };
+      return { ...row, amount, costEur, differenceEur: amount - costEur, participatesInMargin: true };
     }
     if (isPowerInvoiceConcept(row.concept)) {
       const costEur = powerCost ?? 0;
-      return { ...row, costEur, differenceEur: row.amount - costEur, participatesInMargin: true };
+      return { ...row, amount, costEur, differenceEur: amount - costEur, participatesInMargin: true };
     }
     if (isNetworkSystemAdjustmentConcept(row.concept)) {
-      return { ...row, costEur: 0, differenceEur: row.amount, participatesInMargin: true };
+      return { ...row, amount, costEur: 0, differenceEur: amount, participatesInMargin: true };
     }
-    return { ...row, costEur: null as number | null, differenceEur: null as number | null, participatesInMargin: false };
+    return { ...row, amount, costEur: null as number | null, differenceEur: null as number | null, participatesInMargin: false };
   });
   const associatedCostEur = hasRun ? rows.filter((row) => row.participatesInMargin).reduce((sum, row) => sum + (row.costEur ?? 0), 0) : null;
   const marginEur = hasRun ? rows.filter((row) => row.participatesInMargin).reduce((sum, row) => sum + (row.differenceEur ?? 0), 0) : null;
-  const pfMwh = pfTotalKwh && Number.isFinite(pfTotalKwh) && pfTotalKwh > 0 ? pfTotalKwh / 1000 : null;
+  const signedPfKwh = pfTotalKwh && Number.isFinite(pfTotalKwh) ? pfTotalKwh * sign : null;
+  const pfMwh = signedPfKwh && signedPfKwh !== 0 ? signedPfKwh / 1000 : null;
   const marginEurMwh = marginEur !== null && pfMwh ? marginEur / pfMwh : null;
   const status: "READY" | "WARNING" | "NOT_AVAILABLE" = !hasRun || !pfMwh ? "NOT_AVAILABLE" : (costs?.latestRun?.incidentsCount ?? 0) > 0 || costs?.status !== "COSTS_READY" ? "WARNING" : "READY";
-  return { rows, invoiceTotalEur: lineSummary.total, associatedCostEur, marginEur, marginEurMwh, status };
+  return { rows, invoiceTotalEur: lineSummary.total * sign, associatedCostEur, marginEur, marginEurMwh, status };
 }
 function sumCostByNature(costs: BillingCostsResponse | null, nature: "ENERGY" | "POWER") {
   return costs?.componentSummary.filter((row) => row.nature === nature).reduce((sum, row) => sum + row.costEur, 0) ?? 0;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceMarginStatus, CmInvoiceProcessingStatus } from "@prisma/client";
+import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceDocumentType, CmInvoiceMarginStatus, CmInvoiceProcessingStatus } from "@prisma/client";
 import { BillingDashboardService, buildOperationalBalanceReport, inferSourceResolutionMinutes, normalizeGiscePriceList, normalizeMeasuresToQuarterHour, selectMeasureCandidate, type CurveIssue, type NormalizedMeasureCandidate } from "./billing-dashboard.service";
 
 function candidate(consumption: number): NormalizedMeasureCandidate {
@@ -120,6 +120,46 @@ describe("Billing dashboard operational balance", () => {
     assert.equal(calculatedPf.months[6].value, 101);
     assert.equal(calculatedBc.months[6].value, 112);
     assert.equal(billing.months[5].value, 0);
+  });
+
+  it("resta abonos GISCE en facturacion y consumo economico sin tocar la cobertura fisica", () => {
+    const report = buildOperationalBalanceReport({
+      year: 2026,
+      availableYears: [2026],
+      invoices: [
+        {
+          id: "invoice-credit-note",
+          invoiceDate: new Date(Date.UTC(2026, 9, 5)),
+          documentType: CmInvoiceDocumentType.CREDIT_NOTE,
+          economicSign: -1,
+          billedEnergyKwh: 1489,
+          lines: [
+            line("Tarifas Acceso / Energia", "P4", 497, 51.34),
+            line("Tarifas Acceso / Energia", "P5", 360, 37.19),
+            line("Tarifas Acceso / Energia", "P6", 632, 101.37),
+            line("Tarifas Acceso / Potencia", "P1", 18.2, 122.29),
+            line("Ventas de mercaderias en Espana", "Ajuste por Costes del Sistema de Red Electrica de Espana", 1489, 24.52)
+          ]
+        }
+      ],
+      curveTotals: [{ invoiceId: "invoice-credit-note", _sum: { consumptionPfKwh: 1489.000032, consumptionBcKwh: 1735.532072 } }],
+      curveSourceTotals: [{ invoiceId: "invoice-credit-note", consumptionSource: CmInvoiceConsumptionSource.F1, _sum: { consumptionPfKwh: 1489.000032 } }],
+      costRuns: [],
+      margins: [],
+      intervalComponentSums: [],
+      powerComponentSums: []
+    });
+    const billing = report.rows.find((row) => row.key === "billing")!;
+    const billedPf = report.rows.find((row) => row.key === "billed-pf")!;
+    const calculatedPf = report.rows.find((row) => row.key === "calculated-pf")!;
+    const calculatedBc = report.rows.find((row) => row.key === "calculated-bc")!;
+    const sourceShare = report.rows.find((row) => row.key === "consumption-source-share")!;
+
+    assert.equal(billing.months[9].value, -336.71);
+    assert.equal(billedPf.months[9].value, -1489);
+    assert.equal(calculatedPf.months[9].value, -1489.000032);
+    assert.equal(calculatedBc.months[9].value, -1735.532072);
+    assert.equal(sourceShare.children?.find((row) => row.key === "consumption-source-share:F1")?.months[9].value, 100);
   });
 
   it("adds invoice warning/error counts and PF consumption share by curve source", () => {

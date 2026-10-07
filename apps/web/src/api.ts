@@ -397,6 +397,8 @@ export type BillingInvoiceRow = {
   tariffCode: string | null;
   priceListId?: number | null;
   priceListName?: string | null;
+  documentType?: "INVOICE" | "CREDIT_NOTE";
+  economicSign?: number;
   processingStatus: BillingInvoiceStatus;
   processingMessage: string | null;
   billedEnergyKwh?: number | null;

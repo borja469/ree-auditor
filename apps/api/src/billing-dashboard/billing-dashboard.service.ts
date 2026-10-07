@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
-import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceMarginStatus, CmInvoiceProfileType, CmInvoiceProcessingStatus, Prisma } from "@prisma/client";
+import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceDocumentType, CmInvoiceMarginStatus, CmInvoiceProfileType, CmInvoiceProcessingStatus, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
 import { buildPricingCalendarRange, getMadridParts } from "../pricing-base/calendar_builder";
 import { resolvePricingPeriod } from "../pricing-base/pricing_period_adapter";
@@ -1496,14 +1496,17 @@ export class BillingDashboardService {
           }),
           this.prisma.cmInvoiceConsumptionCurve.aggregate({ where: { invoiceId: invoice.id }, _sum: { consumptionPfKwh: true } })
         ]);
-    const costsByNature: Record<CostNature, number> = summaryCostsByNature ?? { ENERGY: 0, POWER: 0 };
+    let costsByNature: Record<CostNature, number> = summaryCostsByNature ?? { ENERGY: 0, POWER: 0 };
     if (!summaryCostsByNature) {
       for (const component of components) costsByNature[costComponentNature(component.componentCode as CostComponent)] += Number(component._sum.costEur ?? 0);
       for (const component of powerComponents) costsByNature[costComponentNature(component.componentCode as CostComponent)] += Number(component._sum.costEur ?? 0);
     }
+    const sign = invoiceEconomicSign(invoice);
+    costsByNature = applyInvoiceSignToCostsByNature(costsByNature, sign);
     const lineSummary = summarizeInvoiceLineConcepts(invoice.lines);
-    const pfTotalKwh = decimalToNumber(curve._sum.consumptionPfKwh);
-    const pfMwh = pfTotalKwh && pfTotalKwh > 0 ? pfTotalKwh / 1000 : null;
+    const physicalPfTotalKwh = decimalToNumber(curve._sum.consumptionPfKwh);
+    const pfTotalKwh = physicalPfTotalKwh === null ? null : physicalPfTotalKwh * sign;
+    const pfMwh = pfTotalKwh && pfTotalKwh !== 0 ? pfTotalKwh / 1000 : null;
     const warnings: string[] = [];
     let associatedRevenueEur = 0;
     let associatedCostEur = 0;
@@ -1511,12 +1514,13 @@ export class BillingDashboardService {
     const rows = lineSummary.rows.map((row) => {
       const mapping = marginConceptMapping(row.concept);
       if (!mapping) return { ...row, costEur: null, differenceEur: null, nature: null };
+      const amount = row.amount * sign;
       const costEur = mapping === "ADJUSTMENT" ? 0 : costsByNature[mapping];
-      const differenceEur = row.amount - costEur;
-      associatedRevenueEur += row.amount;
+      const differenceEur = amount - costEur;
+      associatedRevenueEur += amount;
       associatedCostEur += costEur;
       marginEur += differenceEur;
-      return { ...row, costEur, differenceEur, nature: mapping === "ADJUSTMENT" ? "ENERGY" : mapping };
+      return { ...row, amount, costEur, differenceEur, nature: mapping === "ADJUSTMENT" ? "ENERGY" : mapping };
     });
     if (!lineSummary.hasMappedConcepts) warnings.push("NO_ASSOCIATED_CONCEPTS");
     if (!pfMwh) warnings.push("PF_NOT_AVAILABLE");
@@ -1535,7 +1539,7 @@ export class BillingDashboardService {
       pfTotalKwh,
       warnings,
       hasMappedConcepts: lineSummary.hasMappedConcepts,
-      details: { rows, costsByNature, costRunId: costRun.id }
+      details: { rows, costsByNature, costRunId: costRun.id, documentSign: sign }
     };
   }
 
@@ -1571,6 +1575,8 @@ export class BillingDashboardService {
       tariffCode: normalizeTarifa(many2oneName(item.tarifa_acces_id) ?? text(item.tarifa)) ?? text(many2oneName(item.tarifa_acces_id) ?? item.tarifa),
       priceListId: priceList.priceListId,
       priceListName: priceList.priceListName,
+      documentType: gisceInvoiceDocumentType(item),
+      economicSign: gisceInvoiceEconomicSign(item),
       billedEnergyKwh: decimalOrNull(summarizeGisceInvoiceEnergy(item.invoice_line ?? [])),
       rawPayloadJson: item as Prisma.InputJsonValue,
       importBatchId: batchId
@@ -1589,6 +1595,8 @@ export class BillingDashboardService {
       tariffCode: normalized.tariffCode,
       priceListId: normalized.priceListId,
       priceListName: normalized.priceListName,
+      documentType: normalized.documentType,
+      economicSign: normalized.economicSign,
       billedEnergyKwh: normalized.billedEnergyKwh?.toString() ?? null
     };
     const comparable = JSON.stringify(comparablePayload);
@@ -1605,6 +1613,8 @@ export class BillingDashboardService {
       tariffCode: current.tariffCode,
       priceListId: current.priceListId,
       priceListName: current.priceListName,
+      documentType: current.documentType,
+      economicSign: current.economicSign,
       billedEnergyKwh: current.billedEnergyKwh?.toString() ?? null
     }) : null;
     const invoice = await this.prisma.cmInvoice.upsert({
@@ -1888,6 +1898,8 @@ function invoiceRow(invoice: {
   tariffCode: string | null;
   priceListId?: number | null;
   priceListName?: string | null;
+  documentType?: CmInvoiceDocumentType | string | null;
+  economicSign?: number | null;
   processingStatus: CmInvoiceProcessingStatus;
   processingMessage: string | null;
   expectedIntervals: number;
@@ -1913,6 +1925,8 @@ function invoiceRow(invoice: {
     tariffCode: invoice.tariffCode,
     priceListId: invoice.priceListId ?? null,
     priceListName: invoice.priceListName ?? null,
+    documentType: invoice.documentType ?? CmInvoiceDocumentType.INVOICE,
+    economicSign: invoiceEconomicSign(invoice),
     processingStatus: invoice.processingStatus,
     processingMessage: invoice.processingMessage,
     billedEnergyKwh: decimalToNumber(invoice.billedEnergyKwh),
@@ -2085,6 +2099,19 @@ function summarizeInvoiceLineConcepts(lines: Array<{ accountName: string | null;
   return { rows: [...groups.values()], associatedRevenueEur, hasMappedConcepts };
 }
 
+function invoiceEconomicSign(invoice: { documentType?: CmInvoiceDocumentType | string | null; economicSign?: number | null; invoiceNumber?: string | null }) {
+  if (invoice.economicSign === -1 || invoice.economicSign === 1) return invoice.economicSign;
+  if (invoice.documentType === CmInvoiceDocumentType.CREDIT_NOTE || invoice.documentType === "CREDIT_NOTE") return -1;
+  return invoice.invoiceNumber?.startsWith("A") ? -1 : 1;
+}
+
+function applyInvoiceSignToCostsByNature(costsByNature: Record<CostNature, number>, sign: number) {
+  if (sign !== -1) return costsByNature;
+  const total = costsByNature.ENERGY + costsByNature.POWER;
+  if (total <= 0) return costsByNature;
+  return { ENERGY: costsByNature.ENERGY * sign, POWER: costsByNature.POWER * sign };
+}
+
 class OperationalBalanceRowsBuilder {
   private readonly rows = new Map<string, OperationalBalanceRow>();
   private readonly childKeys = new Map<string, Set<string>>();
@@ -2241,6 +2268,8 @@ export function buildOperationalBalanceReport(input: {
     id: string;
     invoiceDate: Date | string | null;
     billedEnergyKwh?: Prisma.Decimal | number | string | null;
+    documentType?: CmInvoiceDocumentType | string;
+    economicSign?: number | null;
     processingStatus?: CmInvoiceProcessingStatus | string;
     lines: Array<{ accountName: string | null; lineName: string | null; quantity?: Prisma.Decimal | number | string | null; priceUnit?: Prisma.Decimal | number | string | null; priceSubtotal: Prisma.Decimal | number | string | null }>;
   }>;
@@ -2304,9 +2333,10 @@ export function buildOperationalBalanceReport(input: {
       lineName: line.lineName,
       priceSubtotal: decimalOrNullLike(line.priceSubtotal) as Prisma.Decimal | null
     })));
-    rows.add("billing", "Facturacion", "EUR", 0, month, lineSummary.rows.reduce((sum, row) => sum + row.amount, 0), coverage(1, 1, 0));
+    const sign = invoiceEconomicSign(invoice);
+    rows.add("billing", "Facturacion", "EUR", 0, month, lineSummary.rows.reduce((sum, row) => sum + row.amount * sign, 0), coverage(1, 1, 0));
     for (const line of lineSummary.rows) {
-      rows.add(`billing:${invoiceConceptKey(line.concept)}`, line.concept, "EUR", 1, month, line.amount, coverage(1, 1, 0), "billing");
+      rows.add(`billing:${invoiceConceptKey(line.concept)}`, line.concept, "EUR", 1, month, line.amount * sign, coverage(1, 1, 0), "billing");
     }
     const billedEnergy = Object.values(summarizeInvoiceEnergy(invoice.lines.map((line) => ({
       accountName: line.accountName,
@@ -2315,7 +2345,7 @@ export function buildOperationalBalanceReport(input: {
       priceUnit: decimalOrNullLike(line.priceUnit) as Prisma.Decimal | null
     })))).reduce((sum, value) => sum + value, 0);
     const billedEnergyValue = billedEnergy || numericLike(invoice.billedEnergyKwh);
-    rows.add("billed-pf", "Consumo facturado PF", "KWH", 0, month, billedEnergyValue ?? 0, coverage(1, billedEnergyValue === null ? 0 : 1, 0));
+    rows.add("billed-pf", "Consumo facturado PF", "KWH", 0, month, billedEnergyValue === null ? 0 : billedEnergyValue * sign, coverage(1, billedEnergyValue === null ? 0 : 1, 0));
   }
 
   const curveTotalsByInvoice = new Map(input.curveTotals.map((row) => [row.invoiceId, row]));
@@ -2346,8 +2376,9 @@ export function buildOperationalBalanceReport(input: {
     const totals = curveTotalsByInvoice.get(invoice.id);
     const pf = numericLike(totals?._sum.consumptionPfKwh);
     const bc = numericLike(totals?._sum.consumptionBcKwh);
-    rows.add("calculated-pf", "Consumo calculado PF", "KWH", 0, month, pf ?? 0, coverage(1, pf === null ? 0 : 1, 0));
-    rows.add("calculated-bc", "Consumo calculado BC", "KWH", 0, month, bc ?? 0, coverage(1, bc === null ? 0 : 1, 0));
+    const sign = invoiceEconomicSign(invoice);
+    rows.add("calculated-pf", "Consumo calculado PF", "KWH", 0, month, pf === null ? 0 : pf * sign, coverage(1, pf === null ? 0 : 1, 0));
+    rows.add("calculated-bc", "Consumo calculado BC", "KWH", 0, month, bc === null ? 0 : bc * sign, coverage(1, bc === null ? 0 : 1, 0));
   }
 
   const marginCostRunIds = new Set<string>();
@@ -2641,6 +2672,16 @@ export function normalizeGiscePriceList(value: GisceInvoiceItem["llista_preu"]) 
       return true;
     })
   };
+}
+
+function gisceInvoiceDocumentType(item: GisceInvoiceItem) {
+  return String(item.type ?? "").toLowerCase() === "out_refund" || String(item.number ?? "").startsWith("A")
+    ? CmInvoiceDocumentType.CREDIT_NOTE
+    : CmInvoiceDocumentType.INVOICE;
+}
+
+function gisceInvoiceEconomicSign(item: GisceInvoiceItem) {
+  return gisceInvoiceDocumentType(item) === CmInvoiceDocumentType.CREDIT_NOTE ? -1 : 1;
 }
 
 function onlyCommercialMetadataChanged(next: Record<string, unknown>, previous: Record<string, unknown>) {
