@@ -254,7 +254,7 @@ describe("Billing dashboard operational balance", () => {
     assert.equal(marginEurMwh.months[0].value, 11);
   });
 
-  it("cuadra padres de ingresos y costes con sus partidas cuando existe detalle de margen", () => {
+  it("cuadra padres de ingresos y costes con sus partidas usando componentes del run para costes", () => {
     const report = buildOperationalBalanceReport({
       year: 2026,
       availableYears: [2026],
@@ -281,8 +281,8 @@ describe("Billing dashboard operational balance", () => {
           ]
         }
       }],
-      intervalComponentSums: [],
-      powerComponentSums: []
+      intervalComponentSums: [{ costRunId: "run-1", componentCode: "OMIE_MD", costEur: 100 }],
+      powerComponentSums: [{ costRunId: "run-1", componentCode: "TOLLS_CHARGES_POWER", _sum: { costEur: 20 } }]
     });
     const revenue = report.rows.find((row) => row.key === "used-revenue")!;
     const costs = report.rows.find((row) => row.key === "costs")!;
@@ -291,7 +291,7 @@ describe("Billing dashboard operational balance", () => {
 
     assert.equal(revenue.months[0].value, 98);
     assert.equal(revenue.months[0].value, revenueChildren);
-    assert.equal(costs.months[0].value, 87);
+    assert.equal(costs.months[0].value, 120);
     assert.equal(costs.months[0].value, costChildren);
   });
 
@@ -351,6 +351,52 @@ describe("Billing dashboard operational balance", () => {
     assert.equal(power.children?.find((row) => row.key === "costs:power:TOLLS_CHARGES_POWER")?.months[1].value, 6);
     assert.equal(margin.months[1].warningInvoiceCount, 1);
     assert.equal(costs.months[1].warningInvoiceCount, 1);
+  });
+
+  it("usa summaryJson del run para desglosar costes cuando el job masivo no persiste detalle QH", () => {
+    const report = buildOperationalBalanceReport({
+      year: 2026,
+      availableYears: [2026],
+      invoices: [{
+        id: "invoice-1",
+        invoiceDate: new Date(Date.UTC(2026, 8, 1)),
+        lines: [line("Tarifas Acceso / Energia", "P1", 1, 100)]
+      }],
+      curveTotals: [{ invoiceId: "invoice-1", _sum: { consumptionPfKwh: 1000, consumptionBcKwh: 1100 } }],
+      costRuns: [{
+        id: "run-1",
+        invoiceId: "invoice-1",
+        incidentsCount: 0,
+        status: CmInvoiceCostRunStatus.COMPLETED,
+        summaryJson: [
+          { componentCode: "OMIE_MD", nature: "ENERGY", costEur: 100 },
+          { componentCode: "CAD", nature: "ENERGY", costEur: 20 },
+          { componentCode: "TOLLS_CHARGES_POWER", nature: "POWER", costEur: 5 }
+        ]
+      }],
+      margins: [{
+        invoiceId: "invoice-1",
+        costRunId: "run-1",
+        marginStatus: CmInvoiceMarginStatus.READY,
+        associatedRevenueEur: 100,
+        associatedCostEur: 999,
+        marginEur: 10,
+        detailsJson: { costsByNature: { ENERGY: 1, POWER: 2 }, rows: [{ concept: "Energia", amount: 100, nature: "ENERGY" }] }
+      }],
+      intervalComponentSums: [],
+      powerComponentSums: []
+    });
+    const costs = report.rows.find((row) => row.key === "costs")!;
+    const energy = costs.children?.find((row) => row.key === "costs:energy")!;
+    const power = costs.children?.find((row) => row.key === "costs:power")!;
+    const componentSum = (energy.children ?? []).reduce((sum, row) => sum + (row.months[8].value ?? 0), 0);
+
+    assert.equal(costs.months[8].value, 125);
+    assert.equal(energy.months[8].value, 120);
+    assert.equal(energy.months[8].value, componentSum);
+    assert.equal(power.months[8].value, 5);
+    assert.equal(energy.children?.find((row) => row.key === "costs:energy:OMIE_MD")?.months[8].value, 100);
+    assert.equal(energy.children?.find((row) => row.key === "costs:energy:CAD")?.months[8].value, 20);
   });
 
   it("uses the margin snapshot universe for used revenue so invoices without margin do not distort the balance", () => {

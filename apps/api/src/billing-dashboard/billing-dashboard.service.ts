@@ -40,7 +40,7 @@ type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS
 type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
 const BILLING_JOB_EXCLUSIVE_TYPES: BillingJobType[] = ["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "CALCULATE_COSTS_AND_MARGINS", "FULL_RECALCULATION"];
 const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V1";
-const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V2_SIGNED_CREDIT_NOTES";
+const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V3_RUN_SUMMARY_COST_BREAKDOWN";
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
 const OPERATIONAL_BALANCE_MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
@@ -2275,7 +2275,7 @@ export function buildOperationalBalanceReport(input: {
   }>;
   curveTotals: Array<{ invoiceId: string; _sum: { consumptionPfKwh: Prisma.Decimal | number | string | null; consumptionBcKwh: Prisma.Decimal | number | string | null } }>;
   curveSourceTotals?: Array<{ invoiceId: string; consumptionSource: CmInvoiceConsumptionSource | string; _sum: { consumptionPfKwh: Prisma.Decimal | number | string | null } }>;
-  costRuns: Array<{ id: string; invoiceId: string; incidentsCount: number; status: CmInvoiceCostRunStatus | string }>;
+  costRuns: Array<{ id: string; invoiceId: string; incidentsCount: number; status: CmInvoiceCostRunStatus | string; summaryJson?: Prisma.JsonValue | null }>;
   margins: Array<{
     invoiceId: string;
     costRunId: string;
@@ -2383,6 +2383,13 @@ export function buildOperationalBalanceReport(input: {
 
   const marginCostRunIds = new Set<string>();
   const costRunById = new Map(input.costRuns.map((run) => [run.id, run]));
+  const runsWithSummaryComponents = new Set<string>();
+  const costTotalsByRun = new Map<string, { ENERGY: number; POWER: number; hasEnergy: boolean; hasPower: boolean }>();
+  const costFallbackByRun = new Map<string, {
+    value: number | null;
+    byNature: { ENERGY: number | null; POWER: number | null };
+    warningInvoiceCount: number;
+  }>();
   for (const run of input.costRuns) {
     const month = monthByInvoice.get(run.invoiceId);
     if (month === undefined) continue;
@@ -2398,35 +2405,84 @@ export function buildOperationalBalanceReport(input: {
     const costsFromNatures = sumNatureBreakdown(costsByNature);
     const revenueValue = revenueFromNatures ?? revenue;
     const costValue = costsFromNatures ?? associatedCost;
+    costFallbackByRun.set(run.id, {
+      value: costValue,
+      byNature: costsByNature,
+      warningInvoiceCount: run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0
+    });
     rows.add("used-revenue", "Ingresos utilizados", "EUR", 0, month, revenueValue ?? 0, coverage(1, revenueValue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
     if (revenueByNature.ENERGY !== null) rows.add("used-revenue:energy", "Energia", "EUR", 1, month, revenueByNature.ENERGY, coverage(1, 1, 0), "used-revenue");
     if (revenueByNature.POWER !== null) rows.add("used-revenue:power", "Potencia", "EUR", 1, month, revenueByNature.POWER, coverage(1, 1, 0), "used-revenue");
-    rows.add("costs", "Costes calculados", "EUR", 0, month, costValue ?? 0, coverage(1, costValue === null ? 0 : 1, run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0));
-    if (costsByNature.ENERGY !== null) rows.add("costs:energy", "Energia", "EUR", 1, month, costsByNature.ENERGY, coverage(1, 1, 0), "costs");
-    if (costsByNature.POWER !== null) rows.add("costs:power", "Potencia", "EUR", 1, month, costsByNature.POWER, coverage(1, 1, 0), "costs");
     rows.add("margin", "Margen EUR", "EUR", 0, month, marginValue ?? 0, coverage(1, marginValue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
+  }
+  function addRunCostTotal(runId: string, nature: CostNature, value: number) {
+    const current = costTotalsByRun.get(runId) ?? { ENERGY: 0, POWER: 0, hasEnergy: false, hasPower: false };
+    current[nature] += value;
+    if (nature === "ENERGY") current.hasEnergy = true;
+    if (nature === "POWER") current.hasPower = true;
+    costTotalsByRun.set(runId, current);
+  }
+  for (const run of input.costRuns) {
+    if (!marginCostRunIds.has(run.id)) continue;
+    const month = monthByInvoice.get(run.invoiceId);
+    if (month === undefined) continue;
+    const summaryComponents = costComponentsFromRunSummary(run.summaryJson ?? null);
+    if (!summaryComponents) continue;
+    runsWithSummaryComponents.add(run.id);
+    costTotalsByRun.set(run.id, { ENERGY: 0, POWER: 0, hasEnergy: false, hasPower: false });
+    for (const component of summaryComponents) {
+      addRunCostTotal(run.id, component.nature, component.costEur);
+      const natureKey = component.nature === "POWER" ? "power" : "energy";
+      rows.add(`costs:${natureKey}:${component.componentCode}`, costComponentLabel(component.componentCode), "EUR", 2, month, component.costEur, zeroCoverage(), `costs:${natureKey}`);
+    }
   }
   for (const component of input.intervalComponentSums) {
     const run = costRunById.get(component.costRunId);
+    if (runsWithSummaryComponents.has(component.costRunId)) continue;
     if (!marginCostRunIds.has(component.costRunId)) continue;
     if (!run) continue;
     const month = monthByInvoice.get(run.invoiceId);
     if (month === undefined) continue;
-    const value = numericLike(component.costEur) ?? 0;
+    const invoice = invoicesById.get(run.invoiceId);
+    const value = signedOperationalCostValue(numericLike(component.costEur) ?? 0, invoice);
     const nature = costComponentNature(component.componentCode as CostComponent);
+    addRunCostTotal(component.costRunId, nature, value);
     const natureKey = nature === "POWER" ? "power" : "energy";
     rows.add(`costs:${natureKey}:${component.componentCode}`, costComponentLabel(component.componentCode), "EUR", 2, month, value, zeroCoverage(), `costs:${natureKey}`);
   }
   for (const component of input.powerComponentSums) {
     const run = costRunById.get(component.costRunId);
+    if (runsWithSummaryComponents.has(component.costRunId)) continue;
     if (!marginCostRunIds.has(component.costRunId)) continue;
     if (!run) continue;
     const month = monthByInvoice.get(run.invoiceId);
     if (month === undefined) continue;
-    const value = numericLike(component._sum?.costEur ?? component.costEur) ?? 0;
+    const invoice = invoicesById.get(run.invoiceId);
+    const value = signedOperationalCostValue(numericLike(component._sum?.costEur ?? component.costEur) ?? 0, invoice);
     const nature = costComponentNature(component.componentCode as CostComponent);
+    addRunCostTotal(component.costRunId, nature, value);
     const natureKey = nature === "POWER" ? "power" : "energy";
     rows.add(`costs:${natureKey}:${component.componentCode}`, costComponentLabel(component.componentCode), "EUR", 2, month, value, zeroCoverage(), `costs:${natureKey}`);
+  }
+  for (const runId of marginCostRunIds) {
+    const run = costRunById.get(runId);
+    if (!run) continue;
+    const month = monthByInvoice.get(run.invoiceId);
+    if (month === undefined) continue;
+    const totals = costTotalsByRun.get(runId);
+    const warning = run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0;
+    if (totals) {
+      const totalValue = totals.ENERGY + totals.POWER;
+      rows.add("costs", "Costes calculados", "EUR", 0, month, totalValue, coverage(1, 1, warning));
+      if (totals.hasEnergy) rows.add("costs:energy", "Energia", "EUR", 1, month, totals.ENERGY, coverage(1, 1, 0), "costs");
+      if (totals.hasPower) rows.add("costs:power", "Potencia", "EUR", 1, month, totals.POWER, coverage(1, 1, 0), "costs");
+      continue;
+    }
+    const fallback = costFallbackByRun.get(runId);
+    if (!fallback) continue;
+    rows.add("costs", "Costes calculados", "EUR", 0, month, fallback.value ?? 0, coverage(1, fallback.value === null ? 0 : 1, fallback.warningInvoiceCount));
+    if (fallback.byNature.ENERGY !== null) rows.add("costs:energy", "Energia", "EUR", 1, month, fallback.byNature.ENERGY, coverage(1, 1, 0), "costs");
+    if (fallback.byNature.POWER !== null) rows.add("costs:power", "Potencia", "EUR", 1, month, fallback.byNature.POWER, coverage(1, 1, 0), "costs");
   }
 
   rows.applyInvoiceUniverse(invoiceCounts, ["invoice-error-count", "invoice-warning-count", "consumption-source-share", "billing", "billed-pf", "calculated-pf", "calculated-bc", "used-revenue", "costs", "margin"]);
@@ -2446,6 +2502,17 @@ export function buildOperationalBalanceReport(input: {
   applyConsumptionSourceShareTotals(baseRows, monthlyPfBySource, monthlyPfTotal);
   const calculatedPf = baseRows.find((row) => row.key === "calculated-pf");
   const outputRows = insertOperationalRateRows(baseRows, calculatedPf);
+  reconcileOperationalParentRows(outputRows, new Set([
+    "billing",
+    "used-revenue",
+    "costs",
+    "costs:energy",
+    "costs:power",
+    "used-revenue-eur-mwh",
+    "costs-eur-mwh",
+    "costs-eur-mwh:energy",
+    "costs-eur-mwh:power"
+  ]));
   return {
     year: input.year,
     availableYears: input.availableYears.length ? input.availableYears : [input.year],
@@ -2463,6 +2530,19 @@ function insertOperationalRateRows(rows: OperationalBalanceRow[], pfRow: Operati
     if (row.key === "margin") output.push(toEurMwhRow(row, "margin-eur-mwh", "Margen €/MWh", pfRow));
   }
   return output;
+}
+
+function reconcileOperationalParentRows(rows: OperationalBalanceRow[], keys: Set<string>) {
+  for (const row of rows) reconcileOperationalParentRow(row, keys);
+}
+
+function reconcileOperationalParentRow(row: OperationalBalanceRow, keys: Set<string>) {
+  for (const child of row.children ?? []) reconcileOperationalParentRow(child, keys);
+  if (!keys.has(row.key) || !row.children?.length) return;
+  for (let index = 0; index < row.months.length; index += 1) {
+    row.months[index].value = row.children.reduce((sum, child) => sum + (child.months[index]?.value ?? 0), 0);
+  }
+  row.total = sumOperationalCells(row.months);
 }
 
 function toEurMwhRow(row: OperationalBalanceRow, key: string, label: string, pfRow: OperationalBalanceRow | undefined): OperationalBalanceRow {
@@ -2524,6 +2604,11 @@ function applyConsumptionSourceShareTotals(rows: OperationalBalanceRow[], monthl
   }
 }
 
+function signedOperationalCostValue(value: number, invoice: { economicSign?: number | null; documentType?: CmInvoiceDocumentType | string } | undefined) {
+  const sign = invoice ? invoiceEconomicSign(invoice) : 1;
+  return sign < 0 && value > 0 ? -value : value;
+}
+
 function operationalInvoiceStatusSummary(
   invoice: { id: string; processingStatus?: CmInvoiceProcessingStatus | string },
   costRun: { id: string; status: CmInvoiceCostRunStatus | string; incidentsCount: number } | undefined,
@@ -2574,6 +2659,21 @@ function sumNatureBreakdown(values: { ENERGY: number | null; POWER: number | nul
   const hasPower = values.POWER !== null;
   if (!hasEnergy && !hasPower) return null;
   return (values.ENERGY ?? 0) + (values.POWER ?? 0);
+}
+
+function costComponentsFromRunSummary(value: Prisma.JsonValue | null): Array<{ componentCode: string; nature: CostNature; costEur: number }> | null {
+  if (!Array.isArray(value)) return null;
+  const components: Array<{ componentCode: string; nature: CostNature; costEur: number }> = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const componentCode = typeof row.componentCode === "string" ? row.componentCode : null;
+    const nature = row.nature === "POWER" ? "POWER" : row.nature === "ENERGY" ? "ENERGY" : null;
+    const costEur = numericLike(row.costEur as Prisma.Decimal | number | string | null | undefined);
+    if (!componentCode || !nature || costEur === null) continue;
+    components.push({ componentCode, nature, costEur });
+  }
+  return components.length ? components : null;
 }
 
 function marginConceptMapping(concept: string): CostNature | "ADJUSTMENT" | null {
