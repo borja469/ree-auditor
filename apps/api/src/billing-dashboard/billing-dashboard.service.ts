@@ -40,7 +40,7 @@ type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS
 type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
 const BILLING_JOB_EXCLUSIVE_TYPES: BillingJobType[] = ["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "CALCULATE_COSTS_AND_MARGINS", "FULL_RECALCULATION"];
 const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V1";
-const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V1";
+const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V2_SIGNED_CREDIT_NOTES";
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
 const OPERATIONAL_BALANCE_MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 
@@ -2394,10 +2394,14 @@ export function buildOperationalBalanceReport(input: {
     const marginValue = numericLike(margin.marginEur);
     const revenueByNature = marginRevenueByNature(margin.detailsJson);
     const costsByNature = marginCostsByNature(margin.detailsJson);
-    rows.add("used-revenue", "Ingresos utilizados", "EUR", 0, month, revenue ?? 0, coverage(1, revenue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
+    const revenueFromNatures = sumNatureBreakdown(revenueByNature);
+    const costsFromNatures = sumNatureBreakdown(costsByNature);
+    const revenueValue = revenueFromNatures ?? revenue;
+    const costValue = costsFromNatures ?? associatedCost;
+    rows.add("used-revenue", "Ingresos utilizados", "EUR", 0, month, revenueValue ?? 0, coverage(1, revenueValue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
     if (revenueByNature.ENERGY !== null) rows.add("used-revenue:energy", "Energia", "EUR", 1, month, revenueByNature.ENERGY, coverage(1, 1, 0), "used-revenue");
     if (revenueByNature.POWER !== null) rows.add("used-revenue:power", "Potencia", "EUR", 1, month, revenueByNature.POWER, coverage(1, 1, 0), "used-revenue");
-    rows.add("costs", "Costes calculados", "EUR", 0, month, associatedCost ?? 0, coverage(1, associatedCost === null ? 0 : 1, run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0));
+    rows.add("costs", "Costes calculados", "EUR", 0, month, costValue ?? 0, coverage(1, costValue === null ? 0 : 1, run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0));
     if (costsByNature.ENERGY !== null) rows.add("costs:energy", "Energia", "EUR", 1, month, costsByNature.ENERGY, coverage(1, 1, 0), "costs");
     if (costsByNature.POWER !== null) rows.add("costs:power", "Potencia", "EUR", 1, month, costsByNature.POWER, coverage(1, 1, 0), "costs");
     rows.add("margin", "Margen EUR", "EUR", 0, month, marginValue ?? 0, coverage(1, marginValue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
@@ -2563,6 +2567,13 @@ function marginCostsByNature(detailsJson: Prisma.JsonValue | null | undefined): 
     if (value !== null) result[nature] = value;
   }
   return result;
+}
+
+function sumNatureBreakdown(values: { ENERGY: number | null; POWER: number | null }) {
+  const hasEnergy = values.ENERGY !== null;
+  const hasPower = values.POWER !== null;
+  if (!hasEnergy && !hasPower) return null;
+  return (values.ENERGY ?? 0) + (values.POWER ?? 0);
 }
 
 function marginConceptMapping(concept: string): CostNature | "ADJUSTMENT" | null {

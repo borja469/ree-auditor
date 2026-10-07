@@ -254,6 +254,47 @@ describe("Billing dashboard operational balance", () => {
     assert.equal(marginEurMwh.months[0].value, 11);
   });
 
+  it("cuadra padres de ingresos y costes con sus partidas cuando existe detalle de margen", () => {
+    const report = buildOperationalBalanceReport({
+      year: 2026,
+      availableYears: [2026],
+      invoices: [{
+        id: "invoice-1",
+        invoiceDate: new Date(Date.UTC(2026, 0, 15)),
+        lines: [line("Tarifas Acceso / Energia", "P1", 1, 100)]
+      }],
+      curveTotals: [{ invoiceId: "invoice-1", _sum: { consumptionPfKwh: 1000, consumptionBcKwh: 1100 } }],
+      costRuns: [{ id: "run-1", invoiceId: "invoice-1", incidentsCount: 0, status: CmInvoiceCostRunStatus.COMPLETED }],
+      margins: [{
+        invoiceId: "invoice-1",
+        costRunId: "run-1",
+        marginStatus: CmInvoiceMarginStatus.READY,
+        associatedRevenueEur: 999,
+        associatedCostEur: 888,
+        marginEur: 11,
+        detailsJson: {
+          costsByNature: { ENERGY: 80, POWER: 7 },
+          rows: [
+            { concept: "Energia", amount: 70, nature: "ENERGY" },
+            { concept: "Potencia", amount: 20, nature: "POWER" },
+            { concept: "Ajuste por Costes del Sistema de Red Electrica de Espana", amount: 8, nature: "ENERGY" }
+          ]
+        }
+      }],
+      intervalComponentSums: [],
+      powerComponentSums: []
+    });
+    const revenue = report.rows.find((row) => row.key === "used-revenue")!;
+    const costs = report.rows.find((row) => row.key === "costs")!;
+    const revenueChildren = revenue.children?.reduce((sum, row) => sum + (row.months[0].value ?? 0), 0);
+    const costChildren = costs.children?.reduce((sum, row) => sum + (row.months[0].value ?? 0), 0);
+
+    assert.equal(revenue.months[0].value, 98);
+    assert.equal(revenue.months[0].value, revenueChildren);
+    assert.equal(costs.months[0].value, 87);
+    assert.equal(costs.months[0].value, costChildren);
+  });
+
   it("aggregates costs by nature and component without double-counting invoice lines", () => {
     const report = buildOperationalBalanceReport({
       year: 2026,
