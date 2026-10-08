@@ -45,6 +45,42 @@ const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V3_RUN_SUMM
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
 const OPERATIONAL_BALANCE_MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const BILLING_INVOICE_EXPORT_LIMIT = 50_000;
+const CM_INVOICE_LIST_SELECT = {
+  id: true,
+  gisceInvoiceId: true,
+  invoiceNumber: true,
+  cups: true,
+  polissaNumber: true,
+  invoiceDate: true,
+  periodStart: true,
+  periodEnd: true,
+  tariffCode: true,
+  priceListId: true,
+  priceListName: true,
+  documentType: true,
+  economicSign: true,
+  billedEnergyKwh: true,
+  processingStatus: true,
+  processingMessage: true,
+  expectedIntervals: true,
+  f1Intervals: true,
+  f5dIntervals: true,
+  p1Intervals: true,
+  p5dIntervals: true,
+  profiledIntervals: true,
+  missingIntervals: true,
+  reconciliationIssues: true,
+  lines: {
+    select: {
+      accountName: true,
+      lineName: true,
+      quantity: true,
+      priceUnit: true,
+      priceSubtotal: true
+    }
+  }
+} satisfies Prisma.CmInvoiceSelect;
+type CmInvoiceListRow = Prisma.CmInvoiceGetPayload<{ select: typeof CM_INVOICE_LIST_SELECT }>;
 
 class BillingJobCancelledError extends Error {
   constructor() {
@@ -177,7 +213,7 @@ export class BillingDashboardService {
       orderBy,
       skip: economicQuery ? 0 : skip,
       take: economicQuery ? 5000 : take,
-      include: { lines: true }
+      select: CM_INVOICE_LIST_SELECT
     });
     let enrichedRows = await this.enrichInvoiceRows(baseRows);
     if (economicQuery) {
@@ -411,7 +447,7 @@ export class BillingDashboardService {
     const invoices = await this.prisma.cmInvoice.findMany({
       where,
       orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
-      include: { lines: true }
+      select: CM_INVOICE_LIST_SELECT
     });
     const invoiceIds = invoices.map((invoice) => invoice.id);
     const [availableYearsRows, curveTotals, curveSourceTotals, costRuns, margins] = await Promise.all([
@@ -605,7 +641,7 @@ export class BillingDashboardService {
     };
   }
 
-  private async enrichInvoiceRows(invoices: Array<Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>>) {
+  private async enrichInvoiceRows(invoices: CmInvoiceListRow[]) {
     const invoiceIds = invoices.map((invoice) => invoice.id);
     const [costRuns, margins, curveTotals] = invoiceIds.length
       ? await Promise.all([
