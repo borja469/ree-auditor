@@ -680,7 +680,7 @@ export function BillingDashboardModule() {
         <div className="mercado-table-shell compact">
           <table className="mercado-table forecast-table compact billing-jobs-table">
             <thead><tr><th>Inicio</th><th>Fin</th><th>Tipo</th><th>Rango</th><th>Paginas GISCE</th><th>Encontradas</th><th>Nuevas/Sin curva</th><th>Actualizadas/Sin costes</th><th>Sin cambios/Sin PF</th><th>Procesadas</th><th>Estado</th><th>Mensaje</th><th>Progreso</th><th>OK</th><th>Warnings</th><th>Errores</th><th>Acciones</th></tr></thead>
-            <tbody>{jobs.map((job) => <tr key={job.id}><td>{formatDateTime(job.startedAt ?? job.createdAt)}</td><td>{job.finishedAt ? formatDateTime(job.finishedAt) : "-"}</td><td>{billingJobTypeLabel(job.type)}</td><td>{billingJobRange(job)}</td><td className="number">{billingJobGiscePages(job)}</td><td className="number">{billingJobFound(job)}</td><td className="number">{billingJobCreated(job)}</td><td className="number">{billingJobUpdated(job)}</td><td className="number">{billingJobUnchanged(job)}</td><td className="number">{billingJobProcessed(job)}</td><td><JobStatusBadge job={job} /></td><td>{job.message ?? "-"}</td><td className="number">{formatJobProgress(job)}</td><td className="number">{job.successCount.toLocaleString("es-ES")}</td><td className="number">{job.warningCount.toLocaleString("es-ES")}</td><td className="number">{job.errorCount.toLocaleString("es-ES")}</td><td><div className="billing-row-actions"><button className="icon-button" title="Ver informacion del job" onClick={() => setSelectedJob(job)} type="button"><Info size={16} /></button>{isActiveBillingJob(job) && <button className="icon-button danger-button" disabled={cancellingJobId === job.id} title="Cancelar job" onClick={() => void cancelJob(job)} type="button"><X size={16} /></button>}</div></td></tr>)}{jobs.length === 0 && <tr><td colSpan={17}>Sin trabajos registrados.</td></tr>}</tbody>
+            <tbody>{jobs.map((job) => <tr key={job.id}><td>{formatDateTime(job.startedAt ?? job.createdAt)}</td><td>{job.finishedAt ? formatDateTime(job.finishedAt) : "-"}</td><td>{billingJobTypeLabel(job.type)}</td><td>{billingJobRange(job)}</td><td className="number">{billingJobGiscePages(job)}</td><td className="number">{billingJobFound(job)}</td><td className="number">{billingJobCreated(job)}</td><td className="number">{billingJobUpdated(job)}</td><td className="number">{billingJobUnchanged(job)}</td><td className="number">{billingJobProcessed(job)}</td><td><JobStatusBadge job={job} /></td><td>{job.message ?? "-"}</td><td className="billing-job-progress-cell"><BillingJobProgressBar job={job} compact /></td><td className="number">{job.successCount.toLocaleString("es-ES")}</td><td className="number">{job.warningCount.toLocaleString("es-ES")}</td><td className="number">{job.errorCount.toLocaleString("es-ES")}</td><td><div className="billing-row-actions"><button className="icon-button" title="Ver informacion del job" onClick={() => setSelectedJob(job)} type="button"><Info size={16} /></button>{isActiveBillingJob(job) && <button className="icon-button danger-button" disabled={cancellingJobId === job.id} title="Cancelar job" onClick={() => void cancelJob(job)} type="button"><X size={16} /></button>}</div></td></tr>)}{jobs.length === 0 && <tr><td colSpan={17}>Sin trabajos registrados.</td></tr>}</tbody>
           </table>
         </div>
       </section>
@@ -1127,6 +1127,7 @@ function BillingJobInfoModal({ job, onClose }: { job: BillingJob; onClose: () =>
           <button className="icon-button" onClick={onClose} title="Cerrar" type="button"><X size={18} /></button>
         </div>
         <div className="billing-job-body">
+          <BillingJobProgressBar job={job} />
           <div className="billing-job-indicators">
             <JobIndicator label="Procesadas" value={billingJobProcessed(job)} />
             <JobIndicator label="Correctas" value={job.successCount.toLocaleString("es-ES")} tone="good" />
@@ -1248,6 +1249,78 @@ function billingJobTypeLabel(type: string) { return type === "IMPORT_INVOICES" ?
 function billingJobModalTitle(job: BillingJob) { return job.type === "IMPORT_INVOICES" ? "Importacion GISCE" : billingJobTypeLabel(job.type); }
 function billingJobStatusLabel(status: string) { return status === "QUEUED" ? "En cola" : status === "RUNNING" ? "En curso" : status === "SUCCESS" ? "Finalizado" : status === "ERROR" ? "Error" : status === "CANCELLED" ? "Cancelado" : status; }
 function formatJobProgress(job: BillingJob) { return job.totalItems > 0 ? `${job.processedItems.toLocaleString("es-ES")} / ${job.totalItems.toLocaleString("es-ES")}` : job.processedItems.toLocaleString("es-ES"); }
+function BillingJobProgressBar({ job, compact = false }: { job: BillingJob; compact?: boolean }) {
+  const progress = billingJobProgress(job);
+  return (
+    <div className={`billing-job-progress ${compact ? "compact" : ""} ${progress.tone}`} title={progress.detail}>
+      <div className="billing-job-progress-head">
+        <span>{progress.label}</span>
+        {!compact && <strong>{progress.percent.toLocaleString("es-ES", { maximumFractionDigits: 0 })}%</strong>}
+      </div>
+      <div className="billing-job-progress-track" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress.percent}>
+        <span style={{ width: `${progress.percent}%` }} />
+      </div>
+      {compact ? <small>{progress.percent.toLocaleString("es-ES", { maximumFractionDigits: 0 })}%</small> : <em>{progress.detail}</em>}
+    </div>
+  );
+}
+function billingJobProgress(job: BillingJob) {
+  const done = job.status === "SUCCESS";
+  const failed = job.status === "ERROR" || job.status === "CANCELLED";
+  if (done) return { percent: 100, label: "Completado", detail: formatJobProgress(job), tone: "good" };
+  if (job.type === "FULL_RECALCULATION") {
+    const full = fullBillingJobProgress(job);
+    return { ...full, tone: failed ? "danger" : "processing" };
+  }
+  const importResult = billingJobImportResult(job);
+  const imported = numberFromRecord(importResult, "processedCount");
+  const found = numberFromRecord(importResult, "totalFound");
+  const fallbackDone = imported ?? job.processedItems;
+  const fallbackTotal = found ?? job.totalItems;
+  const percent = progressPercent(fallbackDone, fallbackTotal);
+  return {
+    percent,
+    label: failed ? billingJobStatusLabel(job.status) : isActiveBillingJob(job) ? "En curso" : "Progreso",
+    detail: fallbackTotal > 0 ? `${fallbackDone.toLocaleString("es-ES")} / ${fallbackTotal.toLocaleString("es-ES")}` : formatJobProgress(job),
+    tone: failed ? "danger" : isActiveBillingJob(job) ? "processing" : "neutral"
+  };
+}
+function fullBillingJobProgress(job: BillingJob) {
+  const message = job.message ?? "";
+  const importResult = billingJobImportResult(job);
+  const imported = numberFromRecord(importResult, "processedCount") ?? 0;
+  const found = numberFromRecord(importResult, "totalFound") ?? numberFromRecord(job.result, "totalFound") ?? 0;
+  if (message.startsWith("Fase 1/3")) {
+    const ratio = progressRatio(imported, found);
+    return { percent: Math.round(ratio * 30), label: "Fase 1/3", detail: found > 0 ? `Importando GISCE ${imported.toLocaleString("es-ES")} / ${found.toLocaleString("es-ES")}` : message };
+  }
+  if (message.startsWith("Fase 2/3")) {
+    const ratio = progressRatioFromMessage(message) ?? progressRatio(job.processedItems, job.totalItems);
+    return { percent: Math.round(30 + ratio * 30), label: "Fase 2/3", detail: message };
+  }
+  if (message.startsWith("Fase 3/3")) {
+    const ratio = progressRatioFromMessage(message) ?? progressRatio(job.processedItems, job.totalItems);
+    return { percent: Math.round(60 + ratio * 40), label: "Fase 3/3", detail: message };
+  }
+  const percent = found > 0 ? Math.round(progressRatio(imported, found) * 30) : progressPercent(job.processedItems, job.totalItems);
+  return { percent, label: isActiveBillingJob(job) ? "En curso" : "Progreso", detail: message || formatJobProgress(job) };
+}
+function progressRatioFromMessage(message: string) {
+  const match = message.match(/(\d+)\s*\/\s*(\d+)/);
+  if (!match) return null;
+  return progressRatio(Number(match[1]), Number(match[2]));
+}
+function progressPercent(done: number, total: number) {
+  return Math.round(progressRatio(done, total) * 100);
+}
+function progressRatio(done: number, total: number) {
+  if (!Number.isFinite(done) || !Number.isFinite(total) || total <= 0) return 0;
+  return Math.max(0, Math.min(1, done / total));
+}
+function numberFromRecord(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
 function billingJobRange(job: BillingJob) {
   const dateFrom = typeof job.params?.dateFrom === "string" ? job.params.dateFrom : null;
   const dateTo = typeof job.params?.dateTo === "string" ? job.params.dateTo : null;

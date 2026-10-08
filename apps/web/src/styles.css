@@ -10447,7 +10447,11 @@ select:disabled {
 }
 
 .billing-jobs-table {
-  min-width: 1080px;
+  min-width: 1180px;
+}
+
+.billing-job-progress-cell {
+  min-width: 138px;
 }
 
 .billing-invoices-panel {
@@ -11438,6 +11442,86 @@ select:disabled {
 .billing-job-indicator.danger {
   background: #fff7f6;
   border-color: #f0c9c5;
+}
+
+.billing-job-progress {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 9px 10px;
+  color: #17313f;
+  background: #f8fbfc;
+  border: 1px solid #d8e2e8;
+  border-radius: 8px;
+}
+
+.billing-job-progress.compact {
+  gap: 4px;
+  min-width: 132px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+
+.billing-job-progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.billing-job-progress-head span,
+.billing-job-progress small,
+.billing-job-progress em {
+  color: #607482;
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.billing-job-progress-head span,
+.billing-job-progress em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.billing-job-progress-head strong {
+  color: #17313f;
+  font-size: 0.92rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 950;
+}
+
+.billing-job-progress-track {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  background: #e8f0f4;
+  border-radius: 999px;
+}
+
+.billing-job-progress-track span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: #2d7d9a;
+  border-radius: inherit;
+  transition: width 240ms ease;
+}
+
+.billing-job-progress.compact small {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+}
+
+.billing-job-progress.good .billing-job-progress-track span {
+  background: #237a43;
+}
+
+.billing-job-progress.danger .billing-job-progress-track span {
+  background: #b42318;
 }
 
 .billing-job-result {
