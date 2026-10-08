@@ -201,9 +201,14 @@ export class GisceClientService {
 
   async searchInvoicesByInvoiceDate(dateFrom: string, dateTo: string) {
     const config = await this.readConfig();
+    const dateFilter = dateFrom === dateTo
+      ? [[config.invoiceDateField, "=", dateFrom]]
+      : [
+          [config.invoiceDateField, ">=", dateFrom],
+          [config.invoiceDateField, "<=", dateTo]
+        ];
     const filter = [
-      [config.invoiceDateField, ">=", dateFrom],
-      [config.invoiceDateField, "<=", dateTo],
+      ...dateFilter,
       ["type", "in", [...GISCE_INVOICE_TYPES]]
     ];
     const result = await this.getPagedList<GisceInvoiceItem>("/GiscedataFacturacioFactura", filter, GISCE_INVOICE_PAGE_LIMIT, GISCE_INVOICE_SCHEMA);
