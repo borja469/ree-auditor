@@ -18,7 +18,7 @@ import { PanelTitle, formatDecimalNumber, formatNumber } from "../shared/Restore
 const PAGE_SIZE = 10000;
 const PERIODS = ["P1", "P2", "P3", "P4", "P5", "P6"] as const;
 const MONTHS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"] as const;
-const MEFF_START_OFFSET_OPTIONS = [0, 1, 2, 3, 6, 12] as const;
+const MEFF_START_OFFSET_OPTIONS = [0, 1, 2, 3, 4, 5, 6, 12] as const;
 const MEFF_DURATION_OPTIONS = [12, 24, 36] as const;
 type ProfileTab = "omie" | "meff";
 type BaseTariff = ProfiledPeriodMatrix["tariff"];
