@@ -36,7 +36,6 @@ const BILLING_PROCESS_PENDING_STATUSES = [CmInvoiceProcessingStatus.IMPORTED, Cm
 const BILLING_MARGIN_JOB_DEFAULT_CONCURRENCY = 4;
 const BILLING_COST_JOB_DEFAULT_CONCURRENCY = 4;
 const BILLING_CURVE_JOB_DEFAULT_CONCURRENCY = 4;
-const BILLING_FULL_IMPORT_MAX_ATTEMPTS = 3;
 
 type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS" | "CALCULATE_COSTS_AND_MARGINS" | "FULL_RECALCULATION";
 type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
@@ -714,7 +713,7 @@ export class BillingDashboardService {
     return { invoices: total, ready, withF1, withF5d, withP1, withP5d, withProfile, withIssues };
   }
 
-  async importInvoices(dateFrom: string, dateTo: string) {
+  async importInvoices(dateFrom: string, dateTo: string, onProgress?: (progress: { loaded: number; total: number | null; pages: number; offset: number; limit: number }) => Promise<void> | void) {
     assertDate(dateFrom, "dateFrom");
     assertDate(dateTo, "dateTo");
     const started = Date.now();
@@ -730,7 +729,7 @@ export class BillingDashboardService {
     let unchanged = 0;
     let errors = 0;
     try {
-      const result = await this.gisce.searchInvoicesByInvoiceDate(dateFrom, dateTo);
+      const result = await this.gisce.searchInvoicesByInvoiceDate(dateFrom, dateTo, onProgress);
       for (const item of result.items) {
         try {
           const result = await this.upsertInvoice(item, batch.id);
@@ -1314,8 +1313,7 @@ export class BillingDashboardService {
         } as Prisma.JsonValue;
       }
       if (importBatch.errorCount > 0) {
-        const failedDates = failedImportDates(importBatch);
-        const message = `Fase 1/3 incompleta: importacion GISCE con errores en ${failedDates.join(", ")}. Reintenta esos dias antes de recalcular el balance.`;
+        const message = `Fase 1/3 incompleta: importacion GISCE con error en el rango ${dateFrom} - ${effectiveDateTo}. ${importBatch.range?.message ?? "Reintenta antes de recalcular el balance."}`;
         counters.errorCount += importBatch.errorCount;
         await this.updateActiveBillingJob(jobId, {
           result: result as unknown as Prisma.InputJsonValue,
@@ -1431,13 +1429,12 @@ export class BillingDashboardService {
   }
 
   private async importInvoicesForFullJob(jobId: string, dateFrom: string, effectiveDateTo: string, requestedDateTo: string) {
-    const days = enumerateIsoDates(dateFrom, effectiveDateTo);
     const aggregate = {
       requestedDateFrom: dateFrom,
       requestedDateTo,
       effectiveDateFrom: dateFrom,
       effectiveDateTo,
-      days: days.length,
+      days: enumerateIsoDates(dateFrom, effectiveDateTo).length,
       totalFound: 0,
       processedCount: 0,
       createdCount: 0,
@@ -1445,107 +1442,55 @@ export class BillingDashboardService {
       unchangedCount: 0,
       errorCount: 0,
       batches: [] as Array<{ date: string; status: string; totalFound: number; processedCount: number; createdCount: number; updatedCount: number; unchangedCount: number; errorCount: number; message: string | null }>,
-      fallbackRange: null as null | { dateFrom: string; dateTo: string; status: string; totalFound: number; processedCount: number; createdCount: number; updatedCount: number; unchangedCount: number; errorCount: number; message: string | null }
+      range: null as null | { dateFrom: string; dateTo: string; status: string; totalFound: number; processedCount: number; createdCount: number; updatedCount: number; unchangedCount: number; errorCount: number; message: string | null }
     };
-    if (days.length === 0) return aggregate;
-    for (let index = 0; index < days.length; index += 1) {
-      const day = days[index];
-      await this.updateActiveBillingJob(jobId, {
-          currentItem: `IMPORT_INVOICES ${day}`,
-          result: { import: aggregate } as Prisma.InputJsonValue,
-          message: `Fase 1/3: importando facturas GISCE ${index + 1} / ${days.length} (${day}).`
-      });
-      let imported = false;
-      let lastError: unknown = null;
-      for (let attempt = 1; attempt <= BILLING_FULL_IMPORT_MAX_ATTEMPTS && !imported; attempt += 1) {
-        if (attempt > 1) {
-          await this.updateActiveBillingJob(jobId, {
-            currentItem: `IMPORT_INVOICES ${day}`,
-            result: { import: aggregate } as Prisma.InputJsonValue,
-            message: `Fase 1/3: reintentando importacion GISCE ${day} (${attempt} / ${BILLING_FULL_IMPORT_MAX_ATTEMPTS}).`
-          });
-        }
-        try {
-          const batch = await this.importInvoices(day, day);
-          const summary = {
-            date: day,
-            status: batch.status,
-            totalFound: batch.totalFound,
-            processedCount: batch.processedCount,
-            createdCount: batch.createdCount,
-            updatedCount: batch.updatedCount,
-            unchangedCount: batch.unchangedCount,
-            errorCount: batch.errorCount,
-            message: batch.message
-          };
-          aggregate.totalFound += batch.totalFound;
-          aggregate.processedCount += batch.processedCount;
-          aggregate.createdCount += batch.createdCount;
-          aggregate.updatedCount += batch.updatedCount;
-          aggregate.unchangedCount += batch.unchangedCount;
-          aggregate.errorCount += batch.errorCount;
-          aggregate.batches.push(summary);
-          imported = true;
-        } catch (error) {
-          lastError = error;
-        }
-      }
-      if (!imported) {
-        aggregate.errorCount += 1;
-        aggregate.batches.push({
-          date: day,
-          status: "ERROR",
-          totalFound: 0,
-          processedCount: 0,
-          createdCount: 0,
-          updatedCount: 0,
-          unchangedCount: 0,
-          errorCount: 1,
-          message: lastError instanceof Error ? lastError.message : String(lastError)
+    if (dateFrom > effectiveDateTo) return aggregate;
+    await this.updateActiveBillingJob(jobId, {
+      currentItem: `IMPORT_INVOICES ${dateFrom} - ${effectiveDateTo}`,
+      result: { import: aggregate } as Prisma.InputJsonValue,
+      message: `Fase 1/3: importando facturas GISCE ${dateFrom} - ${effectiveDateTo}.`
+    });
+    try {
+      const batch = await this.importInvoices(dateFrom, effectiveDateTo, async (progress) => {
+        const totalLabel = progress.total ?? "?";
+        await this.updateActiveBillingJob(jobId, {
+          currentItem: `IMPORT_INVOICES ${dateFrom} - ${effectiveDateTo}`,
+          result: { import: { ...aggregate, totalFound: progress.total ?? aggregate.totalFound, processedCount: progress.loaded } } as Prisma.InputJsonValue,
+          message: `Fase 1/3: importando facturas GISCE ${progress.loaded} / ${totalLabel}. Paginas: ${progress.pages}.`
         });
-      }
-    }
-    if (aggregate.errorCount > 0) {
-      const failedDates = aggregate.batches.filter((batch) => batch.status === "ERROR").map((batch) => batch.date);
-      await this.updateActiveBillingJob(jobId, {
-        currentItem: `IMPORT_INVOICES ${dateFrom} - ${effectiveDateTo}`,
-        result: { import: aggregate } as Prisma.InputJsonValue,
-        message: `Fase 1/3: fallback de rango completo tras errores diarios en ${failedDates.join(", ")}.`
       });
-      try {
-        const fallback = await this.importInvoices(dateFrom, effectiveDateTo);
-        aggregate.fallbackRange = {
-          dateFrom,
-          dateTo: effectiveDateTo,
-          status: fallback.status,
-          totalFound: fallback.totalFound,
-          processedCount: fallback.processedCount,
-          createdCount: fallback.createdCount,
-          updatedCount: fallback.updatedCount,
-          unchangedCount: fallback.unchangedCount,
-          errorCount: fallback.errorCount,
-          message: fallback.message
-        };
-        aggregate.totalFound = fallback.totalFound;
-        aggregate.processedCount = fallback.processedCount;
-        aggregate.createdCount = fallback.createdCount;
-        aggregate.updatedCount = fallback.updatedCount;
-        aggregate.unchangedCount = fallback.unchangedCount;
-        aggregate.errorCount = fallback.errorCount;
-      } catch (error) {
-        aggregate.fallbackRange = {
-          dateFrom,
-          dateTo: effectiveDateTo,
-          status: "ERROR",
-          totalFound: 0,
-          processedCount: 0,
-          createdCount: 0,
-          updatedCount: 0,
-          unchangedCount: 0,
-          errorCount: 1,
-          message: error instanceof Error ? error.message : String(error)
-        };
-      }
+      aggregate.range = {
+        dateFrom,
+        dateTo: effectiveDateTo,
+        status: batch.status,
+        totalFound: batch.totalFound,
+        processedCount: batch.processedCount,
+        createdCount: batch.createdCount,
+        updatedCount: batch.updatedCount,
+        unchangedCount: batch.unchangedCount,
+        errorCount: batch.errorCount,
+        message: batch.message
+      };
+      aggregate.totalFound = batch.totalFound;
+      aggregate.processedCount = batch.processedCount;
+      aggregate.createdCount = batch.createdCount;
+      aggregate.updatedCount = batch.updatedCount;
+      aggregate.unchangedCount = batch.unchangedCount;
+      aggregate.errorCount = batch.errorCount;
+    } catch (error) {
+      aggregate.range = {
+        dateFrom,
+        dateTo: effectiveDateTo,
+        status: "ERROR",
+        totalFound: 0,
+        processedCount: 0,
+        createdCount: 0,
+        updatedCount: 0,
+        unchangedCount: 0,
+        errorCount: 1,
+        message: error instanceof Error ? error.message : String(error)
+      };
+      aggregate.errorCount = 1;
     }
     return aggregate;
   }
@@ -3325,10 +3270,6 @@ function minIsoDate(left: string, right: string) {
 
 function todayIsoDate() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function failedImportDates(batch: { batches: Array<{ date: string; status: string }> }) {
-  return batch.batches.filter((item) => item.status === "ERROR").map((item) => item.date);
 }
 
 function addIsoDays(value: string, days: number) {

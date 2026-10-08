@@ -69,6 +69,13 @@ type CachedToken = {
   expiresAtMs: number | null;
   source: "token_endpoint" | "fallback_env";
 };
+type GiscePageProgress = {
+  loaded: number;
+  total: number | null;
+  pages: number;
+  offset: number;
+  limit: number;
+};
 
 @Injectable()
 export class GisceClientService {
@@ -199,7 +206,7 @@ export class GisceClientService {
     return this.requestWithToken<unknown>("/GiscedataFacturacioFactura/fields_get", { method: "POST" });
   }
 
-  async searchInvoicesByInvoiceDate(dateFrom: string, dateTo: string) {
+  async searchInvoicesByInvoiceDate(dateFrom: string, dateTo: string, onProgress?: (progress: GiscePageProgress) => Promise<void> | void) {
     const config = await this.readConfig();
     const dateFilter = dateFrom === dateTo
       ? [[config.invoiceDateField, "=", dateFrom]]
@@ -211,7 +218,7 @@ export class GisceClientService {
       ...dateFilter,
       ["type", "in", [...GISCE_INVOICE_TYPES]]
     ];
-    const result = await this.getPagedList<GisceInvoiceItem>("/GiscedataFacturacioFactura", filter, GISCE_INVOICE_PAGE_LIMIT, GISCE_INVOICE_SCHEMA);
+    const result = await this.getPagedList<GisceInvoiceItem>("/GiscedataFacturacioFactura", filter, GISCE_INVOICE_PAGE_LIMIT, GISCE_INVOICE_SCHEMA, onProgress);
     return {
       ...result,
       items: await this.enrichInvoices(result.items)
@@ -307,7 +314,7 @@ export class GisceClientService {
     return Array.isArray(payload) ? payload : Array.isArray(payload.items) ? payload.items : [];
   }
 
-  private async getPagedList<T>(path: string, filter: unknown[], limit: number, schema?: string) {
+  private async getPagedList<T>(path: string, filter: unknown[], limit: number, schema?: string, onProgress?: (progress: GiscePageProgress) => Promise<void> | void) {
     const items: T[] = [];
     const seen = new Set<string>();
     let offset = 0;
@@ -329,6 +336,7 @@ export class GisceClientService {
       }
       const responseLimit = !Array.isArray(payload) && typeof payload.limit === "number" && payload.limit > 0 ? payload.limit : limit;
       const responseOffset = !Array.isArray(payload) && typeof payload.offset === "number" ? payload.offset : offset;
+      await onProgress?.({ loaded: items.length, total, pages, offset: responseOffset, limit: responseLimit });
       if (pageItems.length === 0 || (total !== null && items.length >= total)) break;
       if (pageItems.length < responseLimit && total === null) break;
       offset = responseOffset + responseLimit;
