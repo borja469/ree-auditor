@@ -4,7 +4,7 @@ const { buildPricingCalendar } = require("./calendar_builder");
 const { quarter_hour_to_hourly_average } = require("./quarter_hour_aggregator");
 const { periodo20TD, periodo30TD, periodo6XTD } = require("./tariff_periods");
 const { PricingBaseTableService, validatePricingBaseTable } = require("./pricing_base_table_service");
-const { buildCurveMonths, toCurveProduct } = require("./meff_forward_curve_service");
+const { buildCurveMonths, buildTargetMonths, toCurveProduct } = require("./meff_forward_curve_service");
 const { get_latest_available_version, LIQUIDATION_MATURITY_ORDER, selectLatestAvailableVersion } = require("./version_selector");
 const { normalizeProfilesByMonthlyWeight } = require("./profiles_loader");
 
@@ -90,7 +90,7 @@ void describe("Pricing base table", () => {
         })
       },
       {
-        buildNextTwelveMonths: async () => ({
+        buildMonths: async () => ({
           publicationDate: null,
           months: []
         })
@@ -144,7 +144,7 @@ void describe("Pricing base table", () => {
         })
       },
       {
-        buildNextTwelveMonths: async () => ({
+        buildMonths: async () => ({
           publicationDate: "2026-07-09",
           months: [
             {
@@ -224,6 +224,41 @@ void describe("Pricing base table", () => {
     assert.equal(result.find((month) => month.key === "2027-01").origin, "Anual");
   });
 
+  void it("prioriza el producto anual cuando el horizonte contiene el ano completo", () => {
+    const months = Array.from({ length: 12 }, (_, index) => ({ year: 2027, month: index + 1 }));
+    const result = buildCurveMonths(months, [
+      { kind: "monthly", year: 2027, month: 1, code: "MEne-27", price: 61 },
+      { kind: "quarterly", year: 2027, quarter: 1, code: "Q1-27", price: 62 },
+      { kind: "annual", year: 2027, code: "Cal-27", price: 70 }
+    ]);
+
+    assert.equal(result.length, 12);
+    assert.equal(result.every((month) => month.price === 70), true);
+    assert.equal(result.every((month) => month.origin === "Anual"), true);
+    assert.equal(result.every((month) => month.sourceProductCode === "Cal-27"), true);
+  });
+
+  void it("mantiene mensual y trimestral por delante del anual en anos parciales", () => {
+    const months = [
+      { year: 2027, month: 1 },
+      { year: 2027, month: 2 },
+      { year: 2027, month: 3 },
+      { year: 2027, month: 4 }
+    ];
+    const result = buildCurveMonths(months, [
+      { kind: "monthly", year: 2027, month: 1, code: "MEne-27", price: 61 },
+      { kind: "quarterly", year: 2027, quarter: 1, code: "Q1-27", price: 63 },
+      { kind: "annual", year: 2027, code: "Cal-27", price: 70 }
+    ]);
+
+    assert.equal(result.find((month) => month.key === "2027-01").price, 61);
+    assert.equal(result.find((month) => month.key === "2027-01").origin, "Mensual");
+    assert.equal(result.find((month) => month.key === "2027-02").price, 64);
+    assert.equal(result.find((month) => month.key === "2027-02").origin, "Calculado");
+    assert.equal(result.find((month) => month.key === "2027-04").price, 70);
+    assert.equal(result.find((month) => month.key === "2027-04").origin, "Anual");
+  });
+
   void it("arranca la curva MEFF en M+2 respecto a la fecha de referencia", async () => {
     const service = new PricingBaseTableService(
       { loadProfiles: async () => new Map() },
@@ -236,7 +271,7 @@ void describe("Pricing base table", () => {
         })
       },
       {
-        buildNextTwelveMonths: async () => ({
+        buildMonths: async () => ({
           publicationDate: "2026-05-28",
           months: [
             {
@@ -271,10 +306,30 @@ void describe("Pricing base table", () => {
     assert.equal(result.meffForward.months[0].key, "2026-08");
   });
 
+  void it("permite mover inicio y duracion del horizonte MEFF", () => {
+    const result = buildTargetMonths("2026-10-08", 3, 24);
+    assert.equal(result.length, 24);
+    assert.deepEqual(result[0], { year: 2027, month: 1 });
+    assert.deepEqual(result[11], { year: 2027, month: 12 });
+    assert.deepEqual(result[12], { year: 2028, month: 1 });
+    assert.deepEqual(result[23], { year: 2028, month: 12 });
+  });
+
   void it("filtra la curva MEFF a productos BASE de Futuro", () => {
     assert.equal(toCurveProduct({ cod: "MJul-26", tipo: "Futuro", clase: "BASE", periodo: null, entrega: null, precio: 54 })?.price, 54);
     assert.equal(toCurveProduct({ cod: "MJul-26", tipo: "Opcion", clase: "BASE", periodo: null, entrega: null, precio: 54 }), null);
     assert.equal(toCurveProduct({ cod: "MJul-26", tipo: "Futuro", clase: "PEAK", periodo: null, entrega: null, precio: 54 }), null);
+  });
+
+  void it("detecta productos anuales MEFF con codigo CAL y entrega anual separada", () => {
+    assert.deepEqual(toCurveProduct({ cod: "FMBCCAL27", tipo: "Base", clase: "Futuro", periodo: "Anual", entrega: "2027", precio: 70.9 }), {
+      kind: "annual",
+      year: 2027,
+      code: "FMBCCAL27",
+      price: 70.9,
+      productClass: "BASE",
+      instrumentType: "Futuro"
+    });
   });
 
   void it("selecciona la liquidacion mas moderna con orden A1-C5", () => {

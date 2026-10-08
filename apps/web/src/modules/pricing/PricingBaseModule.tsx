@@ -18,6 +18,8 @@ import { PanelTitle, formatDecimalNumber, formatNumber } from "../shared/Restore
 const PAGE_SIZE = 10000;
 const PERIODS = ["P1", "P2", "P3", "P4", "P5", "P6"] as const;
 const MONTHS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"] as const;
+const MEFF_START_OFFSET_OPTIONS = [0, 1, 2, 3, 6, 12] as const;
+const MEFF_DURATION_OPTIONS = [12, 24, 36] as const;
 type ProfileTab = "omie" | "meff";
 type BaseTariff = ProfiledPeriodMatrix["tariff"];
 type CalculatorConceptKey = (typeof PRICING_CALCULATOR_CONCEPTS)[number]["key"];
@@ -125,6 +127,26 @@ export function PricingBaseModule() {
             <span>Incluir fecha</span>
             <input disabled={loading} checked={filters.incluirFechaReferencia !== false} type="checkbox" onChange={(event) => setFilters((current) => ({ ...current, incluirFechaReferencia: event.target.checked }))} />
           </label>
+          <label className="filter-field">
+            <span>Inicio MEFF</span>
+            <select disabled={loading} value={String(filters.meffStartOffsetMonths ?? 2)} onChange={(event) => setFilters((current) => ({ ...current, meffStartOffsetMonths: Number(event.target.value) }))}>
+              {MEFF_START_OFFSET_OPTIONS.map((offset) => (
+                <option key={offset} value={offset}>
+                  M+{offset}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="filter-field">
+            <span>Duracion MEFF</span>
+            <select disabled={loading} value={String(filters.meffDurationMonths ?? 12)} onChange={(event) => setFilters((current) => ({ ...current, meffDurationMonths: Number(event.target.value) }))}>
+              {MEFF_DURATION_OPTIONS.map((duration) => (
+                <option key={duration} value={duration}>
+                  {duration} meses
+                </option>
+              ))}
+            </select>
+          </label>
           <button className="secondary-button" disabled={loading} onClick={() => load(filters, 0)} type="button">
             <Search size={16} />
             Consultar
@@ -214,7 +236,7 @@ export function PricingBaseModule() {
           {profileTab === "meff" && (
             <ProfiledTariffMatrixPanel
               title="MEFF perfilado por tarifa"
-              subtitle={`Precio directo MEFF BASE Futuro ${response.meffForward.publicationDate ? `publicado el ${formatDate(response.meffForward.publicationDate)}` : "sin publicacion cargada"}`}
+              subtitle={`Precio directo MEFF BASE Futuro ${meffForwardSubtitle(response)}`}
               matrices={meffPeriodMatrices}
               priceLabel="MEFF"
               valueMode="price"
@@ -902,18 +924,18 @@ function buildMeffPriceMatrices(months: NonNullable<PricingBaseResponse["meffFor
     for (const month of months) {
       for (const period of PERIODS) {
         const omieCell = omieMatrix?.cells.get(`${month.month}|${period}`);
-        const periodProfileTotal = sumPeriodProfile(omieMatrix, period);
-        const value = calculateMeffProfiledValue(month.price, omieCell, periodProfileTotal);
+        const horizonPeriodProfileTotal = sumHorizonPeriodProfile(months, omieMatrix, period);
+        const value = calculateMeffProfiledValue(month.price, omieCell, horizonPeriodProfileTotal);
         cells.set(`${month.key}|${period}`, {
           value,
           weightedPrice: value,
           averagePrice: month.price,
           sumProduct: (month.price ?? 0) * (omieCell?.value ?? 0) * (omieCell?.sumProfile ?? 0),
-          sumProfile: periodProfileTotal,
+          sumProfile: horizonPeriodProfileTotal,
           priceCount: value === null ? 0 : 1,
           sourceLabel: [
             [month.origin, month.sourceProductCode].filter(Boolean).join(" - "),
-            omieCell ? `MEFF x OMIE x perfil mes-periodo / perfil periodo (${formatOptionalDecimal(omieCell.sumProfile, 12)} / ${formatOptionalDecimal(periodProfileTotal, 12)})` : "sin perfil OMIE"
+            omieCell ? `MEFF x OMIE x perfil mes-periodo / perfil horizonte (${formatOptionalDecimal(omieCell.sumProfile, 12)} / ${formatOptionalDecimal(horizonPeriodProfileTotal, 12)})` : "sin perfil OMIE"
           ].filter(Boolean).join(" | ")
         });
       }
@@ -938,6 +960,13 @@ function sumPeriodProfile(matrix: ProfiledPeriodMatrix | undefined, period: (typ
     return 0;
   }
   return matrix.months.reduce((sum, month) => sum + (matrix.cells.get(`${month.key}|${period}`)?.sumProfile ?? 0), 0);
+}
+
+function sumHorizonPeriodProfile(months: NonNullable<PricingBaseResponse["meffForward"]>["months"], matrix: ProfiledPeriodMatrix | undefined, period: (typeof PERIODS)[number]) {
+  if (!matrix) {
+    return 0;
+  }
+  return months.reduce((sum, month) => sum + (matrix.cells.get(`${month.month}|${period}`)?.sumProfile ?? 0), 0);
 }
 
 function sumMatrixPeriod(matrix: ProfiledPeriodMatrix, period: (typeof PERIODS)[number], valueMode: "ratio" | "price") {
@@ -1615,14 +1644,24 @@ function formatCalculatorInputValue(value: number | null) {
 }
 
 function defaultFilters(): PricingBaseFilters {
-  return { fechaReferencia: new Date().toISOString().slice(0, 10), incluirFechaReferencia: true };
+  return { fechaReferencia: new Date().toISOString().slice(0, 10), incluirFechaReferencia: true, meffStartOffsetMonths: 2, meffDurationMonths: 12 };
 }
 
 function normalizeFilters(filters: PricingBaseFilters): PricingBaseFilters {
   return {
     fechaReferencia: filters.fechaReferencia || defaultFilters().fechaReferencia,
-    incluirFechaReferencia: filters.incluirFechaReferencia !== false
+    incluirFechaReferencia: filters.incluirFechaReferencia !== false,
+    meffStartOffsetMonths: normalizeBoundedInteger(filters.meffStartOffsetMonths, 2, 0, 120),
+    meffDurationMonths: normalizeBoundedInteger(filters.meffDurationMonths, 12, 1, 60)
   };
+}
+
+function normalizeBoundedInteger(value: unknown, fallback: number, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(parsed, min), max);
 }
 
 function formatOptionalDecimal(value: number | null, digits: number) {
@@ -1683,6 +1722,14 @@ function sourceLabel(row: PricingBaseRow | PricingBaseMeffProfileRow) {
 function formatDate(value: string) {
   const [year, month, day] = value.split("-");
   return `${day}/${month}/${year}`;
+}
+
+function meffForwardSubtitle(response: PricingBaseResponse) {
+  const publication = response.meffForward.publicationDate ? `publicado el ${formatDate(response.meffForward.publicationDate)}` : "sin publicacion cargada";
+  const first = response.meffForward.months[0];
+  const last = response.meffForward.months[response.meffForward.months.length - 1];
+  const horizon = first && last ? `${first.label} - ${last.label}` : "sin horizonte";
+  return `${publication} - ${horizon} (${response.filters.meffDurationMonths} meses, M+${response.filters.meffStartOffsetMonths})`;
 }
 
 function cadRadCellTitle(cell: CadRadPeriodCell) {

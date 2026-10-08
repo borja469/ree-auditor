@@ -209,14 +209,14 @@ function buildMeffPriceMatrices(months: PricingBaseResponse["meffForward"]["mont
     for (const month of months) {
       for (const period of PERIODS) {
         const omieCell = omieMatrix?.cells.get(`${month.month}|${period}`);
-        const periodProfileTotal = sumPeriodProfile(omieMatrix, period);
-        const value = calculateMeffProfiledValue(month.price, omieCell, periodProfileTotal);
+        const horizonPeriodProfileTotal = sumHorizonPeriodProfile(months, omieMatrix, period);
+        const value = calculateMeffProfiledValue(month.price, omieCell, horizonPeriodProfileTotal);
         cells.set(`${month.key}|${period}`, {
           value,
           weightedPrice: value,
           averagePrice: month.price,
           sumProduct: (month.price ?? 0) * (omieCell?.value ?? 0) * (omieCell?.sumProfile ?? 0),
-          sumProfile: periodProfileTotal,
+          sumProfile: horizonPeriodProfileTotal,
           priceCount: value === null ? 0 : 1
         });
       }
@@ -448,6 +448,13 @@ function sumPeriodProfile(matrix: ProfiledPeriodMatrix | undefined, period: Peri
     return 0;
   }
   return matrix.months.reduce((sum, month) => sum + (matrix.cells.get(`${month.key}|${period}`)?.sumProfile ?? 0), 0);
+}
+
+function sumHorizonPeriodProfile(months: PricingBaseResponse["meffForward"]["months"], matrix: ProfiledPeriodMatrix | undefined, period: Period) {
+  if (!matrix) {
+    return 0;
+  }
+  return months.reduce((sum, month) => sum + (matrix.cells.get(`${month.month}|${period}`)?.sumProfile ?? 0), 0);
 }
 
 function sumMatrixPeriod(matrix: ProfiledPeriodMatrix, period: Period, valueMode: "ratio" | "price") {

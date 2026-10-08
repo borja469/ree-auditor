@@ -24,6 +24,11 @@ export type MeffForwardCurve = {
   months: MeffForwardCurveMonth[];
 };
 
+export type MeffForwardCurveOptions = {
+  startOffsetMonths?: number;
+  durationMonths?: number;
+};
+
 export type ProductKind = "monthly" | "quarterly" | "annual";
 
 export type ParsedProduct = {
@@ -66,11 +71,15 @@ export class MeffForwardCurveService {
   constructor(private readonly prisma: PrismaService) {}
 
   async buildNextTwelveMonths(referenceDate: string): Promise<MeffForwardCurve> {
+    return this.buildMonths(referenceDate, { startOffsetMonths: 2, durationMonths: 12 });
+  }
+
+  async buildMonths(referenceDate: string, options: MeffForwardCurveOptions = {}): Promise<MeffForwardCurve> {
     const latest = await this.prisma.pricingMeffPrice.findFirst({
       orderBy: { fechaPublicacion: "desc" },
       select: { fechaPublicacion: true }
     });
-    const targetMonths = nextTwelveMonths(referenceDate);
+    const targetMonths = buildTargetMonths(referenceDate, options.startOffsetMonths ?? 2, options.durationMonths ?? 12);
     if (!latest) {
       return { publicationDate: null, months: targetMonths.map((month) => emptyMonth(month.year, month.month)) };
     }
@@ -152,7 +161,22 @@ export function buildCurveMonths(targetMonths: Array<{ year: number; month: numb
   }
 
   const byKey = new Map<string, MeffForwardCurveMonth>();
+  const completeAnnualYears = completeTargetYears(targetMonths).filter((year) => annual.has(year));
+  for (const year of completeAnnualYears) {
+    const product = annual.get(year);
+    if (!product) {
+      continue;
+    }
+    for (const month of MONTH_LABELS.keys()) {
+      const monthNumber = month + 1;
+      byKey.set(monthKey(year, monthNumber), monthFromProduct(year, monthNumber, product.price, "Anual", product.code, product.code));
+    }
+  }
+
   for (const target of targetMonths) {
+    if (byKey.has(monthKey(target.year, target.month))) {
+      continue;
+    }
     const product = monthly.get(monthKey(target.year, target.month));
     if (product) {
       byKey.set(monthKey(target.year, target.month), monthFromProduct(target.year, target.month, product.price, "Mensual", product.code, product.code));
@@ -215,6 +239,12 @@ function isBaseFutureProduct(values: string[]) {
 }
 
 function parseProduct(values: string[]): ParsedProduct | null {
+  const normalizedValues = values.map(normalizeText);
+  const annualYear = parseAnnualYear(normalizedValues);
+  if (annualYear) {
+    return { kind: "annual", year: annualYear };
+  }
+
   for (const value of values) {
     const text = normalizeText(value);
     const quarterly = /\bq\s*([1-4])\s*[-/]?\s*(\d{2,4})\b/i.exec(text);
@@ -238,10 +268,30 @@ function parseProduct(values: string[]): ParsedProduct | null {
   return null;
 }
 
-function nextTwelveMonths(referenceDate: string) {
+function parseAnnualYear(values: string[]) {
+  for (const value of values) {
+    const embeddedCal = /cal\s*[-/]?\s*(\d{2,4})\b/i.exec(value);
+    if (embeddedCal) {
+      return normalizeYear(embeddedCal[1]);
+    }
+  }
+
+  if (!values.some((value) => /\b(?:anual|cal|year|yr|ano)\b/i.test(value))) {
+    return null;
+  }
+  for (const value of values) {
+    const yearOnly = /^\d{2,4}$/.exec(value);
+    if (yearOnly) {
+      return normalizeYear(yearOnly[0]);
+    }
+  }
+  return null;
+}
+
+export function buildTargetMonths(referenceDate: string, startOffsetMonths: number, durationMonths: number) {
   const [year, month] = referenceDate.split("-").map(Number);
-  const cursor = new Date(Date.UTC(year, month + 1, 1));
-  return Array.from({ length: 12 }, () => {
+  const cursor = new Date(Date.UTC(year, month - 1 + startOffsetMonths, 1));
+  return Array.from({ length: durationMonths }, () => {
     const value = { year: cursor.getUTCFullYear(), month: cursor.getUTCMonth() + 1 };
     cursor.setUTCMonth(cursor.getUTCMonth() + 1);
     return value;
@@ -310,6 +360,16 @@ function shiftDate(date: Date, days: number) {
 function quarterMonths(quarter: number) {
   const first = (quarter - 1) * 3 + 1;
   return [first, first + 1, first + 2];
+}
+
+function completeTargetYears(targetMonths: Array<{ year: number; month: number }>) {
+  const monthsByYear = new Map<number, Set<number>>();
+  for (const target of targetMonths) {
+    const months = monthsByYear.get(target.year) ?? new Set<number>();
+    months.add(target.month);
+    monthsByYear.set(target.year, months);
+  }
+  return [...monthsByYear.entries()].filter(([, months]) => months.size === 12 && [...MONTH_LABELS.keys()].every((month) => months.has(month + 1))).map(([year]) => year);
 }
 
 function monthKey(year: number, month: number) {

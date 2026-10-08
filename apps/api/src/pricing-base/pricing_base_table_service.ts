@@ -29,7 +29,10 @@ export class PricingBaseTableService {
       this.regulatedCostsLoader.load(calendar, "2.0TD"),
       this.regulatedCostsLoader.load(calendar, "3.0TD"),
       this.regulatedCostsLoader.load(calendar, "6.XTD"),
-      this.meffForwardCurveService.buildNextTwelveMonths(query.fechaReferencia)
+      this.meffForwardCurveService.buildMonths(query.fechaReferencia, {
+        startOffsetMonths: query.meffStartOffsetMonths,
+        durationMonths: query.meffDurationMonths
+      })
     ]);
     const periodContext = await this.regulatoryEngine.buildPeriodContext();
     const allRows = calendar.map<PricingBaseRow>((row) => {
@@ -240,6 +243,8 @@ export function defaultPricingBaseQuery(input: Partial<Record<string, unknown>>)
     fechaHasta: typeof input.fechaHasta === "string" && input.fechaHasta ? input.fechaHasta : undefined,
     tarifa: input.tarifa === "2.0TD" || input.tarifa === "3.0TD" || input.tarifa === "6.XTD" ? input.tarifa : "",
     periodo: isPricingPeriod(input.periodo) ? input.periodo : "",
+    meffStartOffsetMonths: parseBoundedInteger(input.meffStartOffsetMonths, 2, 0, 120),
+    meffDurationMonths: parseBoundedInteger(input.meffDurationMonths, 12, 1, 60),
     skip: parseBoundedInteger(input.skip, 0, 0, 1_000_000),
     take: parseBoundedInteger(input.take, 500, 1, 10_000)
   };

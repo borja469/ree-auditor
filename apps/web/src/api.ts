@@ -1619,6 +1619,8 @@ export type PricingBaseMeffProfileRow = {
 export type PricingBaseFilters = {
   fechaReferencia?: string;
   incluirFechaReferencia?: boolean;
+  meffStartOffsetMonths?: number;
+  meffDurationMonths?: number;
   skip?: number;
   take?: number;
 };
@@ -1634,6 +1636,8 @@ export type PricingBaseResponse = {
     fechaReferencia: string;
     incluirFechaReferencia: boolean;
     zonaHoraria: "Europe/Madrid";
+    meffStartOffsetMonths: number;
+    meffDurationMonths: number;
     skip: number;
     take: number;
   };

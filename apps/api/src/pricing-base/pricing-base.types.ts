@@ -13,6 +13,8 @@ export type PricingBaseQuery = {
   fechaHasta?: string;
   tarifa?: PricingPeriodTariff | "";
   periodo?: "" | "P1" | "P2" | "P3" | "P4" | "P5" | "P6";
+  meffStartOffsetMonths: number;
+  meffDurationMonths: number;
   skip: number;
   take: number;
 };
