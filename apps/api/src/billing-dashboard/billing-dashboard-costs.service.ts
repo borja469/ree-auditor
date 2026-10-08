@@ -534,6 +534,7 @@ export class BillingDashboardCostsService {
           invoiceDate: true,
           periodStart: true,
           periodEnd: true,
+          economicSign: true,
           expectedIntervals: true,
           f1Intervals: true,
           p1Intervals: true,
@@ -541,10 +542,20 @@ export class BillingDashboardCostsService {
           p5dIntervals: true,
           profiledIntervals: true,
           missingIntervals: true,
+          lines: {
+            select: {
+              accountName: true,
+              lineName: true,
+              quantity: true,
+              priceUnit: true,
+              priceSubtotal: true
+            }
+          },
           curve: {
             orderBy: { datetime: "asc" },
             select: {
               id: true,
+              invoiceId: true,
               datetime: true,
               tariffPeriod: true,
               consumptionSource: true,
@@ -576,8 +587,13 @@ export class BillingDashboardCostsService {
         orderBy: [{ tariffPeriod: "asc" }, { startDate: "asc" }]
       })
     ]);
-    const costsByCurveId = new Map(intervalCosts.filter((item) => item.curveIntervalId).map((item) => [item.curveIntervalId!, item]));
-    const costsByDatetime = new Map(intervalCosts.map((item) => [item.datetime.toISOString(), item]));
+    const calculatedDetail = intervalCosts.length === 0
+      ? await this.buildCostRun(invoice.curve, invoice.tariffCode, invoice.periodStart, invoice.periodEnd, invoice.lines, null, invoice.economicSign)
+      : null;
+    const persistedCostsByCurveId = new Map(intervalCosts.filter((item) => item.curveIntervalId).map((item) => [item.curveIntervalId!, auditIntervalCostRow(item)]));
+    const persistedCostsByDatetime = new Map(intervalCosts.map((item) => [item.datetime.toISOString(), auditIntervalCostRow(item)]));
+    const calculatedCostsByCurveId = new Map(calculatedDetail?.intervalCosts.filter((item) => item.curveIntervalId).map((item) => [item.curveIntervalId, auditCalculatedIntervalCostRow(item)]) ?? []);
+    const calculatedCostsByDatetime = new Map(calculatedDetail?.intervalCosts.map((item) => [item.datetime.toISOString(), auditCalculatedIntervalCostRow(item)]) ?? []);
     const fileName = `Factura_${sanitizeFileName(invoice.invoiceNumber ?? String(invoice.gisceInvoiceId))}_Costes_${sanitizeFileName(run.calculationVersion)}.xlsx`;
     const workbook = buildBillingAuditWorkbook({
       invoice: {
@@ -611,9 +627,13 @@ export class BillingDashboardCostsService {
         lossVersion: curve.lossVersion,
         validationStatus: curve.validationStatus,
         validationMessage: curve.validationMessage,
-        intervalCost: auditIntervalCostRow(costsByCurveId.get(curve.id) ?? costsByDatetime.get(curve.datetime.toISOString()) ?? null)
+        intervalCost: persistedCostsByCurveId.get(curve.id)
+          ?? persistedCostsByDatetime.get(curve.datetime.toISOString())
+          ?? calculatedCostsByCurveId.get(curve.id)
+          ?? calculatedCostsByDatetime.get(curve.datetime.toISOString())
+          ?? null
       })),
-      powerRows: powerComponents.map(powerComponentRow)
+      powerRows: powerComponents.length > 0 ? powerComponents.map(powerComponentRow) : calculatedDetail?.powerCosts ?? []
     });
     return { fileName, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", content: workbook };
   }
@@ -2161,6 +2181,19 @@ function auditIntervalCostRow(row: {
     totalCostEur: decimalToNumber(row.totalCostEur),
     incidentCodes: Array.isArray(row.incidentCodes) ? row.incidentCodes.filter((item): item is string => typeof item === "string") : [],
     components: row.components.map(componentRow)
+  };
+}
+
+function auditCalculatedIntervalCostRow(row: {
+  totalCostEur: number | null;
+  incidentCodes: string[];
+  components: CostComponentResult[];
+} | null): BillingAuditIntervalCost | null {
+  if (!row) return null;
+  return {
+    totalCostEur: row.totalCostEur,
+    incidentCodes: row.incidentCodes,
+    components: row.components
   };
 }
 
