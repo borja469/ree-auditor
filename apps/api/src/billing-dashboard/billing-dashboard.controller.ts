@@ -43,6 +43,15 @@ export class BillingDashboardController {
     return this.service.listInvoices(query);
   }
 
+  @Get("invoices/export.xlsx")
+  async exportInvoices(@Query() query: Record<string, unknown>, @Res() response: Response) {
+    const workbook = await this.service.exportInvoicesWorkbook(query);
+    response.setHeader("Content-Type", workbook.contentType);
+    response.setHeader("Content-Disposition", `attachment; filename="${workbook.fileName}"`);
+    response.setHeader("Content-Length", String(workbook.content.length));
+    return response.status(200).send(workbook.content);
+  }
+
   @Get("invoicing-modes")
   listInvoicingModes() {
     return this.service.listInvoicingModes();

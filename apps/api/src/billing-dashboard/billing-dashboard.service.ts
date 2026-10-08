@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceDocumentType, CmInvoiceMarginStatus, CmInvoiceProfileType, CmInvoiceProcessingStatus, Prisma } from "@prisma/client";
+import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
 import { buildPricingCalendarRange, getMadridParts } from "../pricing-base/calendar_builder";
 import { resolvePricingPeriod } from "../pricing-base/pricing_period_adapter";
@@ -43,6 +44,7 @@ const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V1";
 const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V3_RUN_SUMMARY_COST_BREAKDOWN";
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
 const OPERATIONAL_BALANCE_MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const BILLING_INVOICE_EXPORT_LIMIT = 50_000;
 
 class BillingJobCancelledError extends Error {
   constructor() {
@@ -109,8 +111,33 @@ export class BillingDashboardService {
   }
 
   async listInvoices(query: Record<string, unknown>) {
+    return this.listInvoicesResponse(query, 1000);
+  }
+
+  async exportInvoicesWorkbook(query: Record<string, unknown>) {
+    const result = await this.listInvoicesResponse({ ...query, skip: 0, take: BILLING_INVOICE_EXPORT_LIMIT }, BILLING_INVOICE_EXPORT_LIMIT);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(buildInvoicesExportSheet(result.rows)), "Facturas");
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        ["Total filtrado", result.total],
+        ["Filas exportadas", result.rows.length],
+        ["Limite exportacion", BILLING_INVOICE_EXPORT_LIMIT],
+        ["Aviso", result.total > result.rows.length ? "La exportacion se ha limitado. Afina los filtros." : ""]
+      ]),
+      "Resumen"
+    );
+    return {
+      fileName: `facturas-${new Date().toISOString().slice(0, 10)}.xlsx`,
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      content: XLSX.write(workbook, { bookType: "xlsx", type: "buffer" }) as Buffer
+    };
+  }
+
+  private async listInvoicesResponse(query: Record<string, unknown>, maxTake: number) {
     const skip = parseInteger(query.skip, 0, 0, 1_000_000);
-    const take = parseInteger(query.take, 100, 1, 1000);
+    const take = parseInteger(query.take, 100, 1, maxTake);
     const sort = text(query.sort) ?? "invoiceDate";
     const direction = text(query.direction) === "asc" ? "asc" : "desc";
     const where: Prisma.CmInvoiceWhereInput = {
@@ -2530,6 +2557,83 @@ function insertOperationalRateRows(rows: OperationalBalanceRow[], pfRow: Operati
     if (row.key === "margin") output.push(toEurMwhRow(row, "margin-eur-mwh", "Margen €/MWh", pfRow));
   }
   return output;
+}
+
+function buildInvoicesExportSheet(rows: Awaited<ReturnType<BillingDashboardService["listInvoices"]>>["rows"]) {
+  return [
+    [
+      "Factura",
+      "ID GISCE",
+      "Fecha factura",
+      "CUPS",
+      "Poliza",
+      "Inicio consumo",
+      "Fin consumo",
+      "Tarifa",
+      "Lista precios",
+      "Tipo documento",
+      "Estado curva",
+      "Estado global",
+      "Consumo facturado kWh",
+      "Consumo PF kWh",
+      "Consumo BC kWh",
+      "Origen calculo",
+      "F1 %",
+      "TgP1 %",
+      "F5D %",
+      "P5D %",
+      "Perfil %",
+      "Cobertura real %",
+      "Intervalos esperados",
+      "Intervalos faltantes",
+      "Costes EUR",
+      "Ingresos EUR",
+      "Margen EUR",
+      "Margen EUR/MWh",
+      "Estado margen",
+      "Incidencias curva",
+      "Incidencias costes",
+      "Incidencias margen",
+      "Incidencias total",
+      "Mensaje"
+    ],
+    ...rows.map((row) => [
+      row.invoiceNumber ?? "",
+      row.gisceInvoiceId,
+      row.invoiceDate ?? "",
+      row.cups,
+      row.polissaNumber ?? "",
+      row.periodStart ?? "",
+      row.periodEnd ?? "",
+      row.tariffCode ?? "",
+      row.priceListName ?? "",
+      row.documentType ?? "",
+      row.processingStatus,
+      row.globalStatus ?? "",
+      row.billedEnergyKwh ?? null,
+      row.pfTotalKwh ?? null,
+      row.bcTotalKwh ?? null,
+      row.curveSummaryText ?? "",
+      row.f1Pct,
+      row.p1Pct,
+      row.f5dPct,
+      row.p5dPct,
+      row.profilePct,
+      row.realCoveragePct,
+      row.expectedIntervals,
+      row.missingIntervals,
+      row.totalCostEur ?? null,
+      row.associatedRevenueEur ?? null,
+      row.marginEur ?? null,
+      row.marginEurMwh ?? null,
+      row.marginStatus ?? "",
+      row.curveIssueCount ?? 0,
+      row.costIssueCount ?? 0,
+      row.marginIssueCount ?? 0,
+      row.totalIssueCount ?? 0,
+      row.processingMessage ?? ""
+    ])
+  ];
 }
 
 function reconcileOperationalParentRows(rows: OperationalBalanceRow[], keys: Set<string>) {

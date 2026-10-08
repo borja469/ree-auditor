@@ -4746,6 +4746,38 @@ export async function getBillingInvoices(filters: {
   return getJson(`/billing-dashboard/invoices${toQuery(filters)}`);
 }
 
+export async function downloadBillingInvoicesExport(filters: {
+  search?: string;
+  invoiceDateFrom?: string;
+  invoiceDateTo?: string;
+  cups?: string;
+  invoiceNumber?: string;
+  polissa?: string;
+  tariff?: string;
+  status?: string;
+  curveSource?: string;
+  invoicingMode?: string;
+  priceListName?: string;
+  withIssues?: string;
+  marginStatus?: string;
+  marginEurMin?: string;
+  marginEurMax?: string;
+  marginEurMwhMin?: string;
+  marginEurMwhMax?: string;
+  hasAnyIssues?: string;
+  sort?: string;
+  direction?: string;
+} = {}): Promise<Blob> {
+  return withGlobalLoading(async () => {
+    const response = await fetch(`${API_URL}/billing-dashboard/invoices/export.xlsx${toQuery(filters)}`, { headers: authHeaders() });
+    if (!response.ok) {
+      handleUnauthorized(response);
+      throw new Error(await readError(response, "Error exportando facturas."));
+    }
+    return response.blob();
+  }, { label: "Exportando facturas" });
+}
+
 export async function getBillingInvoiceDetail(id: string): Promise<BillingInvoiceDetail> {
   return getJson(`/billing-dashboard/invoices/${encodeURIComponent(id)}`);
 }

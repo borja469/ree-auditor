@@ -7,6 +7,7 @@ import {
   deleteBillingInvoice,
   deleteBillingInvoicesByInvoiceDate,
   deleteBillingRegulatedPriceVersion,
+  downloadBillingInvoicesExport,
   downloadBillingInvoiceCostRunAudit,
   getBillingGisceConfig,
   getBillingInvoiceCosts,
@@ -529,6 +530,23 @@ export function BillingDashboardModule() {
     }
   }
 
+  async function exportInvoices() {
+    setLoading(true);
+    try {
+      const blob = await downloadBillingInvoicesExport({
+        ...filters,
+        sort: sort.field,
+        direction: sort.direction
+      });
+      downloadBlob(`facturas-${new Date().toISOString().slice(0, 10)}.xlsx`, blob, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      setMessage({ tone: "success", text: "Exportacion de facturas generada con los filtros actuales." });
+    } catch (error) {
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error exportando facturas." });
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function runCalculateCostsAndMarginForRow(row: BillingInvoiceRow) {
     setRowActionId(row.id);
     try {
@@ -694,7 +712,10 @@ export function BillingDashboardModule() {
             <h3>Facturas</h3>
             <span>{loading ? "Cargando..." : `${visibleFrom}-${visibleTo} de ${(response?.total ?? 0).toLocaleString("es-ES")} facturas`}</span>
           </div>
-          <button className="secondary-button" disabled={disabled} onClick={() => void load(page)} type="button"><RefreshCw size={16} /> Actualizar</button>
+          <div className="billing-row-actions">
+            <button className="secondary-button" disabled={disabled} onClick={() => void exportInvoices()} type="button"><FileSpreadsheet size={16} /> Excel</button>
+            <button className="secondary-button" disabled={disabled} onClick={() => void load(page)} type="button"><RefreshCw size={16} /> Actualizar</button>
+          </div>
         </div>
         <div className="table-scroll">
           <table className="omie-liquidation-table billing-invoices-table">
