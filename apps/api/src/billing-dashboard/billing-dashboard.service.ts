@@ -36,6 +36,7 @@ const BILLING_PROCESS_PENDING_STATUSES = [CmInvoiceProcessingStatus.IMPORTED, Cm
 const BILLING_MARGIN_JOB_DEFAULT_CONCURRENCY = 4;
 const BILLING_COST_JOB_DEFAULT_CONCURRENCY = 4;
 const BILLING_CURVE_JOB_DEFAULT_CONCURRENCY = 4;
+const BILLING_FULL_IMPORT_MAX_ATTEMPTS = 3;
 
 type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS" | "CALCULATE_COSTS_AND_MARGINS" | "FULL_RECALCULATION";
 type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
@@ -1312,6 +1313,17 @@ export class BillingDashboardService {
           note: "El rango de importacion se ha limitado al dia actual para evitar consultas futuras en GISCE."
         } as Prisma.JsonValue;
       }
+      if (importBatch.errorCount > 0) {
+        counters.errorCount += importBatch.errorCount;
+        const failedDates = importBatch.batches.filter((batch) => batch.status === "ERROR").map((batch) => batch.date);
+        const message = `Fase 1/3 incompleta: importacion GISCE con errores en ${failedDates.join(", ")}. Reintenta esos dias antes de recalcular el balance.`;
+        await this.updateActiveBillingJob(jobId, {
+          result: result as unknown as Prisma.InputJsonValue,
+          currentItem: "IMPORT_INVOICES",
+          message
+        });
+        throw new Error(message);
+      }
       await this.updateActiveBillingJob(jobId, {
           result: result as unknown as Prisma.InputJsonValue,
           currentItem: "PROCESS_CURVES",
@@ -1442,27 +1454,42 @@ export class BillingDashboardService {
           result: { import: aggregate } as Prisma.InputJsonValue,
           message: `Fase 1/3: importando facturas GISCE ${index + 1} / ${days.length} (${day}).`
       });
-      try {
-        const batch = await this.importInvoices(day, day);
-        const summary = {
-          date: day,
-          status: batch.status,
-          totalFound: batch.totalFound,
-          processedCount: batch.processedCount,
-          createdCount: batch.createdCount,
-          updatedCount: batch.updatedCount,
-          unchangedCount: batch.unchangedCount,
-          errorCount: batch.errorCount,
-          message: batch.message
-        };
-        aggregate.totalFound += batch.totalFound;
-        aggregate.processedCount += batch.processedCount;
-        aggregate.createdCount += batch.createdCount;
-        aggregate.updatedCount += batch.updatedCount;
-        aggregate.unchangedCount += batch.unchangedCount;
-        aggregate.errorCount += batch.errorCount;
-        aggregate.batches.push(summary);
-      } catch (error) {
+      let imported = false;
+      let lastError: unknown = null;
+      for (let attempt = 1; attempt <= BILLING_FULL_IMPORT_MAX_ATTEMPTS && !imported; attempt += 1) {
+        if (attempt > 1) {
+          await this.updateActiveBillingJob(jobId, {
+            currentItem: `IMPORT_INVOICES ${day}`,
+            result: { import: aggregate } as Prisma.InputJsonValue,
+            message: `Fase 1/3: reintentando importacion GISCE ${day} (${attempt} / ${BILLING_FULL_IMPORT_MAX_ATTEMPTS}).`
+          });
+        }
+        try {
+          const batch = await this.importInvoices(day, day);
+          const summary = {
+            date: day,
+            status: batch.status,
+            totalFound: batch.totalFound,
+            processedCount: batch.processedCount,
+            createdCount: batch.createdCount,
+            updatedCount: batch.updatedCount,
+            unchangedCount: batch.unchangedCount,
+            errorCount: batch.errorCount,
+            message: batch.message
+          };
+          aggregate.totalFound += batch.totalFound;
+          aggregate.processedCount += batch.processedCount;
+          aggregate.createdCount += batch.createdCount;
+          aggregate.updatedCount += batch.updatedCount;
+          aggregate.unchangedCount += batch.unchangedCount;
+          aggregate.errorCount += batch.errorCount;
+          aggregate.batches.push(summary);
+          imported = true;
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      if (!imported) {
         aggregate.errorCount += 1;
         aggregate.batches.push({
           date: day,
@@ -1473,7 +1500,7 @@ export class BillingDashboardService {
           updatedCount: 0,
           unchangedCount: 0,
           errorCount: 1,
-          message: error instanceof Error ? error.message : String(error)
+          message: lastError instanceof Error ? lastError.message : String(lastError)
         });
       }
     }
