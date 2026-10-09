@@ -2488,6 +2488,11 @@ export function buildOperationalBalanceReport(input: {
     byNature: { ENERGY: number | null; POWER: number | null };
     warningInvoiceCount: number;
   }>();
+  const marginDisplayByRun = new Map<string, {
+    month: number;
+    revenueValue: number | null;
+    warningInvoiceCount: number;
+  }>();
   for (const run of input.costRuns) {
     const month = monthByInvoice.get(run.invoiceId);
     if (month === undefined) continue;
@@ -2496,7 +2501,6 @@ export function buildOperationalBalanceReport(input: {
     marginCostRunIds.add(run.id);
     const revenue = numericLike(margin.associatedRevenueEur);
     const associatedCost = numericLike(margin.associatedCostEur);
-    const marginValue = numericLike(margin.marginEur);
     const revenueByNature = marginRevenueByNature(margin.detailsJson);
     const costsByNature = marginCostsByNature(margin.detailsJson);
     const revenueFromNatures = sumNatureBreakdown(revenueByNature);
@@ -2507,6 +2511,11 @@ export function buildOperationalBalanceReport(input: {
       value: costValue,
       byNature: costsByNature,
       warningInvoiceCount: run.incidentsCount > 0 || run.status !== CmInvoiceCostRunStatus.COMPLETED ? 1 : 0
+    });
+    marginDisplayByRun.set(run.id, {
+      month,
+      revenueValue,
+      warningInvoiceCount: margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0
     });
     rows.add("used-revenue", "Ingresos utilizados", "EUR", 0, month, revenueValue ?? 0, coverage(1, revenueValue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
     if (revenueByNature.ENERGY !== null) rows.add("used-revenue:energy", "Energia", "EUR", 1, month, revenueByNature.ENERGY, coverage(1, 1, 0), "used-revenue");
@@ -2522,7 +2531,6 @@ export function buildOperationalBalanceReport(input: {
         rows.add(`excluded-revenue:${conceptKey}`, conceptRow.concept, "EUR", 1, month, conceptRow.amount, zeroCoverage(), "excluded-revenue");
       }
     }
-    rows.add("margin", "Margen EUR", "EUR", 0, month, marginValue ?? 0, coverage(1, marginValue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
   }
   function addRunCostTotal(runId: string, nature: CostNature, value: number) {
     const current = costTotalsByRun.get(runId) ?? { ENERGY: 0, POWER: 0, hasEnergy: false, hasPower: false };
@@ -2585,6 +2593,11 @@ export function buildOperationalBalanceReport(input: {
       rows.add("costs", "Costes calculados", "EUR", 0, month, totalValue, coverage(1, 1, warning));
       if (totals.hasEnergy) rows.add("costs:energy", "Energia", "EUR", 1, month, totals.ENERGY, coverage(1, 1, 0), "costs");
       if (totals.hasPower) rows.add("costs:power", "Potencia", "EUR", 1, month, totals.POWER, coverage(1, 1, 0), "costs");
+      const marginDisplay = marginDisplayByRun.get(runId);
+      if (marginDisplay) {
+        const marginValue = marginDisplay.revenueValue === null ? null : marginDisplay.revenueValue - totalValue;
+        rows.add("margin", "Margen EUR", "EUR", 0, month, marginValue ?? 0, coverage(1, marginValue === null ? 0 : 1, marginDisplay.warningInvoiceCount));
+      }
       continue;
     }
     const fallback = costFallbackByRun.get(runId);
@@ -2592,6 +2605,11 @@ export function buildOperationalBalanceReport(input: {
     rows.add("costs", "Costes calculados", "EUR", 0, month, fallback.value ?? 0, coverage(1, fallback.value === null ? 0 : 1, fallback.warningInvoiceCount));
     if (fallback.byNature.ENERGY !== null) rows.add("costs:energy", "Energia", "EUR", 1, month, fallback.byNature.ENERGY, coverage(1, 1, 0), "costs");
     if (fallback.byNature.POWER !== null) rows.add("costs:power", "Potencia", "EUR", 1, month, fallback.byNature.POWER, coverage(1, 1, 0), "costs");
+    const marginDisplay = marginDisplayByRun.get(runId);
+    if (marginDisplay) {
+      const marginValue = marginDisplay.revenueValue === null || fallback.value === null ? null : marginDisplay.revenueValue - fallback.value;
+      rows.add("margin", "Margen EUR", "EUR", 0, month, marginValue ?? 0, coverage(1, marginValue === null ? 0 : 1, marginDisplay.warningInvoiceCount));
+    }
   }
 
   rows.applyInvoiceUniverse(invoiceCounts, ["invoice-error-count", "invoice-warning-count", "consumption-source-share", "billing", "billed-pf", "calculated-pf", "calculated-bc", "used-revenue", "excluded-revenue", "costs", "margin"]);

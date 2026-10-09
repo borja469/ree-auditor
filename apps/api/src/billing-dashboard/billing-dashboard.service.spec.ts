@@ -326,6 +326,7 @@ describe("Billing dashboard operational balance", () => {
     });
     const revenue = report.rows.find((row) => row.key === "used-revenue")!;
     const costs = report.rows.find((row) => row.key === "costs")!;
+    const margin = report.rows.find((row) => row.key === "margin")!;
     const revenueChildren = revenue.children?.reduce((sum, row) => sum + (row.months[0].value ?? 0), 0);
     const costChildren = costs.children?.reduce((sum, row) => sum + (row.months[0].value ?? 0), 0);
 
@@ -333,6 +334,7 @@ describe("Billing dashboard operational balance", () => {
     assert.equal(revenue.months[0].value, revenueChildren);
     assert.equal(costs.months[0].value, 120);
     assert.equal(costs.months[0].value, costChildren);
+    assert.equal(margin.months[0].value, -22);
   });
 
   it("aggregates costs by nature and component without double-counting invoice lines", () => {
