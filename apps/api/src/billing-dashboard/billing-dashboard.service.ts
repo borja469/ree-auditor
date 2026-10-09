@@ -40,9 +40,24 @@ const BILLING_CURVE_JOB_DEFAULT_CONCURRENCY = 4;
 type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS" | "CALCULATE_COSTS_AND_MARGINS" | "FULL_RECALCULATION";
 type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
 const BILLING_JOB_EXCLUSIVE_TYPES: BillingJobType[] = ["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "CALCULATE_COSTS_AND_MARGINS", "FULL_RECALCULATION"];
-const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V1";
-const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V3_RUN_SUMMARY_COST_BREAKDOWN";
+const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V2_REVENUE_CONCEPTS";
+const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V4_REVENUE_CONCEPTS";
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
+const ENERGY_REVENUE_CONCEPT_KEYS = new Set([
+  "ENERGIA",
+  "REPERCUSION DE GARANTIAS DE ORIGEN",
+  "COSTE FINANCIERO [%]",
+  "COSTE DE GESTION 3,3 €/MES",
+  "COSTE DE GESTION 6,75 €/MES",
+  "PENALIZACION POR RESOLUCION ANTICIPADA DE CONTRATO"
+]);
+const ENERGY_REVENUE_CONCEPT_CONTAINS = [
+  "TECHO DE PRECIO"
+];
+const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT_KEYS = new Set([
+  invoiceConceptKey(NETWORK_SYSTEM_ADJUSTMENT_CONCEPT),
+  "AJUST PER COSTOS DEL SISTEMA DE LA XARXA ELECTRICA D'ESPANYA"
+]);
 const OPERATIONAL_BALANCE_MONTHS = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
 const BILLING_INVOICE_EXPORT_LIMIT = 50_000;
 const CM_INVOICE_LIST_SELECT = {
@@ -2153,11 +2168,11 @@ function summarizeInvoiceEnergy(lines: Array<{ accountName: string | null; lineN
 
 function lineConcept(line: { accountName: string | null; lineName: string | null }) {
   if (!line.lineName) return "-";
-  if (/^P[1-6]$/i.test(line.lineName) && line.accountName?.includes("/")) return line.accountName.split("/").pop()?.trim() || line.lineName;
+  if (/^P[1-6]$/i.test(line.lineName) && line.accountName) return line.accountName.includes("/") ? line.accountName.split("/").pop()?.trim() || line.lineName : line.accountName;
   return line.lineName;
 }
 
-function summarizeInvoiceLineConcepts(lines: Array<{ accountName: string | null; lineName: string | null; priceSubtotal: Prisma.Decimal | null }>) {
+export function summarizeInvoiceLineConcepts(lines: Array<{ accountName: string | null; lineName: string | null; priceSubtotal: Prisma.Decimal | number | null }>) {
   const groups = new Map<string, { concept: string; amount: number }>();
   let associatedRevenueEur = 0;
   let hasMappedConcepts = false;
@@ -2831,15 +2846,15 @@ function costComponentsFromRunSummary(value: Prisma.JsonValue | null): Array<{ c
   return components.length ? components : null;
 }
 
-function marginConceptMapping(concept: string): CostNature | "ADJUSTMENT" | null {
+export function marginConceptMapping(concept: string): CostNature | "ADJUSTMENT" | null {
   const key = invoiceConceptKey(concept);
-  if (key === "ENERGIA") return "ENERGY";
+  if (ENERGY_REVENUE_CONCEPT_KEYS.has(key) || ENERGY_REVENUE_CONCEPT_CONTAINS.some((token) => key.includes(token))) return "ENERGY";
   if (key === "POTENCIA") return "POWER";
-  if (key === invoiceConceptKey(NETWORK_SYSTEM_ADJUSTMENT_CONCEPT)) return "ADJUSTMENT";
+  if (NETWORK_SYSTEM_ADJUSTMENT_CONCEPT_KEYS.has(key)) return "ADJUSTMENT";
   return null;
 }
 
-function invoiceConceptKey(value: string) {
+export function invoiceConceptKey(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toUpperCase();
 }
 

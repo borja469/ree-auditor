@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceDocumentType, CmInvoiceMarginStatus, CmInvoiceProcessingStatus } from "@prisma/client";
-import { BillingDashboardService, buildOperationalBalanceReport, inferSourceResolutionMinutes, normalizeGiscePriceList, normalizeMeasuresToQuarterHour, selectMeasureCandidate, type CurveIssue, type NormalizedMeasureCandidate } from "./billing-dashboard.service";
+import { BillingDashboardService, buildOperationalBalanceReport, inferSourceResolutionMinutes, marginConceptMapping, normalizeGiscePriceList, normalizeMeasuresToQuarterHour, selectMeasureCandidate, summarizeInvoiceLineConcepts, type CurveIssue, type NormalizedMeasureCandidate } from "./billing-dashboard.service";
 
 function candidate(consumption: number): NormalizedMeasureCandidate {
   return {
@@ -24,6 +24,35 @@ describe("Billing dashboard curve source priority", () => {
     assert.equal(selectMeasureCandidate(undefined, undefined, candidate(3), candidate(4)).source, CmInvoiceConsumptionSource.F5D);
     assert.equal(selectMeasureCandidate(undefined, undefined, undefined, candidate(4)).source, CmInvoiceConsumptionSource.P5D);
     assert.equal(selectMeasureCandidate(undefined, undefined, undefined, undefined).source, CmInvoiceConsumptionSource.MISSING);
+  });
+});
+
+describe("Billing dashboard revenue concept mapping", () => {
+  it("clasifica conceptos comerciales adicionales como ingresos de energia", () => {
+    const concepts = [
+      "Repercusión de garantías de origen",
+      "Coste Financiero [%]",
+      "Penalización por resolución anticipada de contrato",
+      "Coste de Gestión 3,3 €/mes",
+      "Coste de Gestión 6,75 €/mes",
+      "Servicio adiciona \"Techo de precio a 80 €/MWh\""
+    ];
+
+    for (const concept of concepts) assert.equal(marginConceptMapping(concept), "ENERGY", concept);
+    assert.equal(marginConceptMapping("Ajust per Costos del Sistema de la Xarxa Elèctrica d'Espanya"), "ADJUSTMENT");
+  });
+
+  it("usa la cuenta como concepto cuando la linea viene periodificada como P1-P6", () => {
+    const summary = summarizeInvoiceLineConcepts([
+      { accountName: "Coste Financiero [%]", lineName: "P1", priceSubtotal: 4 },
+      { accountName: "Coste Financiero [%]", lineName: "P2", priceSubtotal: 6 },
+      { accountName: "Tarifas Acceso / Energia", lineName: "P3", priceSubtotal: 90 }
+    ]);
+
+    assert.equal(summary.hasMappedConcepts, true);
+    assert.equal(summary.associatedRevenueEur, 100);
+    assert.equal(summary.rows.find((row) => row.concept === "Coste Financiero [%]")?.amount, 10);
+    assert.equal(summary.rows.find((row) => row.concept === "Energia")?.amount, 90);
   });
 });
 

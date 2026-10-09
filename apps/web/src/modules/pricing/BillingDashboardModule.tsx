@@ -1455,7 +1455,7 @@ function curveStatusLabel(detail: BillingInvoiceDetail) { return detail.processi
 function reconciliationStatus(differenceKwh: number) { return Math.abs(differenceKwh) >= RECONCILIATION_DIFFERENCE_THRESHOLD_KWH ? "Diferencia" : "OK"; }
 function lineConcept(line: BillingInvoiceDetail["lines"][number]) {
   if (!line.lineName) return "-";
-  if (/^P[1-6]$/i.test(line.lineName) && line.accountName?.includes("/")) return line.accountName.split("/").pop()?.trim() || line.lineName;
+  if (/^P[1-6]$/i.test(line.lineName) && line.accountName) return line.accountName.includes("/") ? line.accountName.split("/").pop()?.trim() || line.lineName : line.accountName;
   return line.lineName;
 }
 function summarizeInvoiceLines(lines: BillingInvoiceDetail["lines"]) {
@@ -1509,9 +1509,25 @@ function sumCostByNature(costs: BillingCostsResponse | null, nature: "ENERGY" | 
 function invoiceConceptKey(value: string) {
   return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, " ").trim().toUpperCase();
 }
-function isEnergyInvoiceConcept(value: string) { return invoiceConceptKey(value) === "ENERGIA"; }
+const ENERGY_INVOICE_CONCEPT_KEYS = new Set([
+  "ENERGIA",
+  "REPERCUSION DE GARANTIAS DE ORIGEN",
+  "COSTE FINANCIERO [%]",
+  "COSTE DE GESTION 3,3 €/MES",
+  "COSTE DE GESTION 6,75 €/MES",
+  "PENALIZACION POR RESOLUCION ANTICIPADA DE CONTRATO"
+]);
+const ENERGY_INVOICE_CONCEPT_CONTAINS = ["TECHO DE PRECIO"];
+const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT_KEYS = new Set([
+  "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA",
+  "AJUST PER COSTOS DEL SISTEMA DE LA XARXA ELECTRICA D'ESPANYA"
+]);
+function isEnergyInvoiceConcept(value: string) {
+  const key = invoiceConceptKey(value);
+  return ENERGY_INVOICE_CONCEPT_KEYS.has(key) || ENERGY_INVOICE_CONCEPT_CONTAINS.some((token) => key.includes(token));
+}
 function isPowerInvoiceConcept(value: string) { return invoiceConceptKey(value) === "POTENCIA"; }
-function isNetworkSystemAdjustmentConcept(value: string) { return invoiceConceptKey(value) === "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA"; }
+function isNetworkSystemAdjustmentConcept(value: string) { return NETWORK_SYSTEM_ADJUSTMENT_CONCEPT_KEYS.has(invoiceConceptKey(value)); }
 function marginStatusLabel(status: "READY" | "WARNING" | "NOT_AVAILABLE") { return status === "READY" ? "Margen listo" : status === "WARNING" ? "Provisional" : "Margen no disponible"; }
 function curveSourceRows(detail: BillingInvoiceDetail) {
   const expected = detail.curveSummary.expectedIntervals || 0;
