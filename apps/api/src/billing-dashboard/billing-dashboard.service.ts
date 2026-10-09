@@ -45,17 +45,25 @@ const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V5_REVENUE_
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT = "AJUSTE POR COSTES DEL SISTEMA DE RED ELECTRICA DE ESPANA";
 const ENERGY_REVENUE_CONCEPT_KEYS = new Set([
   "ENERGIA",
+  "P1",
+  "P2",
+  "P3",
+  "P4",
+  "P5",
+  "P6",
   "REPERCUSION DE GARANTIAS DE ORIGEN",
   "GARANTIAS DE ORIGEN",
   "COSTE FINANCIERO [%]",
   "COSTE DE GESTION 3,3 €/MES",
   "COSTE DE GESTION 6,75 €/MES",
+  "COSTE DE GESTION 6,75 /MES",
   "PENALIZACION POR RESOLUCION ANTICIPADA DE CONTRATO",
-  "FACTURACION COMPLEMENTARIA IMPUTAD",
-  "FACTURACION COMPLEMENTARIA IMPUTADA",
   "SERVICIO ADICIONAL \"TECHO DE PRECIO A 80 €/MWH\""
 ]);
 const ENERGY_REVENUE_CONCEPT_CONTAINS = [
+  "FACTURACION COMPLEMENTARIA IMPUTAD",
+  "GARANTIAS DE ORIGEN",
+  "SOSTRE DE PREU",
   "TECHO DE PRECIO"
 ];
 const NETWORK_SYSTEM_ADJUSTMENT_CONCEPT_KEYS = new Set([
@@ -2838,7 +2846,10 @@ function marginRevenueByNature(detailsJson: Prisma.JsonValue | null | undefined)
   if (!Array.isArray(rows)) return result;
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
-    const nature = (row as { nature?: unknown }).nature;
+    const concept = typeof (row as { concept?: unknown }).concept === "string" ? (row as { concept: string }).concept : "";
+    const rawNature = (row as { nature?: unknown }).nature;
+    const mappedNature = marginConceptMapping(concept);
+    const nature = rawNature === "POWER" || rawNature === "ENERGY" ? rawNature : mappedNature === "POWER" || mappedNature === "ENERGY" ? mappedNature : null;
     if (nature !== "ENERGY" && nature !== "POWER") continue;
     const amount = numericLike((row as { amount?: Prisma.Decimal | number | string | null }).amount);
     if (amount === null) continue;
@@ -2860,7 +2871,8 @@ function marginRevenueConceptRows(detailsJson: Prisma.JsonValue | null | undefin
     const amount = numericLike((row as { amount?: Prisma.Decimal | number | string | null }).amount);
     if (amount === null) continue;
     const rawNature = (row as { nature?: unknown }).nature;
-    const nature = rawNature === "POWER" ? "POWER" : rawNature === "ENERGY" ? "ENERGY" : null;
+    const mappedNature = marginConceptMapping(concept);
+    const nature = rawNature === "POWER" || rawNature === "ENERGY" ? rawNature : mappedNature === "POWER" || mappedNature === "ENERGY" ? mappedNature : null;
     const key = `${nature ?? "EXCLUDED"}:${invoiceConceptKey(concept)}`;
     const current = grouped.get(key) ?? { concept, amount: 0, nature };
     current.amount += amount;

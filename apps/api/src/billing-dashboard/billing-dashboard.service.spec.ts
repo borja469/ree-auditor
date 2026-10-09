@@ -32,6 +32,15 @@ describe("Billing dashboard revenue concept mapping", () => {
     const concepts = [
       "Repercusión de garantías de origen",
       "Coste Financiero [%]",
+      "P1",
+      "P2",
+      "P3",
+      "P4",
+      "P5",
+      "P6",
+      "Coste de Gestion 6,75 /mes",
+      "Facturacion Complementaria imputada por parte de la Distribuidora - Energia",
+      "Servei adicional \"Sostre de preu a 80 EUR/MWh\"",
       "Penalización por resolución anticipada de contrato",
       "Coste de Gestión 3,3 €/mes",
       "Coste de Gestión 6,75 €/mes",
@@ -57,6 +66,47 @@ describe("Billing dashboard revenue concept mapping", () => {
     assert.equal(summary.associatedRevenueEur, 100);
     assert.equal(summary.rows.find((row) => row.concept === "Coste Financiero [%]")?.amount, 10);
     assert.equal(summary.rows.find((row) => row.concept === "Energia")?.amount, 90);
+  });
+
+  it("reclasifica snapshots antiguos sin nature usando el mapeo actual", () => {
+    const report = buildOperationalBalanceReport({
+      year: 2026,
+      availableYears: [2026],
+      invoices: [{
+        id: "invoice-legacy",
+        invoiceDate: new Date(Date.UTC(2026, 6, 1)),
+        lines: [line("Tarifas Acceso / Energia", "P1", 1, 100)]
+      }],
+      curveTotals: [{ invoiceId: "invoice-legacy", _sum: { consumptionPfKwh: 1000, consumptionBcKwh: 1100 } }],
+      costRuns: [{ id: "run-legacy", invoiceId: "invoice-legacy", incidentsCount: 0, status: CmInvoiceCostRunStatus.COMPLETED }],
+      margins: [{
+        invoiceId: "invoice-legacy",
+        costRunId: "run-legacy",
+        marginStatus: CmInvoiceMarginStatus.READY,
+        associatedRevenueEur: 120,
+        associatedCostEur: 80,
+        marginEur: 40,
+        detailsJson: {
+          costsByNature: { ENERGY: 80, POWER: 0 },
+          rows: [
+            { concept: "Garantias de Origen", amount: 10, nature: null },
+            { concept: "Servicio adicional \"Techo de precio a 80 EUR/MWh\"", amount: 20, nature: null },
+            { concept: "Facturacion Complementaria imputada por parte de la Distribuidora - Energia", amount: 30, nature: null },
+            { concept: "P3", amount: 60, nature: null },
+            { concept: "ALQ Equipo Medida", amount: 5, nature: null }
+          ]
+        }
+      }],
+      intervalComponentSums: [],
+      powerComponentSums: []
+    });
+
+    const revenue = report.rows.find((row) => row.key === "used-revenue")!;
+    const energyRevenue = revenue.children?.find((row) => row.key === "used-revenue:energy")!;
+    const excludedRevenue = report.rows.find((row) => row.key === "excluded-revenue")!;
+    assert.equal(revenue.months[6].value, 120);
+    assert.equal(energyRevenue.months[6].value, 120);
+    assert.equal(excludedRevenue.months[6].value, 5);
   });
 });
 
