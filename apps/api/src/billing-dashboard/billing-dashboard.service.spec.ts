@@ -265,7 +265,8 @@ describe("Billing dashboard operational balance", () => {
           rows: [
             { concept: "Energia", amount: 70, nature: "ENERGY" },
             { concept: "Potencia", amount: 20, nature: "POWER" },
-            { concept: "Ajuste por Costes del Sistema de Red Electrica de Espana", amount: 8, nature: "ENERGY" }
+            { concept: "Ajuste por Costes del Sistema de Red Electrica de Espana", amount: 8, nature: "ENERGY" },
+            { concept: "ALQ Equipo Medida", amount: 3, nature: null }
           ]
         }
       }],
@@ -273,13 +274,19 @@ describe("Billing dashboard operational balance", () => {
       powerComponentSums: []
     });
     const revenue = report.rows.find((row) => row.key === "used-revenue")!;
+    const excludedRevenue = report.rows.find((row) => row.key === "excluded-revenue")!;
     const revenueEurMwh = report.rows.find((row) => row.key === "used-revenue-eur-mwh")!;
     const margin = report.rows.find((row) => row.key === "margin")!;
     const marginEurMwh = report.rows.find((row) => row.key === "margin-eur-mwh")!;
+    const energyRevenue = revenue.children?.find((row) => row.key === "used-revenue:energy")!;
 
     assert.equal(revenue.months[0].value, 98);
-    assert.equal(revenue.children?.find((row) => row.key === "used-revenue:energy")?.months[0].value, 78);
+    assert.equal(energyRevenue.months[0].value, 78);
+    assert.equal(energyRevenue.children?.find((row) => row.label === "Energia")?.months[0].value, 70);
+    assert.equal(energyRevenue.children?.find((row) => row.label === "Ajuste por Costes del Sistema de Red Electrica de Espana")?.months[0].value, 8);
     assert.equal(revenue.children?.find((row) => row.key === "used-revenue:power")?.months[0].value, 20);
+    assert.equal(excludedRevenue.months[0].value, 3);
+    assert.equal(excludedRevenue.children?.find((row) => row.label === "ALQ Equipo Medida")?.months[0].value, 3);
     assert.equal(revenueEurMwh.months[0].value, 98);
     assert.equal(revenueEurMwh.children?.find((row) => row.key === "used-revenue-eur-mwh:energy")?.months[0].value, 78);
     assert.equal(revenueEurMwh.children?.find((row) => row.key === "used-revenue-eur-mwh:power")?.months[0].value, 20);

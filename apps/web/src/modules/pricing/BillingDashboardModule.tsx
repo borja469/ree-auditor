@@ -784,7 +784,7 @@ function OperationalBalanceSection({
   onYearChange: (year: number) => void;
   onRecalculate: () => void;
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["used-revenue"]));
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(["used-revenue", "used-revenue:energy", "used-revenue:power", "excluded-revenue"]));
   const years = useMemo(() => {
     const unique = new Set([selectedYear, ...(report?.availableYears ?? [])]);
     return [...unique].filter(Number.isFinite).sort((left, right) => right - left);

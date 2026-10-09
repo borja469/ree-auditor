@@ -2403,6 +2403,7 @@ export function buildOperationalBalanceReport(input: {
   rows.ensureRow("used-revenue", "Ingresos utilizados", "EUR", 0);
   rows.ensureRow("used-revenue:energy", "Energia", "EUR", 1, "used-revenue");
   rows.ensureRow("used-revenue:power", "Potencia", "EUR", 1, "used-revenue");
+  rows.ensureRow("excluded-revenue", "Conceptos no incluidos en margen", "EUR", 0);
   rows.ensureRow("costs", "Costes calculados", "EUR", 0);
   rows.ensureRow("costs:energy", "Energia", "EUR", 1, "costs");
   rows.ensureRow("costs:power", "Potencia", "EUR", 1, "costs");
@@ -2510,6 +2511,17 @@ export function buildOperationalBalanceReport(input: {
     rows.add("used-revenue", "Ingresos utilizados", "EUR", 0, month, revenueValue ?? 0, coverage(1, revenueValue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
     if (revenueByNature.ENERGY !== null) rows.add("used-revenue:energy", "Energia", "EUR", 1, month, revenueByNature.ENERGY, coverage(1, 1, 0), "used-revenue");
     if (revenueByNature.POWER !== null) rows.add("used-revenue:power", "Potencia", "EUR", 1, month, revenueByNature.POWER, coverage(1, 1, 0), "used-revenue");
+    for (const conceptRow of marginRevenueConceptRows(margin.detailsJson)) {
+      const conceptKey = operationalConceptRowKey(conceptRow.concept);
+      if (conceptRow.nature === "ENERGY") {
+        rows.add(`used-revenue:energy:${conceptKey}`, conceptRow.concept, "EUR", 2, month, conceptRow.amount, zeroCoverage(), "used-revenue:energy");
+      } else if (conceptRow.nature === "POWER") {
+        rows.add(`used-revenue:power:${conceptKey}`, conceptRow.concept, "EUR", 2, month, conceptRow.amount, zeroCoverage(), "used-revenue:power");
+      } else {
+        rows.add("excluded-revenue", "Conceptos no incluidos en margen", "EUR", 0, month, conceptRow.amount, coverage(1, 1, 0));
+        rows.add(`excluded-revenue:${conceptKey}`, conceptRow.concept, "EUR", 1, month, conceptRow.amount, zeroCoverage(), "excluded-revenue");
+      }
+    }
     rows.add("margin", "Margen EUR", "EUR", 0, month, marginValue ?? 0, coverage(1, marginValue === null ? 0 : 1, margin.marginStatus === CmInvoiceMarginStatus.WARNING ? 1 : 0));
   }
   function addRunCostTotal(runId: string, nature: CostNature, value: number) {
@@ -2582,7 +2594,7 @@ export function buildOperationalBalanceReport(input: {
     if (fallback.byNature.POWER !== null) rows.add("costs:power", "Potencia", "EUR", 1, month, fallback.byNature.POWER, coverage(1, 1, 0), "costs");
   }
 
-  rows.applyInvoiceUniverse(invoiceCounts, ["invoice-error-count", "invoice-warning-count", "consumption-source-share", "billing", "billed-pf", "calculated-pf", "calculated-bc", "used-revenue", "costs", "margin"]);
+  rows.applyInvoiceUniverse(invoiceCounts, ["invoice-error-count", "invoice-warning-count", "consumption-source-share", "billing", "billed-pf", "calculated-pf", "calculated-bc", "used-revenue", "excluded-revenue", "costs", "margin"]);
   const baseRows = rows.toRows([
     "invoice-count",
     "invoice-error-count",
@@ -2593,6 +2605,7 @@ export function buildOperationalBalanceReport(input: {
     "calculated-pf",
     "calculated-bc",
     "used-revenue",
+    "excluded-revenue",
     "costs",
     "margin"
   ]);
@@ -2816,6 +2829,31 @@ function marginRevenueByNature(detailsJson: Prisma.JsonValue | null | undefined)
   return result;
 }
 
+function marginRevenueConceptRows(detailsJson: Prisma.JsonValue | null | undefined) {
+  const grouped = new Map<string, { concept: string; amount: number; nature: CostNature | null }>();
+  if (!detailsJson || typeof detailsJson !== "object" || Array.isArray(detailsJson)) return [];
+  const rows = (detailsJson as { rows?: unknown }).rows;
+  if (!Array.isArray(rows)) return [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const concept = typeof (row as { concept?: unknown }).concept === "string" && ((row as { concept: string }).concept).trim()
+      ? ((row as { concept: string }).concept).trim()
+      : "Sin concepto";
+    const amount = numericLike((row as { amount?: Prisma.Decimal | number | string | null }).amount);
+    if (amount === null) continue;
+    const rawNature = (row as { nature?: unknown }).nature;
+    const nature = rawNature === "POWER" ? "POWER" : rawNature === "ENERGY" ? "ENERGY" : null;
+    const key = `${nature ?? "EXCLUDED"}:${invoiceConceptKey(concept)}`;
+    const current = grouped.get(key) ?? { concept, amount: 0, nature };
+    current.amount += amount;
+    grouped.set(key, current);
+  }
+  return [...grouped.values()].sort((left, right) => {
+    const natureOrder = (left.nature ?? "ZZZ").localeCompare(right.nature ?? "ZZZ");
+    return natureOrder || left.concept.localeCompare(right.concept);
+  });
+}
+
 function marginCostsByNature(detailsJson: Prisma.JsonValue | null | undefined): { ENERGY: number | null; POWER: number | null } {
   const result: { ENERGY: number | null; POWER: number | null } = { ENERGY: null, POWER: null };
   if (!detailsJson || typeof detailsJson !== "object" || Array.isArray(detailsJson)) return result;
@@ -2833,6 +2871,10 @@ function sumNatureBreakdown(values: { ENERGY: number | null; POWER: number | nul
   const hasPower = values.POWER !== null;
   if (!hasEnergy && !hasPower) return null;
   return (values.ENERGY ?? 0) + (values.POWER ?? 0);
+}
+
+function operationalConceptRowKey(concept: string) {
+  return invoiceConceptKey(concept).replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "SIN-CONCEPTO";
 }
 
 function costComponentsFromRunSummary(value: Prisma.JsonValue | null): Array<{ componentCode: string; nature: CostNature; costEur: number }> | null {
