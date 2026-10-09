@@ -35,7 +35,11 @@ describe("Billing dashboard revenue concept mapping", () => {
       "Penalización por resolución anticipada de contrato",
       "Coste de Gestión 3,3 €/mes",
       "Coste de Gestión 6,75 €/mes",
-      "Servicio adiciona \"Techo de precio a 80 €/MWh\""
+      "Servicio adiciona \"Techo de precio a 80 €/MWh\"",
+      "Servicio adicional \"Techo de precio a 80 €/MWh\"",
+      "Facturación Complementaria imputad",
+      "Facturación Complementaria imputada",
+      "Garantías de Origen"
     ];
 
     for (const concept of concepts) assert.equal(marginConceptMapping(concept), "ENERGY", concept);
