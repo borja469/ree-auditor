@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from "@nestjs/common";
 import { CmInvoiceConsumptionSource, CmInvoiceCostRunStatus, CmInvoiceDocumentType, CmInvoiceMarginStatus, CmInvoiceProfileType, CmInvoiceProcessingStatus, Prisma } from "@prisma/client";
 import * as XLSX from "xlsx";
 import { PrismaService } from "../prisma/prisma.service";
@@ -144,7 +144,7 @@ export type OperationalBalanceResponse = {
 };
 
 @Injectable()
-export class BillingDashboardService {
+export class BillingDashboardService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     private readonly gisce: GisceClientService,
@@ -152,6 +152,12 @@ export class BillingDashboardService {
     private readonly lossesService: RegulatedLossesService,
     private readonly costsService: BillingDashboardCostsService
   ) {}
+
+  onModuleInit() {
+    void this.resumeInterruptedBillingJobs().catch((error) => {
+      console.error("No se pudieron reanudar jobs de facturacion tras el arranque.", error);
+    });
+  }
 
   metadata() {
     return this.gisce.invoiceFields();
@@ -1062,6 +1068,47 @@ export class BillingDashboardService {
     return { processed: results.length, remainingImported, remainingPending, results };
   }
 
+  private async resumeInterruptedBillingJobs() {
+    const jobs = await this.prisma.cmBillingJob.findMany({
+      where: { type: { in: BILLING_JOB_EXCLUSIVE_TYPES }, status: { in: BILLING_JOB_ACTIVE_STATUSES } },
+      orderBy: { createdAt: "asc" }
+    });
+    if (jobs.length === 0) return;
+    const [jobToResume, ...duplicates] = jobs;
+    if (!jobToResume) return;
+    if (duplicates.length > 0) {
+      await this.prisma.cmBillingJob.updateMany({
+        where: { id: { in: duplicates.map((job) => job.id) } },
+        data: {
+          status: "CANCELLED",
+          message: "Cancelado automaticamente al recuperar jobs tras reinicio: ya habia otro job activo.",
+          finishedAt: new Date()
+        }
+      });
+    }
+    await this.prisma.cmBillingJob.update({
+      where: { id: jobToResume.id },
+      data: {
+        status: "QUEUED",
+        message: `Reanudando job tras reinicio: ${jobToResume.message ?? jobToResume.type}.`
+      }
+    });
+    this.dispatchBillingJob(jobToResume.id, jobToResume.type as BillingJobType, jobToResume.params);
+  }
+
+  private dispatchBillingJob(jobId: string, type: BillingJobType, params: Prisma.JsonValue | null) {
+    const data = params && typeof params === "object" && !Array.isArray(params) ? params as Record<string, unknown> : {};
+    const dateFrom = typeof data.dateFrom === "string" ? data.dateFrom : "";
+    const dateTo = typeof data.dateTo === "string" ? data.dateTo : "";
+    const mode: MarginJobMode = data.mode === "RECALCULATE" ? "RECALCULATE" : "PENDING_ONLY";
+    const limit = typeof data.limit === "number" ? data.limit : BILLING_JOB_PROCESS_BATCH_SIZE;
+    if (type === "IMPORT_INVOICES") void this.runImportJob(jobId, dateFrom, dateTo);
+    else if (type === "PROCESS_PENDING") void this.runProcessPendingJob(jobId, limit);
+    else if (type === "CALCULATE_MARGINS") void this.runCalculateMarginsJob(jobId, dateFrom, dateTo, mode);
+    else if (type === "CALCULATE_COSTS_AND_MARGINS") void this.runCalculateCostsAndMarginsJob(jobId, dateFrom, dateTo, mode);
+    else if (type === "FULL_RECALCULATION") void this.runFullRecalculationJob(jobId, dateFrom, dateTo, mode);
+  }
+
   private async findActiveBillingJob(types: BillingJobType[]) {
     return this.prisma.cmBillingJob.findFirst({
       where: { type: { in: types }, status: { in: BILLING_JOB_ACTIVE_STATUSES } },
@@ -1181,18 +1228,19 @@ export class BillingDashboardService {
   }
 
   private async runCalculateMarginsJob(jobId: string, dateFrom: string, dateTo: string, mode: MarginJobMode) {
-    const from = parseDateOnly(dateFrom);
-    const to = parseDateOnly(dateTo);
     const counters = { processedItems: 0, successCount: 0, warningCount: 0, errorCount: 0 };
     const result = { totalFound: 0, processedCount: 0, ok: 0, warnings: 0, errors: 0, withoutCurve: 0, withoutCosts: 0, withoutPf: 0, withoutMappedConcepts: 0 };
-    const concurrency = billingMarginJobConcurrency();
-    const queue = await this.prisma.cmInvoice.findMany({
-      where: { invoiceDate: { gte: from, lte: to } },
-      orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
-      include: { lines: true }
-    });
-    result.totalFound = queue.length;
     try {
+      await this.markBillingJobRunning(jobId, { result: result as unknown as Prisma.InputJsonValue, message: "Preparando cola de facturas para calcular margenes." });
+      const from = parseDateOnly(dateFrom);
+      const to = parseDateOnly(dateTo);
+      const concurrency = billingMarginJobConcurrency();
+      const queue = await this.prisma.cmInvoice.findMany({
+        where: { invoiceDate: { gte: from, lte: to } },
+        orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
+        include: { lines: true }
+      });
+      result.totalFound = queue.length;
       await this.markBillingJobRunning(jobId, { totalItems: queue.length, message: `Calculando margenes por rango de fecha factura. Concurrencia: ${Math.min(concurrency, Math.max(queue.length, 1))}.` });
       let cursor = 0;
       const workerCount = Math.min(concurrency, queue.length || 1);
@@ -1236,17 +1284,18 @@ export class BillingDashboardService {
   }
 
   private async runCalculateCostsAndMarginsJob(jobId: string, dateFrom: string, dateTo: string, mode: MarginJobMode) {
-    const from = parseDateOnly(dateFrom);
-    const to = parseDateOnly(dateTo);
     const counters = { processedItems: 0, successCount: 0, warningCount: 0, errorCount: 0 };
     const result = { totalFound: 0, processedCount: 0, ok: 0, warnings: 0, errors: 0, withoutCurve: 0, withoutCosts: 0, withoutPf: 0, withoutMappedConcepts: 0, skipped: 0 };
-    const queue = await this.prisma.cmInvoice.findMany({
-      where: { invoiceDate: { gte: from, lte: to } },
-      orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
-      include: { lines: true }
-    });
-    result.totalFound = queue.length;
     try {
+      await this.markBillingJobRunning(jobId, { result: result as unknown as Prisma.InputJsonValue, message: "Preparando cola de facturas para calcular costes y margenes." });
+      const from = parseDateOnly(dateFrom);
+      const to = parseDateOnly(dateTo);
+      const queue = await this.prisma.cmInvoice.findMany({
+        where: { invoiceDate: { gte: from, lte: to } },
+        orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
+        include: { lines: true }
+      });
+      result.totalFound = queue.length;
       await this.markBillingJobRunning(jobId, { totalItems: queue.length, result: result as unknown as Prisma.InputJsonValue, message: "Calculando costes y margenes por rango de fecha factura." });
       const sharedCostContextRange = invoiceConsumptionDateRange(queue);
       const sharedCostContext = sharedCostContextRange
