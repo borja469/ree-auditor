@@ -39,6 +39,8 @@ const BILLING_CURVE_JOB_DEFAULT_CONCURRENCY = 4;
 
 type BillingJobType = "IMPORT_INVOICES" | "PROCESS_PENDING" | "CALCULATE_MARGINS" | "CALCULATE_COSTS_AND_MARGINS" | "FULL_RECALCULATION";
 type MarginJobMode = "PENDING_ONLY" | "RECALCULATE";
+type CmInvoiceWithLines = Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>;
+type CmInvoiceJobQueueItem = Pick<CmInvoiceWithLines, "id" | "invoiceNumber" | "gisceInvoiceId" | "periodStart" | "periodEnd">;
 const BILLING_JOB_EXCLUSIVE_TYPES: BillingJobType[] = ["IMPORT_INVOICES", "PROCESS_PENDING", "CALCULATE_MARGINS", "CALCULATE_COSTS_AND_MARGINS", "FULL_RECALCULATION"];
 const MARGIN_CALCULATION_VERSION = "BILLING_MARGIN_SIMPLE_V3_REVENUE_CONCEPTS";
 const OPERATIONAL_BALANCE_CALCULATION_VERSION = "OPERATIONAL_BALANCE_V5_REVENUE_CONCEPTS";
@@ -868,7 +870,11 @@ export class BillingDashboardService implements OnModuleInit {
     return this.processInvoiceRecord(invoice);
   }
 
-  private async processInvoiceRecord(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, context?: CurveProcessingContext | null) {
+  private async loadInvoiceWithLines(invoiceId: string): Promise<CmInvoiceWithLines | null> {
+    return this.prisma.cmInvoice.findUnique({ where: { id: invoiceId }, include: { lines: true } });
+  }
+
+  private async processInvoiceRecord(invoice: CmInvoiceWithLines, context?: CurveProcessingContext | null) {
     if (!invoice.periodStart || !invoice.periodEnd || !invoice.tariffCode) {
       await this.markInvoice(invoice.id, "ERROR", "La factura no tiene periodo o tarifa suficiente para construir curva.");
       throw new BadRequestException("La factura no tiene periodo o tarifa suficiente para construir curva.");
@@ -1235,10 +1241,10 @@ export class BillingDashboardService implements OnModuleInit {
       const from = parseDateOnly(dateFrom);
       const to = parseDateOnly(dateTo);
       const concurrency = billingMarginJobConcurrency();
-      const queue = await this.prisma.cmInvoice.findMany({
+      const queue: CmInvoiceJobQueueItem[] = await this.prisma.cmInvoice.findMany({
         where: { invoiceDate: { gte: from, lte: to } },
         orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
-        include: { lines: true }
+        select: { id: true, invoiceNumber: true, gisceInvoiceId: true, periodStart: true, periodEnd: true }
       });
       result.totalFound = queue.length;
       await this.markBillingJobRunning(jobId, { totalItems: queue.length, message: `Calculando margenes por rango de fecha factura. Concurrencia: ${Math.min(concurrency, Math.max(queue.length, 1))}.` });
@@ -1246,8 +1252,11 @@ export class BillingDashboardService implements OnModuleInit {
       const workerCount = Math.min(concurrency, queue.length || 1);
       await Promise.all(Array.from({ length: workerCount }, async () => {
         while (cursor < queue.length) {
-          const invoice = queue[cursor++];
+          const item = queue[cursor++];
+          const currentLabel = item.invoiceNumber ?? String(item.gisceInvoiceId);
           try {
+            const invoice = await this.loadInvoiceWithLines(item.id);
+            if (!invoice) throw new Error("Factura no encontrada.");
             const outcome = await this.calculateAndStoreMarginSnapshot(invoice, mode);
             counters.processedItems += 1;
             result.processedCount += outcome.processed ? 1 : 0;
@@ -1264,7 +1273,7 @@ export class BillingDashboardService implements OnModuleInit {
           }
           await this.updateActiveBillingJob(jobId, {
               ...counters,
-              currentItem: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId),
+              currentItem: currentLabel,
               result: result as unknown as Prisma.InputJsonValue,
               message: `Margenes procesados: ${counters.processedItems} / ${queue.length}.`
           });
@@ -1293,7 +1302,7 @@ export class BillingDashboardService implements OnModuleInit {
       const queue = await this.prisma.cmInvoice.findMany({
         where: { invoiceDate: { gte: from, lte: to } },
         orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
-        include: { lines: true }
+        select: { id: true, invoiceNumber: true, gisceInvoiceId: true, periodStart: true, periodEnd: true }
       });
       result.totalFound = queue.length;
       await this.markBillingJobRunning(jobId, { totalItems: queue.length, result: result as unknown as Prisma.InputJsonValue, message: "Calculando costes y margenes por rango de fecha factura." });
@@ -1307,11 +1316,13 @@ export class BillingDashboardService implements OnModuleInit {
       const workerCount = Math.min(concurrency, queue.length || 1);
       await Promise.all(Array.from({ length: workerCount }, async () => {
         while (cursor < queue.length) {
-          const invoice = queue[cursor++];
+          const item = queue[cursor++];
           let outcome: { code: string; processed: boolean } | null = null;
           let failed = false;
-          const currentLabel = invoice.invoiceNumber ?? String(invoice.gisceInvoiceId);
+          const currentLabel = item.invoiceNumber ?? String(item.gisceInvoiceId);
           try {
+            const invoice = await this.loadInvoiceWithLines(item.id);
+            if (!invoice) throw new Error("Factura no encontrada.");
             outcome = await this.calculateCostsAndStoreMarginSnapshot(invoice, mode, sharedCostContext, "SUMMARY_ONLY");
           } catch {
             failed = true;
@@ -1404,10 +1415,10 @@ export class BillingDashboardService implements OnModuleInit {
           message: "Fase 2/3: reconstruyendo curvas y perfiles."
       });
 
-      const queue = await this.prisma.cmInvoice.findMany({
+      const queue: CmInvoiceJobQueueItem[] = await this.prisma.cmInvoice.findMany({
         where: { invoiceDate: { gte: from, lte: to } },
         orderBy: [{ invoiceDate: "asc" }, { invoiceNumber: "asc" }],
-        include: { lines: true }
+        select: { id: true, invoiceNumber: true, gisceInvoiceId: true, periodStart: true, periodEnd: true }
       });
       result.totalFound = queue.length;
       await this.updateActiveBillingJob(jobId, { totalItems: queue.length, result: result as unknown as Prisma.InputJsonValue });
@@ -1417,17 +1428,19 @@ export class BillingDashboardService implements OnModuleInit {
         : null;
       const curveContext = await this.buildCurveProcessingContext(queue);
 
-      const costQueue: Array<Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>> = [];
+      const costQueue: CmInvoiceWithLines[] = [];
       let curveProcessed = 0;
       const curveConcurrency = billingCurveJobConcurrency();
       let curveCursor = 0;
       const curveWorkerCount = Math.min(curveConcurrency, queue.length || 1);
       await Promise.all(Array.from({ length: curveWorkerCount }, async () => {
         while (curveCursor < queue.length) {
-          const invoice = queue[curveCursor++];
-          const shouldProcessCurve = mode === "RECALCULATE" || invoice.processingStatus === CmInvoiceProcessingStatus.IMPORTED || invoice.processingStatus === CmInvoiceProcessingStatus.WARNING;
-          let invoiceForCosts = invoice;
+          const item = queue[curveCursor++];
           try {
+            const invoice = await this.loadInvoiceWithLines(item.id);
+            if (!invoice) throw new Error("Factura no encontrada.");
+            const shouldProcessCurve = mode === "RECALCULATE" || invoice.processingStatus === CmInvoiceProcessingStatus.IMPORTED || invoice.processingStatus === CmInvoiceProcessingStatus.WARNING;
+            let invoiceForCosts = invoice;
             if (shouldProcessCurve) {
               const processed = await this.processInvoiceRecord(invoice, curveContext);
               invoiceForCosts = { ...invoice, ...processed };
@@ -1441,7 +1454,7 @@ export class BillingDashboardService implements OnModuleInit {
           curveProcessed += 1;
           await this.updateActiveBillingJob(jobId, {
               ...counters,
-              currentItem: invoice.invoiceNumber ?? String(invoice.gisceInvoiceId),
+              currentItem: item.invoiceNumber ?? String(item.gisceInvoiceId),
               result: result as unknown as Prisma.InputJsonValue,
               message: `Fase 2/3: curvas procesadas ${curveProcessed} / ${queue.length}. Concurrencia: ${Math.min(curveConcurrency, Math.max(queue.length, 1))}.`
           });
@@ -1571,7 +1584,7 @@ export class BillingDashboardService implements OnModuleInit {
     return aggregate;
   }
 
-  private async calculateCostsAndStoreMarginSnapshot(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, mode: MarginJobMode, sharedCostContext?: BillingCostRunSharedContext | null, persistenceMode: "DETAIL" | "SUMMARY_ONLY" = "DETAIL") {
+  private async calculateCostsAndStoreMarginSnapshot(invoice: CmInvoiceWithLines, mode: MarginJobMode, sharedCostContext?: BillingCostRunSharedContext | null, persistenceMode: "DETAIL" | "SUMMARY_ONLY" = "DETAIL") {
     if (invoice.processingStatus !== CmInvoiceProcessingStatus.READY && invoice.processingStatus !== CmInvoiceProcessingStatus.WARNING) return { code: "WITHOUT_CURVE", processed: false };
     if (invoice.expectedIntervals <= 0) return { code: "WITHOUT_CURVE", processed: false };
     const latestCostRun = await this.prisma.cmInvoiceCostRun.findFirst({ where: { invoiceId: invoice.id }, orderBy: [{ startedAt: "desc" }, { createdAt: "desc" }] });
@@ -1588,7 +1601,7 @@ export class BillingDashboardService implements OnModuleInit {
     return this.calculateAndStoreMarginSnapshot(invoice, "RECALCULATE", costs.latestRun?.id ?? undefined);
   }
 
-  private async calculateAndStoreMarginSnapshot(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, mode: MarginJobMode, costRunId?: string) {
+  private async calculateAndStoreMarginSnapshot(invoice: CmInvoiceWithLines, mode: MarginJobMode, costRunId?: string) {
     if (invoice.processingStatus !== CmInvoiceProcessingStatus.READY && invoice.processingStatus !== CmInvoiceProcessingStatus.WARNING) return { code: "WITHOUT_CURVE", processed: false };
     if (invoice.expectedIntervals <= 0) return { code: "WITHOUT_CURVE", processed: false };
     const costRun = costRunId
@@ -1633,7 +1646,7 @@ export class BillingDashboardService implements OnModuleInit {
     return { code: margin.status === CmInvoiceMarginStatus.WARNING ? "WARNING" : "OK", processed: true };
   }
 
-  private async buildMarginSnapshot(invoice: Prisma.CmInvoiceGetPayload<{ include: { lines: true } }>, costRun: { id: string; incidentsCount: number; status: CmInvoiceCostRunStatus; summaryJson?: Prisma.JsonValue | null }) {
+  private async buildMarginSnapshot(invoice: CmInvoiceWithLines, costRun: { id: string; incidentsCount: number; status: CmInvoiceCostRunStatus; summaryJson?: Prisma.JsonValue | null }) {
     const summaryCostsByNature = costsByNatureFromRunSummary(costRun.summaryJson ?? null);
     const [components, powerComponents, curve] = summaryCostsByNature
       ? [[], [], await this.prisma.cmInvoiceConsumptionCurve.aggregate({ where: { invoiceId: invoice.id }, _sum: { consumptionPfKwh: true } })] as const

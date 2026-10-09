@@ -550,7 +550,8 @@ describe("Billing dashboard margin jobs", () => {
     };
     const prisma = {
       cmInvoice: {
-        findMany: async () => [invoice]
+        findMany: async () => [{ id: invoice.id, invoiceNumber: invoice.invoiceNumber, gisceInvoiceId: invoice.gisceInvoiceId, periodStart: null, periodEnd: null }],
+        findUnique: async () => invoice
       },
       cmBillingJob: {
         update: async ({ data }: { data: { message?: string | null; status?: string } }) => {
