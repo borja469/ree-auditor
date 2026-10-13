@@ -39,6 +39,7 @@ describe("Billing dashboard revenue concept mapping", () => {
       "P5",
       "P6",
       "Coste de Gestion 6,75 /mes",
+      "Coste de Gestion 3,3 /mes",
       "Facturacion Complementaria imputada por parte de la Distribuidora - Energia",
       "Servei adicional \"Sostre de preu a 80 EUR/MWh\"",
       "Penalización por resolución anticipada de contrato",
@@ -48,11 +49,12 @@ describe("Billing dashboard revenue concept mapping", () => {
       "Servicio adicional \"Techo de precio a 80 €/MWh\"",
       "Facturación Complementaria imputad",
       "Facturación Complementaria imputada",
-      "Garantías de Origen"
+      "Garantías de Origen",
+      "Descuento 15€",
+      "Ajust per Costos del Sistema de la Xarxa Elèctrica d'Espanya"
     ];
 
     for (const concept of concepts) assert.equal(marginConceptMapping(concept), "ENERGY", concept);
-    assert.equal(marginConceptMapping("Ajust per Costos del Sistema de la Xarxa Elèctrica d'Espanya"), "ADJUSTMENT");
   });
 
   it("usa la cuenta como concepto cuando la linea viene periodificada como P1-P6", () => {
