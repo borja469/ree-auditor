@@ -389,6 +389,61 @@ describe("Billing dashboard operational balance", () => {
     assert.equal(margin.months[0].value, -22);
   });
 
+  it("calcula el total anual EUR/MWh con euros y MWh totales, no sumando meses", () => {
+    const report = buildOperationalBalanceReport({
+      year: 2026,
+      availableYears: [2026],
+      invoices: [{
+        id: "invoice-jan",
+        invoiceDate: new Date(Date.UTC(2026, 0, 15)),
+        lines: [line("Tarifas Acceso / Energia", "P1", 1, 100)]
+      }, {
+        id: "invoice-feb",
+        invoiceDate: new Date(Date.UTC(2026, 1, 15)),
+        lines: [line("Tarifas Acceso / Energia", "P1", 1, 400)]
+      }],
+      curveTotals: [
+        { invoiceId: "invoice-jan", _sum: { consumptionPfKwh: 1000, consumptionBcKwh: 1000 } },
+        { invoiceId: "invoice-feb", _sum: { consumptionPfKwh: 2000, consumptionBcKwh: 2000 } }
+      ],
+      costRuns: [
+        { id: "run-jan", invoiceId: "invoice-jan", incidentsCount: 0, status: CmInvoiceCostRunStatus.COMPLETED },
+        { id: "run-feb", invoiceId: "invoice-feb", incidentsCount: 0, status: CmInvoiceCostRunStatus.COMPLETED }
+      ],
+      margins: [{
+        invoiceId: "invoice-jan",
+        costRunId: "run-jan",
+        marginStatus: CmInvoiceMarginStatus.READY,
+        associatedRevenueEur: 100,
+        associatedCostEur: 50,
+        marginEur: 50,
+        detailsJson: { costsByNature: { ENERGY: 50, POWER: 0 }, rows: [{ concept: "Energia", amount: 100, nature: "ENERGY" }] }
+      }, {
+        invoiceId: "invoice-feb",
+        costRunId: "run-feb",
+        marginStatus: CmInvoiceMarginStatus.READY,
+        associatedRevenueEur: 400,
+        associatedCostEur: 150,
+        marginEur: 250,
+        detailsJson: { costsByNature: { ENERGY: 150, POWER: 0 }, rows: [{ concept: "Energia", amount: 400, nature: "ENERGY" }] }
+      }],
+      intervalComponentSums: [
+        { costRunId: "run-jan", componentCode: "OMIE_MD", costEur: 50 },
+        { costRunId: "run-feb", componentCode: "OMIE_MD", costEur: 150 }
+      ],
+      powerComponentSums: []
+    });
+    const revenueEurMwh = report.rows.find((row) => row.key === "used-revenue-eur-mwh")!;
+    const costsEurMwh = report.rows.find((row) => row.key === "costs-eur-mwh")!;
+    const marginEurMwh = report.rows.find((row) => row.key === "margin-eur-mwh")!;
+
+    assert.equal(revenueEurMwh.months[0].value, 100);
+    assert.equal(revenueEurMwh.months[1].value, 200);
+    assert.equal(revenueEurMwh.total.value, 500 / 3);
+    assert.equal(costsEurMwh.total.value, 200 / 3);
+    assert.equal(marginEurMwh.total.value, 300 / 3);
+  });
+
   it("aggregates costs by nature and component without double-counting invoice lines", () => {
     const report = buildOperationalBalanceReport({
       year: 2026,

@@ -2702,19 +2702,15 @@ export function buildOperationalBalanceReport(input: {
     "margin"
   ]);
   applyConsumptionSourceShareTotals(baseRows, monthlyPfBySource, monthlyPfTotal);
-  const calculatedPf = baseRows.find((row) => row.key === "calculated-pf");
-  const outputRows = insertOperationalRateRows(baseRows, calculatedPf);
-  reconcileOperationalParentRows(outputRows, new Set([
+  reconcileOperationalParentRows(baseRows, new Set([
     "billing",
     "used-revenue",
     "costs",
     "costs:energy",
-    "costs:power",
-    "used-revenue-eur-mwh",
-    "costs-eur-mwh",
-    "costs-eur-mwh:energy",
-    "costs-eur-mwh:power"
+    "costs:power"
   ]));
+  const calculatedPf = baseRows.find((row) => row.key === "calculated-pf");
+  const outputRows = insertOperationalRateRows(baseRows, calculatedPf);
   return {
     year: input.year,
     availableYears: input.availableYears.length ? input.availableYears : [input.year],
