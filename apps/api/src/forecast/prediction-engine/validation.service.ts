@@ -29,7 +29,8 @@ export class ForecastValidationService {
         baselines: {
           sameHourLag24: emptySegmentedMetrics(),
           sameHourRolling7d: emptySegmentedMetrics()
-        }
+        },
+        hybrid: emptySegmentedMetrics()
       };
     }
 
@@ -63,7 +64,8 @@ export class ForecastValidationService {
       rmse: averageMetric(foldMetrics.map((metric) => metric.rmse)),
       folds: foldMetrics.length,
       segments: evaluateSegments(validationPredictions),
-      baselines: evaluateBaselines(dataset.rows, validationRowsForBaselines)
+      baselines: evaluateBaselines(dataset.rows, validationRowsForBaselines),
+      hybrid: evaluateHybridLag24BySegment(dataset.rows, validationPredictions)
     };
   }
 }
@@ -120,6 +122,40 @@ export function evaluateBaselines(allRows: ForecastFeatureRow[], validationRows:
   };
 }
 
+export function evaluateHybridLag24BySegment(allRows: ForecastFeatureRow[], modelPredictions: PredictionResult[]): ForecastSegmentedMetrics {
+  const actualByLocalHour = buildActualByLocalHour(allRows);
+  const hybridPredictions = modelPredictions
+    .map((row) => {
+      const hour = localHour(row);
+      const date = localDate(row);
+      if (!date || hour === null) {
+        return null;
+      }
+      const lag24 = actualByLocalHour.get(localHourKey(shiftDate(date, -1), hour));
+      const shouldUseLag24 = belongsToSegment("night", hour) || belongsToSegment("evening", hour);
+      const predicted = shouldUseLag24 ? lag24 : row.predicted;
+      if (typeof predicted !== "number" || !Number.isFinite(predicted)) {
+        return null;
+      }
+      const result: PredictionResult = {
+        timestampUtc: row.timestampUtc,
+        actual: row.actual,
+        predicted,
+        residual: row.actual - predicted
+      };
+      if (row.date) {
+        result.date = row.date;
+      }
+      if (row.datetimeLocal) {
+        result.datetimeLocal = row.datetimeLocal;
+      }
+      return result;
+    })
+    .filter((row): row is PredictionResult => row !== null);
+
+  return evaluateSegments(hybridPredictions);
+}
+
 function buildBaselinePredictions(validationRows: ForecastFeatureRow[], predict: (row: ForecastFeatureRow) => number | undefined): PredictionResult[] {
   return validationRows
     .map((row) => {
@@ -142,6 +178,18 @@ function buildBaselinePredictions(validationRows: ForecastFeatureRow[], predict:
       return result;
     })
     .filter((row): row is PredictionResult => row !== null);
+}
+
+function buildActualByLocalHour(rows: ForecastFeatureRow[]) {
+  const actualByLocalHour = new Map<string, number>();
+  for (const row of rows) {
+    const date = localDate(row);
+    const hour = localHour(row);
+    if (date && hour !== null && Number.isFinite(row.target)) {
+      actualByLocalHour.set(localHourKey(date, hour), row.target);
+    }
+  }
+  return actualByLocalHour;
 }
 
 function evaluatePredictions(predictions: PredictionResult[]): ForecastSegmentMetrics {

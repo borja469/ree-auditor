@@ -10,7 +10,7 @@ const { ForecastModelStoreService } = require("./forecast-model-store.service");
 const { ForecastPredictionRunStoreService } = require("./forecast-prediction-run-store.service");
 const { ForecastPredictionService } = require("./prediction.service");
 const { ForecastTrainingService } = require("./prediction-engine/training.service");
-const { evaluateBaselines, evaluateSegments, ForecastValidationService } = require("./prediction-engine/validation.service");
+const { evaluateBaselines, evaluateHybridLag24BySegment, evaluateSegments, ForecastValidationService } = require("./prediction-engine/validation.service");
 const { GradientBoostingModel } = require("./prediction-engine/gradient-boosting.model");
 const { RandomForestModel } = require("./prediction-engine/random-forest.model");
 
@@ -425,6 +425,10 @@ void describe("Forecast prediction engine", () => {
       predictionRow("2026-01-08", 21, 120, 110)
     ]);
     const baselines = evaluateBaselines(allRows, validationRows);
+    const hybrid = evaluateHybridLag24BySegment(allRows, [
+      predictionRow("2026-01-08", 12, 80, 70),
+      predictionRow("2026-01-08", 21, 120, 110)
+    ]);
 
     assert.equal(segments.all.count, 2);
     assert.equal(segments.solar.count, 1);
@@ -433,6 +437,9 @@ void describe("Forecast prediction engine", () => {
     assert.equal(baselines.sameHourLag24.solar.mae, 64);
     assert.equal(baselines.sameHourRolling7d.solar.mae, 67);
     assert.equal(baselines.sameHourLag24.evening.mae, 20);
+    assert.equal(hybrid.all.mae, 15);
+    assert.equal(hybrid.solar.mae, 10);
+    assert.equal(hybrid.evening.mae, 20);
   });
 
   void it("calcula feature importance normalizada", () => {

@@ -56,6 +56,7 @@ export type WalkForwardMetrics = EvaluationMetrics & {
   folds: number;
   segments?: ForecastSegmentedMetrics;
   baselines?: ForecastBaselineMetrics;
+  hybrid?: ForecastSegmentedMetrics;
 };
 
 export type ForecastFeatureStats = Record<
