@@ -39,6 +39,25 @@ export type EvaluationMetrics = {
   rmse: number | null;
 };
 
+export type ForecastSegmentKey = "all" | "solar" | "night" | "evening";
+
+export type ForecastSegmentMetrics = EvaluationMetrics & {
+  count: number;
+};
+
+export type ForecastSegmentedMetrics = Record<ForecastSegmentKey, ForecastSegmentMetrics>;
+
+export type ForecastBaselineMetrics = {
+  sameHourLag24: ForecastSegmentedMetrics;
+  sameHourRolling7d: ForecastSegmentedMetrics;
+};
+
+export type WalkForwardMetrics = EvaluationMetrics & {
+  folds: number;
+  segments?: ForecastSegmentedMetrics;
+  baselines?: ForecastBaselineMetrics;
+};
+
 export type ForecastFeatureStats = Record<
   string,
   {

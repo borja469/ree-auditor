@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { EvaluationMetrics, ForecastFeatureStats } from "./prediction-engine/prediction-model.interface";
+import { EvaluationMetrics, ForecastFeatureStats, WalkForwardMetrics } from "./prediction-engine/prediction-model.interface";
 
 export type ForecastModelListItem = {
   id: string;
@@ -22,7 +22,7 @@ export type ForecastStoredModel = ForecastModelListItem & {
   featureStats: ForecastFeatureStats;
   intercepto: number;
   metricasCompletas: EvaluationMetrics;
-  walkForwardMetricas: EvaluationMetrics & { folds: number };
+  walkForwardMetricas: WalkForwardMetrics;
   featureImportance: Array<{ variable: string; importance: number }>;
   numeroRegistros: number;
   duracionMs: number;
@@ -43,7 +43,7 @@ type CreateForecastModelInput = {
   featureStats?: ForecastFeatureStats;
   intercepto: number;
   metricas: EvaluationMetrics;
-  walkForwardMetricas: EvaluationMetrics & { folds: number };
+  walkForwardMetricas: WalkForwardMetrics;
   featureImportance: Array<{ variable: string; importance: number }>;
   numeroRegistros: number;
   duracionMs: number;
@@ -90,7 +90,7 @@ export class ForecastModelStoreService {
       intercepto: Number(row.intercepto.toString()),
       metricas: parseJson<EvaluationMetrics>(row.metricas, { r: null, mae: null, rmse: null }),
       metricasCompletas: parseJson<EvaluationMetrics>(row.metricas, { r: null, mae: null, rmse: null }),
-      walkForwardMetricas: parseJson<EvaluationMetrics & { folds: number }>(row.walkForwardMetricas, { r: null, mae: null, rmse: null, folds: 0 }),
+      walkForwardMetricas: parseJson<WalkForwardMetrics>(row.walkForwardMetricas, { r: null, mae: null, rmse: null, folds: 0 }),
       featureImportance: parseJson<Array<{ variable: string; importance: number }>>(row.featureImportance, []),
       numeroRegistros: row.numeroRegistros,
       duracionMs: row.duracionMs,

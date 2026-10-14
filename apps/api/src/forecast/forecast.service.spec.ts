@@ -10,7 +10,7 @@ const { ForecastModelStoreService } = require("./forecast-model-store.service");
 const { ForecastPredictionRunStoreService } = require("./forecast-prediction-run-store.service");
 const { ForecastPredictionService } = require("./prediction.service");
 const { ForecastTrainingService } = require("./prediction-engine/training.service");
-const { ForecastValidationService } = require("./prediction-engine/validation.service");
+const { evaluateBaselines, evaluateSegments, ForecastValidationService } = require("./prediction-engine/validation.service");
 const { GradientBoostingModel } = require("./prediction-engine/gradient-boosting.model");
 const { RandomForestModel } = require("./prediction-engine/random-forest.model");
 
@@ -409,6 +409,32 @@ void describe("Forecast prediction engine", () => {
     assert.equal(result.rmse !== null, true);
   });
 
+  void it("calcula metricas segmentadas y baselines por misma hora local", () => {
+    const validationRows = [
+      forecastRow("2026-01-08", 12, 80),
+      forecastRow("2026-01-08", 21, 120)
+    ];
+    const allRows = [
+      ...Array.from({ length: 7 }, (_, index) => forecastRow(`2026-01-0${index + 1}`, 12, 10 + index)),
+      forecastRow("2026-01-07", 21, 100),
+      ...validationRows
+    ];
+
+    const segments = evaluateSegments([
+      predictionRow("2026-01-08", 12, 80, 70),
+      predictionRow("2026-01-08", 21, 120, 110)
+    ]);
+    const baselines = evaluateBaselines(allRows, validationRows);
+
+    assert.equal(segments.all.count, 2);
+    assert.equal(segments.solar.count, 1);
+    assert.equal(segments.evening.count, 1);
+    assert.equal(segments.solar.mae, 10);
+    assert.equal(baselines.sameHourLag24.solar.mae, 64);
+    assert.equal(baselines.sameHourRolling7d.solar.mae, 67);
+    assert.equal(baselines.sameHourLag24.evening.mae, 20);
+  });
+
   void it("calcula feature importance normalizada", () => {
     const importance = new ForecastFeatureImportanceService();
     const dataset = makeFeatureImportanceDataset();
@@ -698,6 +724,27 @@ function makeFeatureImportanceDataset() {
     featureNames: ["demandaPrevista", "eolica"],
     excludedFeatures: [],
     metadata: { fechaDesde: "2026-01-01", fechaHasta: "2026-01-02", totalRows: rows.length, targetRows: rows.length, trainingRows: rows.length, mappingVariables: 0 }
+  };
+}
+
+function forecastRow(date: string, hour: number, target: number) {
+  return {
+    timestampUtc: `${date}T${String(hour).padStart(2, "0")}:00:00.000Z`,
+    datetimeLocal: `${date}T${String(hour).padStart(2, "0")}:00:00`,
+    date,
+    target,
+    features: { x: target }
+  };
+}
+
+function predictionRow(date: string, hour: number, actual: number, predicted: number) {
+  return {
+    timestampUtc: `${date}T${String(hour).padStart(2, "0")}:00:00.000Z`,
+    datetimeLocal: `${date}T${String(hour).padStart(2, "0")}:00:00`,
+    date,
+    actual,
+    predicted,
+    residual: actual - predicted
   };
 }
 
