@@ -25,6 +25,7 @@ export const getSipsConfig = () => getJson<SipsConfig>("/sips/config");
 export const saveSipsConfig = (config: { environment: string; consumerKey?: string; consumerSecret?: string }) => sendJson<SipsConfig>("/sips/config", "PUT", "Guardando configuración CNMC", REQUEST_TIMEOUT_MS, config);
 export const testSipsConfig = () => sendJson<{ status: string; message: string; testedAt: string }>("/sips/config/test", "POST", "Probando conexión CNMC", REQUEST_TIMEOUT_MS * 2);
 export const getSipsHistory = (page = 1) => getJson<SipsHistoryPage>(`/sips/history?page=${page}`);
+export const validateSipsCups = (cups: string) => getJson<{ cups: string; valid: boolean; code?: "CUPS_FORMATO_INVALIDO" | "CUPS_CONTROL_INVALIDO" }>(`/sips/validate/${encodeURIComponent(cups)}`, true);
 export const getSipsStored = (cups: string) => getJson<SipsStored>(`/sips/${encodeURIComponent(cups)}`);
 export const consultSips = (cups: string) => sendJson<{ results: { ps: { status: string; count: number; errorCode?: string }; consumption: { status: string; count: number; errorCode?: string } }; data: SipsStored }>(`/sips/${encodeURIComponent(cups)}/consult`, "POST", "Consultando SIPS", REQUEST_TIMEOUT_MS * 3);
 
@@ -5085,8 +5086,8 @@ export async function saveAnnualReportRetributionPrice(request: {
   return sendJson(`/annual-report/retribution-price`, "PUT", "Guardando retribucion", REQUEST_TIMEOUT_MS, request);
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  return withGlobalLoading(async () => {
+async function getJson<T>(path: string, silent = false): Promise<T> {
+  const request = async () => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
@@ -5105,7 +5106,8 @@ async function getJson<T>(path: string): Promise<T> {
     } finally {
       window.clearTimeout(timeout);
     }
-  }, { label: "Cargando datos" });
+  };
+  return silent ? request() : withGlobalLoading(request, { label: "Cargando datos" });
 }
 
 async function sendJson<T>(path: string, method: "POST" | "PUT" | "DELETE", label: string, timeoutMs = REQUEST_TIMEOUT_MS, body?: unknown): Promise<T> {

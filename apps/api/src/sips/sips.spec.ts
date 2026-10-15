@@ -4,7 +4,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { AuthService } from "../auth/auth.service";
-import { CONSUMPTION_HEADERS, normalizeConsumption, parseSipsCsv, PS_HEADERS, publicPs, SipsCsvError } from "./sips-csv";
+import { CONSUMPTION_HEADERS, normalizeConsumption, parseSipsCsv, PS_HEADERS, publicPs, readSipsCsv, SipsCsvError } from "./sips-csv";
+import { normalizeCups, validateCups } from "./cups-validation";
 import { SipsService, validCups } from "./sips.service";
 
 const originalFetch = global.fetch;
@@ -37,6 +38,82 @@ void test("CSV vacío, mensaje HTTP 200 y campos de titular", () => {
   assert.throws(() => parseSipsCsv("cups,bad\nother,value", "PS", cups), (error) => error instanceof SipsCsvError && error.code === "INVALID_CSV");
   assert.deepEqual(publicPs({ cups, nombreTitular: "Persona", idTitular: "123", codigoTarifaATREnVigor: "019" }), { cups, codigoTarifaATREnVigor: "019" });
   assert.equal(validCups(cups), cups); assert.throws(() => validCups("ES123"));
+});
+
+void test("CSV CNMC respeta UTF-8 y Windows-1252 sin caracteres de sustitución", async () => {
+  const utf8 = new Response('"Distribuidora Eléctrica"', { headers: { "content-type": "text/csv; charset=utf-8" } });
+  const latin1 = new Response(Uint8Array.from([68, 105, 115, 116, 114, 105, 98, 117, 105, 100, 111, 114, 97, 32, 69, 108, 233, 99, 116, 114, 105, 99, 97]), { headers: { "content-type": "text/csv; charset=windows-1252" } });
+  const latin1WithoutHeader = new Response(Uint8Array.from([69, 108, 233, 99, 116, 114, 105, 99, 97]));
+  assert.equal(await readSipsCsv(utf8), '"Distribuidora Eléctrica"');
+  assert.equal(await readSipsCsv(latin1), "Distribuidora Eléctrica");
+  assert.equal(await readSipsCsv(latin1WithoutHeader), "Eléctrica");
+});
+
+function calculatedCups(digits: string, suffix = "") {
+  const letters = "TRWAGMYFPDXBNJZSQVHLCKE";
+  const remainder = Number(BigInt(digits) % 529n);
+  return `ES${digits}${letters[Math.floor(remainder / 23)]}${letters[remainder % 23]}${suffix}`;
+}
+
+void test("normalización y controles de CUPS de 20 y 22 caracteres", () => {
+  const digits = "0022000007748077";
+  const cups20 = calculatedCups(digits);
+  const cups22 = calculatedCups(digits, "1P");
+  assert.equal(cups20.length, 20); assert.equal(cups22.length, 22);
+  assert.deepEqual(validateCups(cups20), { cups: cups20, valid: true });
+  assert.deepEqual(validateCups(cups22), { cups: cups22, valid: true });
+  assert.equal(normalizeCups(`  ${cups22.slice(0, 9).toLowerCase()} ${cups22.slice(9).toLowerCase()}  `), cups22);
+  assert.equal(validCups(`  ${cups22.slice(0, 9).toLowerCase()} ${cups22.slice(9).toLowerCase()}  `), cups22);
+  assert.equal(cups20.slice(2, 4), "00");
+  for (const invalid of [cups20.replace(/^ES/, "FR"), cups20.slice(0, -1), `ES${digits}1A`, `${cups20}AA`, `ES${digits.slice(0, -1)}XAA`]) {
+    assert.equal(validateCups(invalid).valid, false);
+    assert.equal((validateCups(invalid) as { code: string }).code, "CUPS_FORMATO_INVALIDO");
+  }
+  const wrongControls = `${cups20.slice(0, 18)}AA`;
+  assert.equal((validateCups(wrongControls) as { code: string }).code, "CUPS_CONTROL_INVALIDO");
+  assert.throws(() => validCups(wrongControls), (error: unknown) => (error as { getResponse: () => { code: string } }).getResponse().code === "CUPS_CONTROL_INVALIDO");
+});
+
+void test("CUPS inválido bloquea OAuth, CNMC y base de datos", async () => {
+  let calls = 0;
+  global.fetch = async () => { calls++; throw new Error("No debería solicitarse la CNMC"); };
+  const prisma = { sipsConfig: { findUnique: async () => { calls++; return null; } } };
+  const service = new SipsService(prisma as never, new AuthService());
+  for (const cups of ["ES123", `${calculatedCups("0022000007748077").slice(0, 18)}AA`]) {
+    await assert.rejects(() => service.consult(cups, "operaciones"));
+  }
+  assert.equal(calls, 0);
+});
+
+void test("sin datos, permisos, autenticación y error HTTP se distinguen", async () => {
+  const cups = calculatedCups("0022000007748077");
+  for (const [httpStatus, body, expected] of [
+    [200, "No se han encontrado resultados", "NO_RESULTS"],
+    [401, "unauthorized", "AUTH"],
+    [403, "forbidden", "PERMISSION"],
+    [503, "unavailable", "SERVICE"]
+  ] as const) {
+    const config: Record<string, unknown> = {};
+    const queries: Array<Record<string, unknown>> = [];
+    const prisma = {
+      sipsConfig: { findUnique: async () => Object.keys(config).length ? config : null, upsert: async ({ create }: { create: object }) => { Object.assign(config, create); return config; } },
+      sipsPs: { findUnique: async () => null },
+      sipsConsumption: { findMany: async () => [] },
+      sipsQuery: { create: async ({ data }: { data: object }) => { queries.push(data); }, findMany: async () => queries, updateMany: async () => ({ count: 0 }) }
+    };
+    const service = new SipsService(prisma as never, new AuthService());
+    await service.saveConfig("operaciones", { environment: "production", consumerKey: "key", consumerSecret: "secret" });
+    let tokenCalls = 0;
+    global.fetch = async (input) => {
+      if (String(input).endsWith("/oauth2/token")) { tokenCalls++; return new Response(JSON.stringify({ access_token: `token${tokenCalls}`, token_type: "Bearer", expires_in: 3600 }), { status: 200 }); }
+      return new Response(body, { status: httpStatus });
+    };
+    const result = await service.consult(cups, "operaciones") as { results: { ps: { errorCode?: string }; consumption: { errorCode?: string } } };
+    assert.equal(result.results.ps.errorCode, expected);
+    assert.equal(result.results.consumption.errorCode, expected);
+    assert.equal(queries.length, 2);
+    assert.equal(tokenCalls, httpStatus === 401 ? 2 : 1);
+  }
 });
 
 void test("OAuth compartido, 401 único y consulta parcial conservan datos", async () => {

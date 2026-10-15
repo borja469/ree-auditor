@@ -5,6 +5,10 @@
 .sips-toolbar { justify-content: space-between; }
 .sips-toolbar label, .sips-config label, .sips-consumption-filters label { display: grid; gap: 4px; font-size: .82rem; }
 .sips-toolbar input { min-width: 250px; }
+.sips-cups-validation { font-size: .78rem; }
+.sips-cups-validation--valid { color: #166534; }
+.sips-cups-validation--invalid { color: #991b1b; }
+.sips-toolbar input[aria-invalid="true"] { border-color: #dc2626; }
 .sips-page input, .sips-page select { padding: 8px 10px; border: 1px solid var(--border, #cbd5e1); border-radius: 7px; background: var(--surface, #fff); color: inherit; }
 .sips-page button { cursor: pointer; padding: 8px 12px; border: 1px solid #b9ccd3; border-radius: 7px; background: #f2f8f9; color: #123b46; font: inherit; font-size: .82rem; }
 .sips-page button:hover:not(:disabled) { background: #dceff0; }

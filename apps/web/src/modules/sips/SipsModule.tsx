@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
-import { consultSips, getSipsCapabilities, getSipsConfig, getSipsHistory, getSipsStored, saveSipsConfig, testSipsConfig } from "../../api";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { consultSips, getSipsCapabilities, getSipsConfig, getSipsHistory, getSipsStored, saveSipsConfig, testSipsConfig, validateSipsCups } from "../../api";
 import type { SipsCapabilities, SipsConfig, SipsConsumption, SipsHistory, SipsStored } from "../../api";
 import { EChart } from "../shared/RestoredModuleCommon";
+import { psLabel } from "./sips-ps-labels";
 import "./sips.css";
 
 type Magnitude = "active" | "inductive" | "capacitive" | "demand";
@@ -94,6 +95,10 @@ const BLOCKS: Array<{ title: string; keys: string[] }> = [
 
 export function SipsModule() {
   const [cups, setCups] = useState(""); const [data, setData] = useState<SipsStored>(); const [history, setHistory] = useState<SipsHistory[]>([]);
+  const cupsInput = useRef("");
+  const [cupsCheck, setCupsCheck] = useState<{ cups: string; valid: boolean; code?: "CUPS_FORMATO_INVALIDO" | "CUPS_CONTROL_INVALIDO" }>();
+  const [cupsTouched, setCupsTouched] = useState(false);
+  const [cupsValidationError, setCupsValidationError] = useState(false);
   const [historyPage, setHistoryPage] = useState(1); const [historyPageSize, setHistoryPageSize] = useState(20); const [historyTotal, setHistoryTotal] = useState(0); const [historyLoading, setHistoryLoading] = useState(false);
   const [capabilities, setCapabilities] = useState<SipsCapabilities>({ admin: false, holder: false });
   const [config, setConfig] = useState<SipsConfig>(); const [showConfig, setShowConfig] = useState(false);
@@ -104,6 +109,14 @@ export function SipsModule() {
   const [manualCopyText, setManualCopyText] = useState("");
   const [dataSource, setDataSource] = useState<"consult" | "stored">("stored"); const [consultError, setConsultError] = useState("");
   useEffect(() => { void Promise.all([getSipsCapabilities(), getSipsHistory(1)]).then(([caps, result]) => { setCapabilities(caps); setHistory(result.items); setHistoryPage(result.page); setHistoryPageSize(result.pageSize); setHistoryTotal(result.total); }).catch(() => setMessage("No se pudo cargar SIPS.")); }, []);
+  useEffect(() => {
+    if (!cups.trim()) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void validateSipsCups(cups).then((result) => { if (!cancelled) { setCupsCheck(result); setCupsValidationError(false); } }).catch(() => { if (!cancelled) { setCupsCheck(undefined); setCupsValidationError(true); } });
+    }, 300);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [cups]);
   const latest = data?.queries[0];
   const latestPs = data?.queries.find((query) => query.kind === "PS");
   const latestConsumption = data?.queries.find((query) => query.kind === "CONSUMPTION");
@@ -125,17 +138,29 @@ export function SipsModule() {
   }
 
   async function load(value: string) {
+    cupsInput.current = value; setCups(value); setCupsCheck(undefined); setCupsTouched(false); setCupsValidationError(false); setData(undefined);
     setBusy(true); setMessage(""); setConsultError("");
-    try { const stored = await getSipsStored(value.trim().toUpperCase()); setData(stored); setCups(stored.cups); setDataSource("stored"); }
+    try { const stored = await getSipsStored(value); if (cupsInput.current === value) { setData(stored); setCups(stored.cups); cupsInput.current = stored.cups; setDataSource("stored"); } }
     catch (error) { setMessage(readError(error)); }
     finally { setBusy(false); }
   }
   async function consult(selectedCups = cups) {
-    setBusy(true); setMessage(""); setConsultError("");
+    let normalizedCups = selectedCups;
+    cupsInput.current = selectedCups; setCups(selectedCups); setCupsCheck(undefined); setCupsTouched(true); setCupsValidationError(false);
+    if (data?.cups !== selectedCups) setData(undefined);
+    setMessage(""); setConsultError("");
     try {
-      const result = await consultSips(selectedCups.trim().toUpperCase()); setData(result.data); setCups(result.data.cups); setDataSource("consult");
+      const check = await validateSipsCups(selectedCups);
+      if (cupsInput.current !== selectedCups) return;
+      setCupsCheck(check); setCups(check.cups); cupsInput.current = check.cups; setCupsValidationError(false);
+      normalizedCups = check.cups;
+      if (!check.valid) { setConsultError(cupsValidationText(check.code)); return; }
+      setBusy(true);
+      const result = await consultSips(check.cups);
+      if (cupsInput.current !== check.cups) return;
+      setData(result.data); setCups(result.data.cups); setDataSource("consult");
       void loadHistoryPage(1);
-    } catch (error) { setConsultError(readError(error)); }
+    } catch (error) { if (cupsInput.current === normalizedCups) { setConsultError(readError(error)); setCupsValidationError(true); } }
     finally { setBusy(false); }
   }
   async function openConfig() {
@@ -182,10 +207,11 @@ export function SipsModule() {
   return <div className="sips-page">
     <section className="panel sips-toolbar">
       <form onSubmit={(event) => { event.preventDefault(); void consult(); }}>
-        <label>CUPS <input aria-label="CUPS" value={cups} onChange={(event) => setCups(event.target.value.toUpperCase())} placeholder="ES..." maxLength={24} /></label>
-        <button type="submit" disabled={busy}>Consultar</button>
+        <label>CUPS <input aria-label="CUPS" value={cups} onChange={(event) => { cupsInput.current = event.target.value; setCups(event.target.value); setCupsCheck(undefined); setCupsValidationError(false); setData(undefined); setConsultError(""); }} onBlur={() => { setCupsTouched(true); if (!cups.trim()) setCupsCheck({ cups: "", valid: false, code: "CUPS_FORMATO_INVALIDO" }); }} aria-invalid={cupsTouched && cupsCheck?.valid === false} aria-describedby="sips-cups-validation" placeholder="ES..." /></label>
+        <button type="submit" disabled={busy || !cupsCheck?.valid}>Consultar</button>
         {capabilities.admin && <button type="button" onClick={() => void openConfig()}>Configuración</button>}
       </form>
+      <span id="sips-cups-validation" className={`sips-cups-validation ${cupsTouched && cupsCheck ? cupsCheck.valid ? "sips-cups-validation--valid" : "sips-cups-validation--invalid" : cupsTouched && cupsValidationError ? "sips-cups-validation--invalid" : ""}`} role="status">{cupsTouched && cupsCheck ? cupsCheck.valid ? `CUPS_VALIDO: El CUPS tiene un formato correcto.${busy ? " Consultando SIPS..." : ""}` : cupsValidationText(cupsCheck.code) : cupsTouched && cupsValidationError ? "CNMC_ERROR_SERVICIO: No ha sido posible validar el CUPS. Inténtelo de nuevo." : ""}</span>
       <span>Estado: {busy ? "Consultando…" : consultError ? "Error" : data && dataSource === "stored" ? "Datos guardados" : queryStatus}</span>
       <span>Última actualización: {latest ? new Date(latest.queriedAt).toLocaleString("es-ES") : ""}</span>
     </section>
@@ -193,7 +219,7 @@ export function SipsModule() {
       <span className="sips-result-icon" aria-hidden="true">{resultTone === "success" ? "✓" : resultTone === "partial" ? "!" : resultTone === "error" ? "×" : resultTone === "empty" ? "–" : "▣"}</span>
       <div className="sips-result-body">
         <strong>{resultTitle}</strong>
-        {consultError ? <p>{consultError}{data ? " Los datos que siguen corresponden a una consulta anterior." : ""}</p> : <>
+        {consultError ? <p>{consultError}</p> : <>
           <p>{data?.cups}{latest ? ` · ${dataSource === "stored" ? "Última consulta" : "Actualizado"}: ${new Date(latest.queriedAt).toLocaleString("es-ES")}` : ""}</p>
           <div className="sips-result-details"><span>Datos PS: <b>{queryResultDetail(latestPs, Boolean(data?.ps))}</b></span><span>Consumos PS: <b>{queryResultDetail(latestConsumption, Boolean(data?.consumptions.length))}</b></span></div>
         </>}
@@ -217,7 +243,7 @@ export function SipsModule() {
         {!data.ps && <p className="panel">Sin datos PS almacenados.</p>}
         {data.ps && BLOCKS.filter((block) => block.title !== "Datos del titular" || capabilities.holder).map((block) => {
           const visibleKeys = block.keys.filter((key) => data.ps!.fields[key]?.trim());
-          return visibleKeys.length ? <div className="panel" key={block.title}><h2>{block.title}</h2><dl className="sips-fields">{visibleKeys.map((key) => <div key={key}><dt>{label(key)}</dt><dd>{formatPsValue(key, data.ps!.fields[key])}</dd></div>)}</dl></div> : null;
+          return visibleKeys.length ? <div className="panel" key={block.title}><h2>{block.title}</h2><dl className="sips-fields">{visibleKeys.map((key) => <div key={key}><dt>{psLabel(key)}</dt><dd>{formatPsValue(key, data.ps!.fields[key])}</dd></div>)}</dl></div> : null;
         })}
         {data.ps && <div className="panel"><button onClick={() => setShowAll((value) => !value)}>{showAll ? "Ocultar" : "Ver"} todos los campos CSV</button>{showAll && <dl className="sips-fields sips-all-fields">{Object.entries(data.ps.fields).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>}</div>}
       </section>}
@@ -244,7 +270,8 @@ function queryResultDetail(query?: SipsStored["queries"][number], storedData = f
   const detail = statusText(query.status, query.errorCode);
   return storedData ? `${detail}; datos guardados disponibles` : detail;
 }
-function statusText(status?: string, code?: string | null) { if (!status) return ""; if (status === "OK") return "Correcto"; if (status === "NO_RESULTS") return "Sin resultados"; const descriptions: Record<string, string> = { AUTH: "Credenciales CNMC rechazadas", PERMISSION: "Sin permisos", NOT_FOUND: "Fichero no disponible", INVALID_CSV: "CSV no válido", CUPS_MISMATCH: "CUPS inesperado", TIMEOUT: "Tiempo agotado", CONNECTION: "Error de conexión", CONFIG: "Sin configurar" }; return descriptions[code ?? ""] ?? "Error de servicio"; }
+function cupsValidationText(code?: string) { return code === "CUPS_CONTROL_INVALIDO" ? "CUPS_CONTROL_INVALIDO: Los caracteres de control no son correctos." : "CUPS_FORMATO_INVALIDO: El CUPS no tiene la estructura correcta."; }
+function statusText(status?: string, code?: string | null) { if (!status) return ""; if (status === "OK") return "Correcto"; if (status === "NO_RESULTS") return "CUPS_NO_ENCONTRADO: La consulta no ha devuelto información para este CUPS; puede deberse al ámbito o disponibilidad de datos."; const descriptions: Record<string, string> = { AUTH: "CNMC_ERROR_AUTENTICACION: No ha sido posible autenticar la petición.", PERMISSION: "CNMC_SIN_PERMISOS: Las credenciales no tienen acceso al recurso solicitado.", NOT_FOUND: "Fichero no disponible", INVALID_CSV: "CSV no válido", CUPS_MISMATCH: "CUPS inesperado", TIMEOUT: "Tiempo agotado", CONNECTION: "Error de conexión", CONFIG: "Sin configurar" }; return descriptions[code ?? ""] ?? "CNMC_ERROR_SERVICIO: No ha sido posible completar la consulta."; }
 function formatNumber(value: number) { return new Intl.NumberFormat("es-ES", { maximumFractionDigits: 3 }).format(value); }
 function consumptionHeaders(magnitude: Magnitude) { return ["Inicio", "Fin", "ATR", ...Array.from({ length: 6 }, (_, index) => `P${index + 1}`), `${magnitude === "demand" ? "Máximo" : "Total"} ${MAGNITUDES[magnitude].unit}`, "Lectura"]; }
 function consumptionCells(row: SipsConsumption, magnitude: Magnitude) { return [row.dateFrom, row.dateTo, formatTarifaAtr(row.tariff), ...row.magnitudes[magnitude].map((value) => value === null ? "" : formatNumber(value)), formatNumber(magnitude === "demand" ? row.totals.demandMax : row.totals[magnitude]), LECTURA_DESCRIPTIONS[row.readingType] ?? row.readingType]; }
@@ -269,5 +296,4 @@ function copyTextViaSelection(text: string) {
 }
 function formatTarifaAtr(value: string) { return TARIFA_ATR_DESCRIPTIONS[value] ?? value; }
 function formatPsValue(key: string, value: string) { if (key === "codigoTensionV") return TENSION_V_DESCRIPTIONS[value] ?? value; if (key === "codigoTarifaATREnVigor") return formatTarifaAtr(value); if (PS_CODE_DESCRIPTIONS[key]) return PS_CODE_DESCRIPTIONS[key][value] ?? value; if (key.endsWith("W") || /EnWP\d$/.test(key)) { const number = Number(value); return value && Number.isFinite(number) ? `${formatNumber(number / 1000)} kW` : ""; } return value; }
-function label(key: string) { return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/PS$/, " PS").replace(/EnW/g, " (W)").replace(/^codigo /i, "Código ").replace(/^des /i, "Descripción "); }
 function readError(error: unknown) { return error instanceof Error ? error.message : "No se pudo completar la operación."; }

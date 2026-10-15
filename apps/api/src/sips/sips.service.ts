@@ -2,7 +2,8 @@ import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/com
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { AuthService } from "../auth/auth.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { normalizeConsumption, parseSipsCsv, publicPs, SipsCsvError, SipsKind } from "./sips-csv";
+import { normalizeConsumption, parseSipsCsv, publicPs, readSipsCsv, SipsCsvError, SipsKind } from "./sips-csv";
+import { validateCups } from "./cups-validation";
 
 type Result = { status: string; count: number; errorCode?: string };
 const PATHS = {
@@ -32,6 +33,8 @@ export class SipsService {
   capabilities(user: string) {
     return { admin: this.auth.isAdminUser(user), holder: this.holderAllowed(user) };
   }
+
+  validateCups(value: string) { return validateCups(value); }
 
   async config(user: string) {
     this.requireAdmin(user);
@@ -183,7 +186,7 @@ export class SipsService {
       if (response.status === 403) throw new SipsRemoteError("PERMISSION");
       if (response.status === 404) throw new SipsRemoteError("NOT_FOUND");
       if (!response.ok) throw new SipsRemoteError("SERVICE");
-      const text = await response.text();
+      const text = await readSipsCsv(response);
       if (text.length > 10_000_000) throw new SipsRemoteError("INVALID_CSV");
       return text;
     }
@@ -226,9 +229,9 @@ export class SipsService {
 }
 
 export function validCups(value: string) {
-  const cups = typeof value === "string" ? value.trim().toUpperCase() : "";
-  if (!/^ES\d{16}[A-Z]{2}(?:\d[A-Z])?$/.test(cups)) throw new BadRequestException("CUPS no válido.");
-  return cups;
+  const result = validateCups(value);
+  if (!result.valid) throw new BadRequestException({ code: result.code, message: result.code === "CUPS_FORMATO_INVALIDO" ? "El CUPS no tiene la estructura correcta." : "Los caracteres de control no son correctos." });
+  return result.cups;
 }
 function dateOrNull(value?: string) { return value && /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(value) : null; }
 function errorCode(error: unknown) { return error instanceof SipsCsvError || error instanceof SipsRemoteError ? error.code : "SERVICE"; }

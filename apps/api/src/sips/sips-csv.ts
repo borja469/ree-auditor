@@ -9,6 +9,17 @@ export class SipsCsvError extends Error {
   constructor(public readonly code: "NO_RESULTS" | "INVALID_CSV" | "CUPS_MISMATCH") { super(code); }
 }
 
+export async function readSipsCsv(response: Response): Promise<string> {
+  const bytes = await response.arrayBuffer();
+  const declaredCharset = /charset\s*=\s*["']?([^;"'\s]+)/i.exec(response.headers.get("content-type") ?? "")?.[1];
+  if (declaredCharset) {
+    try { return new TextDecoder(declaredCharset, { fatal: true }).decode(bytes); }
+    catch { /* La cabecera puede declarar una codificación errónea. */ }
+  }
+  try { return new TextDecoder("utf-8", { fatal: true }).decode(bytes); }
+  catch { return new TextDecoder("windows-1252").decode(bytes); }
+}
+
 export function parseSipsCsv(input: string, kind: SipsKind, cups: string): CsvRow[] {
   const csv = input.replace(/^\uFEFF/, "");
   const trimmed = csv.trim();
