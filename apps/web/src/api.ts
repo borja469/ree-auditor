@@ -13,6 +13,21 @@ export type OmieDownloadDocumentType = OmieTipoDocumento | OmieTipoPrecio | "TRA
 export type OmieDownloadEstado = "PENDIENTE" | "DESCARGANDO" | "DESCARGADO" | "PROCESADO" | "SIN_DATOS" | "ERROR";
 export type BillingInvoiceStatus = "IMPORTED" | "PROCESSING" | "READY" | "WARNING" | "ERROR";
 
+export type SipsCapabilities = { admin: boolean; holder: boolean };
+export type SipsConfig = { environment: "production" | "preproduction"; keyConfigured: boolean; secretConfigured: boolean; connectionStatus: string; lastConnectionTest: string | null };
+export type SipsConsumption = { cups: string; dateFrom: string; dateTo: string; tariff: string; readingType: string; magnitudes: Record<"active" | "inductive" | "capacitive" | "demand", Array<number | null>>; totals: { active: number; inductive: number; capacitive: number; demandMax: number }; raw: Record<string, string> };
+export type SipsStored = { cups: string; ps: { fields: Record<string, string> } | null; consumptions: SipsConsumption[]; queries: Array<{ kind: string; status: string; queriedAt: string; recordCount: number; errorCode?: string | null; message: string }> };
+export type SipsHistory = { cups: string; distributor: string; tariff: string; lastQuery: string; psStatus?: string; psErrorCode?: string | null; consumptionStatus?: string; consumptionErrorCode?: string | null };
+export type SipsHistoryPage = { items: SipsHistory[]; page: number; pageSize: number; total: number };
+
+export const getSipsCapabilities = () => getJson<SipsCapabilities>("/sips/capabilities");
+export const getSipsConfig = () => getJson<SipsConfig>("/sips/config");
+export const saveSipsConfig = (config: { environment: string; consumerKey?: string; consumerSecret?: string }) => sendJson<SipsConfig>("/sips/config", "PUT", "Guardando configuración CNMC", REQUEST_TIMEOUT_MS, config);
+export const testSipsConfig = () => sendJson<{ status: string; message: string; testedAt: string }>("/sips/config/test", "POST", "Probando conexión CNMC", REQUEST_TIMEOUT_MS * 2);
+export const getSipsHistory = (page = 1) => getJson<SipsHistoryPage>(`/sips/history?page=${page}`);
+export const getSipsStored = (cups: string) => getJson<SipsStored>(`/sips/${encodeURIComponent(cups)}`);
+export const consultSips = (cups: string) => sendJson<{ results: { ps: { status: string; count: number; errorCode?: string }; consumption: { status: string; count: number; errorCode?: string } }; data: SipsStored }>(`/sips/${encodeURIComponent(cups)}/consult`, "POST", "Consultando SIPS", REQUEST_TIMEOUT_MS * 3);
+
 export type AnnualReportMetricKind = "energy" | "currency" | "price" | "text";
 export type AnnualReportMetricRow = {
   key: string;

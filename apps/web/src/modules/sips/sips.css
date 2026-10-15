@@ -1,0 +1,50 @@
+.sips-page { display: grid; gap: 14px; min-width: 0; container-type: inline-size; }
+.sips-page .panel { min-width: 0; }
+.sips-page h2 { margin: 0 0 12px; font-size: 1rem; }
+.sips-toolbar, .sips-toolbar form, .sips-summary, .sips-actions, .sips-consumption-filters { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.sips-toolbar { justify-content: space-between; }
+.sips-toolbar label, .sips-config label, .sips-consumption-filters label { display: grid; gap: 4px; font-size: .82rem; }
+.sips-toolbar input { min-width: 250px; }
+.sips-page input, .sips-page select { padding: 8px 10px; border: 1px solid var(--border, #cbd5e1); border-radius: 7px; background: var(--surface, #fff); color: inherit; }
+.sips-page button { cursor: pointer; padding: 8px 12px; border: 1px solid #b9ccd3; border-radius: 7px; background: #f2f8f9; color: #123b46; font: inherit; font-size: .82rem; }
+.sips-page button:hover:not(:disabled) { background: #dceff0; }
+.sips-toolbar button[type="submit"], .sips-actions button:first-child { background: #087f7b; color: #fff; border-color: #087f7b; }
+.sips-toolbar button[type="submit"]:hover:not(:disabled), .sips-actions button:first-child:hover:not(:disabled) { background: #066a67; }
+.sips-page button:disabled { cursor: default; opacity: .55; }
+.sips-message { margin: 0; padding: 10px 14px; border-radius: 8px; background: #eaf3fb; }
+.sips-result { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid; border-radius: 8px; }
+.sips-result--success { color: #166534; background: #ecfdf3; border-color: #86d5a2; }
+.sips-result--partial { color: #854d0e; background: #fffbeb; border-color: #f3cc68; }
+.sips-result--error { color: #991b1b; background: #fef2f2; border-color: #f2a5a5; }
+.sips-result--empty { color: #475569; background: #f8fafc; border-color: #cbd5e1; }
+.sips-result--stored { color: #17445c; background: #eef6fa; border-color: #b8d4e2; }
+.sips-result-icon { display: grid; place-items: center; flex: 0 0 30px; height: 30px; border: 2px solid currentColor; border-radius: 50%; font-weight: 800; }
+.sips-result-body { min-width: 0; }
+.sips-result-body > strong { font-size: .96rem; }
+.sips-result-body p { margin: 3px 0 5px; font-size: .82rem; }
+.sips-result-details { display: flex; flex-wrap: wrap; gap: 4px 18px; font-size: .82rem; }
+.sips-tab-badge { display: inline-block; padding: 2px 7px; border-radius: 999px; font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.sips-tab-badge--success { color: #166534; background: #dcfce7; }
+.sips-tab-badge--empty { color: #475569; background: #e2e8f0; }
+.sips-tab-badge--error { color: #991b1b; background: #fee2e2; }
+.sips-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.sips-summary strong { font-size: 1.08rem; }
+.sips-blocks { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.sips-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 9px 16px; margin: 0; }
+.sips-fields > div { min-width: 0; border-bottom: 1px solid #e5eaf0; padding-bottom: 5px; }
+.sips-fields dt { font-size: .76rem; opacity: .72; overflow-wrap: anywhere; }
+.sips-fields dd { margin: 3px 0 0; font-size: .88rem; overflow-wrap: anywhere; min-height: 1em; }
+.sips-all-fields { margin-top: 12px; }
+.sips-consumption-filters { margin-bottom: 12px; }
+.sips-table-wrap { width: 100%; overflow-x: auto; }
+.sips-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.sips-table th, .sips-table td { padding: 7px 8px; border-bottom: 1px solid #e5eaf0; white-space: nowrap; text-align: left; }
+.sips-table th { background: #f1f5f9; }
+.sips-table td:nth-child(n+4):nth-child(-n+10) { font-variant-numeric: tabular-nums; }
+.sips-pagination { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 12px; font-size: .82rem; }
+.sips-chart { min-width: 0; margin: 12px 0 18px; }
+@container (max-width: 1249px) { .sips-blocks { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container (max-width: 999px) { .sips-blocks { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (max-width: 749px) { .sips-blocks { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 499px) { .sips-blocks { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 700px) { .sips-toolbar form { width: 100%; } .sips-toolbar input { min-width: 0; width: 100%; } .sips-table { font-size: .73rem; } }

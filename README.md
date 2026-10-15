@@ -109,3 +109,11 @@ curl "http://localhost:3000/settlements/summary?fecha=2024-10-31&version=C1"
 ```
 
 La API soporta TXT, CSV y ZIP, detecta UTF-8/Latin1, delimitadores comunes, aplica `signo_importe` y `signo_magnitud`, calcula `importe_calculado_eur`, valida diferencias de importe y evita duplicados por hash de fichero y clave logica de registro.
+
+# SIPS CNMC
+
+El módulo **SIPS | Puntos de suministro** consulta Datos PS y Consumos PS para un CUPS y guarda cada resultado de forma independiente en PostgreSQL. La configuración de credenciales se abre desde la propia pantalla para el usuario administrador.
+
+Configure `CNMC_CONFIG_ENCRYPTION_KEY` como una clave aleatoria estable fuera de PostgreSQL antes de guardar credenciales. En Docker local se lee del `.env` ignorado por Git. `APP_AUTH_ADMIN_USERS` permite indicar los usuarios que administran la configuración; si se omite, la única cuenta de acceso de la aplicación es administradora. `SIPS_HOLDER_USERS` concede por separado acceso a los campos del titular. `CNMC_PREPROD_BASE_URL` es obligatorio al seleccionar preproducción. Las copias cifradas de las respuestas se retienen 365 días por defecto (`SIPS_SNAPSHOT_RETENTION_DAYS`); los metadatos de auditoría permanecen.
+
+La migración se aplica con `prisma migrate deploy` al iniciar la API en Docker. Las pruebas focalizadas se ejecutan desde `apps/api` con `node --test -r ts-node/register/transpile-only src/sips/sips.spec.ts`. Si los dos CSV de ejemplo están en `Downloads`, la prueba verifica también sus 103 y 30 columnas reales.

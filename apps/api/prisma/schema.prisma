@@ -2002,6 +2002,67 @@ model CmGisceConfig {
   @@map("cm_gisce_config")
 }
 
+model SipsConfig {
+  id                 Int       @id @default(1)
+  environment        String    @default("production") @db.VarChar(20)
+  consumerKeyEncrypted String? @map("consumer_key_encrypted") @db.Text
+  consumerSecretEncrypted String? @map("consumer_secret_encrypted") @db.Text
+  connectionStatus   String    @default("UNTESTED") @map("connection_status") @db.VarChar(30)
+  lastConnectionTest DateTime? @map("last_connection_test")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@map("sips_config")
+}
+
+model SipsQuery {
+  id             String   @id @default(uuid()) @db.Uuid
+  cups           String   @db.VarChar(24)
+  kind           String   @db.VarChar(16)
+  queriedAt      DateTime @default(now()) @map("queried_at")
+  status         String   @db.VarChar(30)
+  recordCount    Int      @default(0) @map("record_count")
+  referenceDate  DateTime? @map("reference_date") @db.Date
+  errorCode      String?  @map("error_code") @db.VarChar(40)
+  contentHash    String?  @map("content_hash") @db.VarChar(64)
+  snapshotEncrypted String? @map("snapshot_encrypted") @db.Text
+  requestedBy    String   @map("requested_by") @db.VarChar(120)
+
+  @@index([cups, queriedAt])
+  @@map("sips_queries")
+}
+
+model SipsPs {
+  cups           String   @id @db.VarChar(24)
+  distributor    String?  @db.VarChar(255)
+  tariff         String?  @db.VarChar(40)
+  normalized     Json
+  rawEncrypted   String   @map("raw_encrypted") @db.Text
+  contentHash    String   @map("content_hash") @db.VarChar(64)
+  referenceDate  DateTime? @map("reference_date") @db.Date
+  firstSeenAt    DateTime @default(now()) @map("first_seen_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("sips_ps")
+}
+
+model SipsConsumption {
+  id             String   @id @default(uuid()) @db.Uuid
+  cups           String   @db.VarChar(24)
+  dateFrom       DateTime @map("date_from") @db.Date
+  dateTo         DateTime @map("date_to") @db.Date
+  tariff         String?  @db.VarChar(40)
+  normalized     Json
+  raw            Json
+  contentHash    String   @map("content_hash") @db.VarChar(64)
+  firstSeenAt    DateTime @default(now()) @map("first_seen_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([cups, dateFrom, dateTo])
+  @@index([cups, dateTo])
+  @@map("sips_consumptions")
+}
+
 model CmInvoiceImportBatch {
   id              String   @id @default(uuid()) @db.Uuid
   startedAt       DateTime @default(now()) @map("started_at")

@@ -20,6 +20,12 @@ export class AuthService {
     return this.safeEquals(username, this.username) && this.safeEquals(password, this.password);
   }
 
+  isAdminUser(user: string) {
+    const configured = process.env.APP_AUTH_ADMIN_USERS?.trim();
+    const users = configured ? configured.split(",").map((name) => name.trim()) : [this.username];
+    return users.includes(user);
+  }
+
   issueToken(user: string) {
     const payload: AuthTokenPayload = {
       user,

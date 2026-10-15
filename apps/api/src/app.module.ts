@@ -25,6 +25,7 @@ import { PricingMeffModule } from "./pricing-meff/pricing-meff.module";
 import { ReeLossesModule } from "./ree-losses/ree-losses.module";
 import { ReeEsiosPrivateModule } from "./ree-esios-private/ree-esios-private.module";
 import { ReeSeieModule } from "./ree-seie/ree-seie.module";
+import { SipsModule } from "./sips/sips.module";
 
 @Module({
   imports: [
@@ -52,7 +53,8 @@ import { ReeSeieModule } from "./ree-seie/ree-seie.module";
     PricingHedgesModule,
     EsiosModule,
     ReeEsiosPrivateModule,
-    ReeSeieModule
+    ReeSeieModule,
+    SipsModule
   ]
 })
 export class AppModule implements NestModule {

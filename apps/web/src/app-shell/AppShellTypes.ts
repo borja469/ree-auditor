@@ -23,6 +23,7 @@ export type Section =
   | "pricingHedges"
   | "pricingMir"
   | "billingDashboard"
+  | "sips"
   | "gasMibgas"
   | "gasMibgasMarket"
   | "gasMibgasDeliveryTransactions"

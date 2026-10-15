@@ -70,6 +70,7 @@ import { FuturesEvolutionReportModule } from "./modules/reports/FuturesEvolution
 import { IndexedPriceHistoryReportModule } from "./modules/reports/IndexedPriceHistoryReportModule";
 import { PricingBaseModule } from "./modules/pricing/PricingBaseModule";
 import { BillingDashboardModule } from "./modules/pricing/BillingDashboardModule";
+import { SipsModule } from "./modules/sips/SipsModule";
 import { PricingHedgesModule } from "./modules/pricing/PricingHedgesModule";
 import { MirPortfolioModule } from "./modules/pricing/MirPortfolioModule";
 import { PricingMeffModule } from "./modules/pricing/PricingMeffModule";
@@ -1744,7 +1745,9 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   }, [filters.fechaFin, filters.fechaInicio, reganecuView, section, summary?.files]);
 
   const workspaceTitle =
-    section === "reeDownloads"
+    section === "sips"
+      ? "SIPS | Puntos de suministro"
+      : section === "reeDownloads"
       ? "Centro de cargas"
       : section === "reeZipFiles"
         ? "Ficheros ZIP"
@@ -2295,7 +2298,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           description: "facturas, curvas y PF/BC",
           active: section === "billingDashboard",
           onSelect: () => changeSection("billingDashboard")
-        }
+        },
+        { key: "sips", label: "SIPS", description: "puntos de suministro CNMC", active: section === "sips", onSelect: () => changeSection("sips") }
       ]
     },
     {
@@ -2684,6 +2688,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
           {section === "pricingHedges" && <PricingHedgesModule />}
           {section === "pricingMir" && <MirPortfolioModule />}
           {section === "billingDashboard" && <BillingDashboardModule />}
+          {section === "sips" && <SipsModule />}
           {section === "gasMibgas" && <GasMibgasModule />}
           {section === "gasMibgasMarket" && <MibgasPrivateModule />}
           {section === "gasMibgasDeliveryTransactions" && <MibgasDeliveryTransactionsModule />}

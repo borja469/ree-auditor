@@ -157,7 +157,7 @@ export function isPricingSection(section: Section) {
 }
 
 export function isDashboardSection(section: Section) {
-  return section === "billingDashboard";
+  return section === "billingDashboard" || section === "sips";
 }
 
 export function isMercadoSection(section: Section) {
