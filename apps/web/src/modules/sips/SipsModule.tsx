@@ -101,6 +101,7 @@ export function SipsModule() {
   const [tab, setTab] = useState<"ps" | "consumption">("ps"); const [magnitude, setMagnitude] = useState<Magnitude>("active");
   const [from, setFrom] = useState(""); const [to, setTo] = useState(""); const [descending, setDescending] = useState(true);
   const [busy, setBusy] = useState(false); const [message, setMessage] = useState(""); const [showAll, setShowAll] = useState(false);
+  const [manualCopyText, setManualCopyText] = useState("");
   const [dataSource, setDataSource] = useState<"consult" | "stored">("stored"); const [consultError, setConsultError] = useState("");
   useEffect(() => { void Promise.all([getSipsCapabilities(), getSipsHistory(1)]).then(([caps, result]) => { setCapabilities(caps); setHistory(result.items); setHistoryPage(result.page); setHistoryPageSize(result.pageSize); setHistoryTotal(result.total); }).catch(() => setMessage("No se pudo cargar SIPS.")); }, []);
   const latest = data?.queries[0];
@@ -110,6 +111,7 @@ export function SipsModule() {
   const resultTone = consultError ? "error" : dataSource === "stored" ? "stored" : latestPs?.status === "OK" && latestConsumption?.status === "OK" ? "success" : latestPs?.status === "OK" || latestConsumption?.status === "OK" ? "partial" : latestPs?.status === "NO_RESULTS" && latestConsumption?.status === "NO_RESULTS" ? "empty" : "error";
   const resultTitle = consultError ? "No se pudo completar la consulta" : dataSource === "stored" ? "Datos guardados" : resultTone === "success" ? "Consulta completada" : resultTone === "partial" ? "Consulta parcial" : resultTone === "empty" ? "Sin resultados" : "Consulta fallida";
   const rows = useMemo(() => (data?.consumptions ?? []).filter((row) => (!from || row.dateTo >= from) && (!to || row.dateFrom <= to)).sort((a, b) => descending ? b.dateTo.localeCompare(a.dateTo) : a.dateTo.localeCompare(b.dateTo)), [data, from, to, descending]);
+  useEffect(() => setManualCopyText(""), [rows, magnitude]);
   const chartRows = useMemo(() => [...rows].sort((a, b) => a.dateTo.localeCompare(b.dateTo)), [rows]);
   const historyPages = Math.max(1, Math.ceil(historyTotal / historyPageSize));
 
@@ -161,11 +163,19 @@ export function SipsModule() {
   async function copyRows() {
     const cells = [consumptionHeaders(magnitude), ...rows.map((row) => consumptionCells(row, magnitude))];
     const text = cells.map((line) => line.map((value, index) => excelTsvCell(value, index)).join("\t")).join("\r\n");
+    let copied = false;
     try {
-      await navigator.clipboard.writeText(text);
-      setMessage(`${rows.length} registros de consumos copiados. Puedes pegarlos en Excel.`);
+      if (!window.isSecureContext || !navigator.clipboard?.writeText) copied = copyTextViaSelection(text);
+      else { await navigator.clipboard.writeText(text); copied = true; }
     } catch {
-      setMessage("No se pudo copiar la tabla. Comprueba los permisos del portapapeles.");
+      copied = copyTextViaSelection(text);
+    }
+    if (copied) {
+      setManualCopyText("");
+      setMessage(`${rows.length} registros de consumos copiados. Puedes pegarlos en Excel.`);
+    } else {
+      setManualCopyText(text);
+      setMessage("El navegador bloqueó la copia automática. Selecciona la tabla de abajo y pulsa Ctrl+C.");
     }
   }
 
@@ -213,6 +223,7 @@ export function SipsModule() {
       </section>}
       {tab === "consumption" && <section className="panel">
         <div className="sips-consumption-filters"><label>Magnitud <select value={magnitude} onChange={(event) => setMagnitude(event.target.value as Magnitude)}>{Object.entries(MAGNITUDES).map(([key, value]) => <option key={key} value={key}>{value.label} ({value.unit})</option>)}</select></label><label>Desde <input type="date" value={from} onChange={(event) => setFrom(event.target.value)} /></label><label>Hasta <input type="date" value={to} onChange={(event) => setTo(event.target.value)} /></label><button onClick={() => setDescending((value) => !value)}>Fecha {descending ? "↓" : "↑"}</button><button disabled={!rows.length} onClick={() => void copyRows()}>Copiar tabla</button><button disabled={!rows.length} onClick={exportRows}>Exportar CSV</button></div>
+        {manualCopyText && <div className="sips-copy-manual"><label>Tabla para copiar manualmente<textarea readOnly value={manualCopyText} onFocus={(event) => event.currentTarget.select()} /></label><button type="button" onClick={() => setManualCopyText("")}>Cerrar</button></div>}
         {chartRows.length > 0 && <div className="sips-chart"><h2>Evolución de {MAGNITUDES[magnitude].label.toLowerCase()} ({MAGNITUDES[magnitude].unit})</h2><EChart height={260} option={{ tooltip: { trigger: "axis" }, legend: { top: 0 }, grid: { left: 55, right: 20, bottom: 50, top: 35 }, xAxis: { type: "category", data: chartRows.map((row) => row.dateTo) }, yAxis: { type: "value", name: MAGNITUDES[magnitude].unit }, dataZoom: [{ type: "inside" }, { type: "slider", bottom: 5 }], series: [...Array.from({ length: 6 }, (_, index) => ({ name: `P${index + 1}`, type: "bar" as const, data: chartRows.map((row) => row.magnitudes[magnitude][index] ?? null), barMaxWidth: 18 })), ...(magnitude === "demand" ? [] : [{ name: "Total", type: "line" as const, data: chartRows.map((row) => row.totals[magnitude]), symbol: "none" as const, lineStyle: { width: 3 }, z: 10 }])] }} /></div>}
         <div className="sips-table-wrap"><table className="sips-table"><thead><tr>{consumptionHeaders(magnitude).map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={`${row.dateFrom}-${row.dateTo}`}>{consumptionCells(row, magnitude).map((value, index) => <td key={index}>{value}</td>)}</tr>)}</tbody></table></div>
         {!rows.length && <p>No hay consumos para el filtro seleccionado.</p>}
@@ -238,6 +249,24 @@ function formatNumber(value: number) { return new Intl.NumberFormat("es-ES", { m
 function consumptionHeaders(magnitude: Magnitude) { return ["Inicio", "Fin", "ATR", ...Array.from({ length: 6 }, (_, index) => `P${index + 1}`), `${magnitude === "demand" ? "Máximo" : "Total"} ${MAGNITUDES[magnitude].unit}`, "Lectura"]; }
 function consumptionCells(row: SipsConsumption, magnitude: Magnitude) { return [row.dateFrom, row.dateTo, formatTarifaAtr(row.tariff), ...row.magnitudes[magnitude].map((value) => value === null ? "" : formatNumber(value)), formatNumber(magnitude === "demand" ? row.totals.demandMax : row.totals[magnitude]), LECTURA_DESCRIPTIONS[row.readingType] ?? row.readingType]; }
 function excelTsvCell(value: string, index: number) { const clean = value.replace(/[\t\r\n]+/g, " "); return (index === 2 || index === 10) && /^[=+\-@]/.test(clean) ? `'${clean}` : clean; }
+function copyTextViaSelection(text: string) {
+  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.readOnly = true;
+  textarea.style.cssText = "position:fixed;left:-9999px;top:0;opacity:0";
+  document.body.appendChild(textarea);
+  try {
+    textarea.focus();
+    textarea.select();
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    textarea.remove();
+    previousFocus?.focus({ preventScroll: true });
+  }
+}
 function formatTarifaAtr(value: string) { return TARIFA_ATR_DESCRIPTIONS[value] ?? value; }
 function formatPsValue(key: string, value: string) { if (key === "codigoTensionV") return TENSION_V_DESCRIPTIONS[value] ?? value; if (key === "codigoTarifaATREnVigor") return formatTarifaAtr(value); if (PS_CODE_DESCRIPTIONS[key]) return PS_CODE_DESCRIPTIONS[key][value] ?? value; if (key.endsWith("W") || /EnWP\d$/.test(key)) { const number = Number(value); return value && Number.isFinite(number) ? `${formatNumber(number / 1000)} kW` : ""; } return value; }
 function label(key: string) { return key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/PS$/, " PS").replace(/EnW/g, " (W)").replace(/^codigo /i, "Código ").replace(/^des /i, "Descripción "); }

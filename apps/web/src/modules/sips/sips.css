@@ -36,6 +36,9 @@
 .sips-fields dd { margin: 3px 0 0; font-size: .88rem; overflow-wrap: anywhere; min-height: 1em; }
 .sips-all-fields { margin-top: 12px; }
 .sips-consumption-filters { margin-bottom: 12px; }
+.sips-copy-manual { display: flex; align-items: flex-end; gap: 10px; margin: 0 0 12px; }
+.sips-copy-manual label { display: grid; flex: 1; gap: 4px; min-width: 0; font-size: .82rem; }
+.sips-copy-manual textarea { width: 100%; min-height: 80px; padding: 8px; border: 1px solid var(--border, #cbd5e1); border-radius: 7px; background: var(--surface, #fff); color: inherit; font: .8rem/1.4 monospace; }
 .sips-table-wrap { width: 100%; overflow-x: auto; }
 .sips-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
 .sips-table th, .sips-table td { padding: 7px 8px; border-bottom: 1px solid #e5eaf0; white-space: nowrap; text-align: left; }
