@@ -466,12 +466,13 @@ export function BillingDashboardModule() {
     setRegulatedSaving(true);
     setRegulatedError(null);
     try {
+      const wasEditing = Boolean(editingRegulatedId);
       if (editingRegulatedId) {
         await updateBillingRegulatedPriceVersion(editingRegulatedId, regulatedDraft);
       } else {
         await createBillingRegulatedPriceVersion(regulatedDraft);
       }
-      setMessage({ tone: "success", text: "Version de precios guardada." });
+      setMessage({ tone: "success", text: wasEditing ? "Precio guardado. Selecciona 'Recalcular rango' y ejecuta 'Calcular costes y margenes' para actualizar los resultados existentes." : "Version de precios guardada." });
       setEditingRegulatedId(null);
       setRegulatedEditorOpen(false);
       await loadRegulatedPrices(regulatedDraft.code);

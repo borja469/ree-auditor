@@ -105,16 +105,50 @@ void describe("Billing dashboard regulated price tables", () => {
     assert.equal((await service.resolveRethPrice("2027-01-01")).priceEurMwh, 2);
   });
 
-  void it("bloquea editar una version ya referenciada por costes historicos", async () => {
+  void it("permite corregir un precio referenciado conservando la fila de origen", async () => {
+    const calls = [];
+    const current = version("RETH", "2026-01-01", null, { rethPrice: price(2) });
+    current.id = "used";
+    const tx = {
+      regulatedPriceVersion: {
+        update: async () => { calls.push("version:update"); },
+        findUniqueOrThrow: async () => current
+      },
+      regulatedRethPrice: {
+        upsert: async (args) => { calls.push("price:upsert"); assert.equal(args.where.versionId, "used"); assert.equal(Number(args.update.priceEurMwh), 2); }
+      }
+    };
     const service = new BillingDashboardRegulatedPricesService({
       regulatedPriceVersion: {
-        findUnique: async () => ({ id: "used", code: "RETH" })
+        findUnique: async () => ({ id: "used", code: "RETH" }),
+        findMany: async () => []
       },
       cmInvoiceIntervalCostComponent: {
-        count: async () => 1
-      }
+        count: async () => { throw new Error("No debe bloquear la edicion"); }
+      },
+      $transaction: async (callback) => callback(tx)
     });
-    await assert.rejects(() => service.updateVersion("used", { code: "RETH", name: "Cambio", validFrom: "2026-01-01", reth: { priceEurMwh: 2 } }), /REGULATED_PRICE_VERSION_IN_USE/);
+    const result = await service.updateVersion("used", { code: "RETH", name: "Cambio", validFrom: "2026-01-01", reth: { priceEurMwh: 2 } });
+    assert.equal(result.id, "used");
+    assert.deepEqual(calls, ["version:update", "price:upsert"]);
+  });
+
+  void it("actualiza la tarifa PC3 existente sin recrear su identificador", async () => {
+    const calls = [];
+    const current = version("PC3", "2026-01-01", null, { pc3Prices: [pc3("3.0TD", [3, null, null, null, null, null])] });
+    const tx = {
+      regulatedPriceVersion: { update: async () => {}, findUniqueOrThrow: async () => current },
+      regulatedPc3Price: {
+        upsert: async (args) => { calls.push("upsert"); assert.equal(args.where.versionId_tariffCode.tariffCode, "3.0TD"); assert.equal(Number(args.update.p1EurMwh), 3); },
+        deleteMany: async (args) => { calls.push("deleteMany"); assert.deepEqual(args.where.tariffCode.notIn, ["3.0TD"]); }
+      }
+    };
+    const service = new BillingDashboardRegulatedPricesService({
+      regulatedPriceVersion: { findUnique: async () => ({ id: current.id, code: "PC3" }), findMany: async () => [] },
+      $transaction: async (callback) => callback(tx)
+    });
+    await service.updateVersion(current.id, { code: "PC3", name: "PC3", validFrom: "2026-01-01", pc3: [{ tariffCode: "3.0TD", p1EurMwh: 3 }] });
+    assert.deepEqual(calls, ["upsert", "deleteMany"]);
   });
 });
 

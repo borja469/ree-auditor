@@ -94,7 +94,6 @@ export class BillingDashboardRegulatedPricesService {
   async updateVersion(id: string, body: RegulatedPricePayload) {
     const existing = await this.prisma.regulatedPriceVersion.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException("PRICE_VERSION_NOT_FOUND");
-    await this.assertVersionCanBeEdited(id);
     const input = parseVersionPayload({ ...body, code: existing.code });
     await this.assertNoOverlap(existing.code, input.validFrom, input.validTo, id);
     const row = await this.prisma.$transaction(async (tx) => {
@@ -107,7 +106,7 @@ export class BillingDashboardRegulatedPricesService {
           notes: input.notes
         }
       });
-      await this.replaceDetails(tx, id, existing.code, body);
+      await this.updateDetails(tx, id, existing.code, body);
       return tx.regulatedPriceVersion.findUniqueOrThrow({ where: { id }, include: regulatedInclude() });
     });
     return versionDto(row);
@@ -303,11 +302,6 @@ export class BillingDashboardRegulatedPricesService {
     if (overlaps.length > 0) throw new BadRequestException("PRICE_VERSION_OVERLAP");
   }
 
-  private async assertVersionCanBeEdited(id: string) {
-    const references = await this.countHistoricalReferences(id);
-    if (references > 0) throw new BadRequestException("REGULATED_PRICE_VERSION_IN_USE");
-  }
-
   private async assertVersionCanBeDeleted(id: string) {
     const references = await this.countHistoricalReferences(id);
     if (references > 0) throw new BadRequestException("REGULATED_PRICE_VERSION_IN_USE");
@@ -341,6 +335,35 @@ export class BillingDashboardRegulatedPricesService {
       await tx.regulatedPc3Price.createMany({ data: parsePc3Rows(body.pc3 ?? []).map((row) => ({ versionId, ...row })) });
     } else if (code === "TOLLS_CHARGES") {
       await tx.regulatedTollsChargesPrice.createMany({ data: parseTollsRows(body.tollsCharges ?? []).map((row) => ({ versionId, ...row })) });
+    }
+  }
+
+  private async updateDetails(tx: Prisma.TransactionClient, versionId: string, code: RegulatedPriceCode, body: RegulatedPricePayload) {
+    if (code === "RETH") {
+      await tx.regulatedRethPrice.upsert({ where: { versionId }, update: { priceEurMwh: decimalRequired(body.reth?.priceEurMwh, "priceEurMwh") }, create: { versionId, priceEurMwh: decimalRequired(body.reth?.priceEurMwh, "priceEurMwh") } });
+    } else if (code === "EFIH") {
+      await tx.regulatedEfihPrice.upsert({ where: { versionId }, update: { priceEurMwh: decimalRequired(body.efih?.priceEurMwh, "priceEurMwh") }, create: { versionId, priceEurMwh: decimalRequired(body.efih?.priceEurMwh, "priceEurMwh") } });
+    } else if (code === "BONO_SOCIAL") {
+      const priceEurMwh = decimalNullable(body.socialBonus?.priceEurMwh);
+      await tx.regulatedSocialBonusPrice.upsert({ where: { versionId }, update: { priceEurMwh }, create: { versionId, priceEurMwh } });
+    } else if (code === "OTROS") {
+      const priceEurMwh = decimalNullable(body.other?.priceEurMwh);
+      await tx.regulatedOtherPrice.upsert({ where: { versionId }, update: { priceEurMwh }, create: { versionId, priceEurMwh } });
+    } else if (code === "IMU") {
+      const percentage = decimalNullable(body.imu?.percentage);
+      await tx.regulatedImuRate.upsert({ where: { versionId }, update: { percentage }, create: { versionId, percentage } });
+    } else if (code === "PC3") {
+      const rows = parsePc3Rows(body.pc3 ?? []);
+      for (const row of rows) {
+        await tx.regulatedPc3Price.upsert({ where: { versionId_tariffCode: { versionId, tariffCode: row.tariffCode } }, update: row, create: { versionId, ...row } });
+      }
+      await tx.regulatedPc3Price.deleteMany({ where: { versionId, tariffCode: { notIn: rows.map((row) => row.tariffCode) } } });
+    } else if (code === "TOLLS_CHARGES") {
+      const rows = parseTollsRows(body.tollsCharges ?? []);
+      for (const row of rows) {
+        await tx.regulatedTollsChargesPrice.upsert({ where: { versionId_tariffCode: { versionId, tariffCode: row.tariffCode } }, update: row, create: { versionId, ...row } });
+      }
+      await tx.regulatedTollsChargesPrice.deleteMany({ where: { versionId, tariffCode: { notIn: rows.map((row) => row.tariffCode) } } });
     }
   }
 }
