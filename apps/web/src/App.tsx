@@ -351,6 +351,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
   const [latestReeSeieImport, setLatestReeSeieImport] = useState<ReeSeieImportResponse>();
   const [omieFecha, setOmieFecha] = useState(getTodayInputValue);
   const [omieSesion, setOmieSesion] = useState("01");
+  const [omieUnidad, setOmieUnidad] = useState<"STROC01" | "STRRE01">("STROC01");
   const [omieMercadoDiario, setOmieMercadoDiario] = useState<OmieProgramaResponse>();
   const [omieIntradiario, setOmieIntradiario] = useState<OmieProgramaResponse>();
   const [omieEvolucion, setOmieEvolucion] = useState<OmieProgramaEvolucionResponse>();
@@ -671,7 +672,7 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     }
   }
 
-  async function refreshOmieProgramas(nextView = omieProgramasView, fecha = omieFecha, sesion = omieSesion) {
+  async function refreshOmieProgramas(nextView = omieProgramasView, fecha = omieFecha, sesion = omieSesion, uOfertante = omieUnidad) {
     const stopLoading = beginDataRefresh();
     if (!stopLoading) {
       return;
@@ -684,13 +685,13 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
       }
 
       if (nextView === "mercadoDiario") {
-        setOmieMercadoDiario(await getOmieProgramaMercadoDiario(fecha));
+        setOmieMercadoDiario(await getOmieProgramaMercadoDiario(fecha, uOfertante));
       }
       if (nextView === "intradiarios") {
-        setOmieIntradiario(await getOmieProgramaIntradiario(fecha, normalizeOmieSesionInput(sesion)));
+        setOmieIntradiario(await getOmieProgramaIntradiario(fecha, normalizeOmieSesionInput(sesion), uOfertante));
       }
       if (nextView === "evolucion") {
-        setOmieEvolucion(await getOmieProgramasEvolucion(fecha));
+        setOmieEvolucion(await getOmieProgramasEvolucion(fecha, uOfertante));
       }
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "Error cargando programas OMIE." });
@@ -962,14 +963,16 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
     setOmieDescargas(await getOmieDescargasControl(omieDownloadFilters));
     if (download.codigoOmie === "5302") {
       setOmieFecha(download.fechaPrograma);
-      setOmieMercadoDiario(await getOmieProgramaMercadoDiario(download.fechaPrograma));
+      setOmieUnidad(download.uOfertante === "STRRE01" ? "STRRE01" : "STROC01");
+      setOmieMercadoDiario(await getOmieProgramaMercadoDiario(download.fechaPrograma, download.uOfertante ?? "STROC01"));
       return;
     }
     if (download.codigoOmie === "5608") {
       const sesion = normalizeOmieSesionInput(download.sesion ?? "01");
       setOmieFecha(download.fechaPrograma);
       setOmieSesion(sesion);
-      setOmieIntradiario(await getOmieProgramaIntradiario(download.fechaPrograma, sesion));
+      setOmieUnidad(download.uOfertante === "STRRE01" ? "STRRE01" : "STROC01");
+      setOmieIntradiario(await getOmieProgramaIntradiario(download.fechaPrograma, sesion, download.uOfertante ?? "STROC01"));
       return;
     }
     if (download.modulo === "Precios") {
@@ -2585,6 +2588,8 @@ function AuthenticatedApp({ user, onLogout }: { user: string; onLogout: () => vo
               view={omieProgramasView}
               fecha={omieFecha}
               sesion={omieSesion}
+              uOfertante={omieUnidad}
+              onUnidadChange={(value) => { setOmieUnidad(value); setOmieMercadoDiario(undefined); setOmieIntradiario(undefined); setOmieEvolucion(undefined); void refreshOmieProgramas(omieProgramasView, omieFecha, omieSesion, value); }}
               mercadoDiario={omieMercadoDiario}
               intradiario={omieIntradiario}
               evolucion={omieEvolucion}

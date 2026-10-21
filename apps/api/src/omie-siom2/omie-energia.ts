@@ -3,6 +3,17 @@ import type { OmieConsultaEncolumnadaFila, OmieConsultaEncolumnadaResult } from 
 export const OMIE_ENERGIA_PVD_CODIGO = "5302";
 export const OMIE_ENERGIA_PHF_CODIGO = "5608";
 export const OMIE_ENERGIA_STROM_UOFERTANTE = "STROC01";
+export const OMIE_ENERGIA_STROM_VENTA_UOFERTANTE = "STRRE01";
+export const OMIE_ENERGIA_UNIDADES = [OMIE_ENERGIA_STROM_UOFERTANTE, OMIE_ENERGIA_STROM_VENTA_UOFERTANTE] as const;
+export type OmieEnergiaUnidad = (typeof OMIE_ENERGIA_UNIDADES)[number];
+
+export function normalizeOmieEnergiaUnidad(value?: string): OmieEnergiaUnidad {
+  const unit = (value ?? OMIE_ENERGIA_STROM_UOFERTANTE).trim().toUpperCase();
+  if (!OMIE_ENERGIA_UNIDADES.some((candidate) => candidate === unit)) {
+    throw new Error("La unidad ofertante debe ser STROC01 o STRRE01.");
+  }
+  return unit as OmieEnergiaUnidad;
+}
 export const OMIE_ENERGIA_UMEDIDA = "E";
 export const OMIE_ENERGIA_RESOLUCION = "PT15M" as const;
 export const OMIE_ENERGIA_DEFAULT_PHF_SESIONES = ["01", "02", "03", "04", "05", "06"] as const;

@@ -86,9 +86,19 @@ function parseExecuteBody(body: unknown): OmieDownloadExecuteRequest {
     fechaDesde: readOptionalDate(body, "fechaDesde"),
     fechaHasta: readOptionalDate(body, "fechaHasta"),
     sesion: readString(body, "sesion"),
+    uOfertante: parseUnidadBody(readString(body, "uOfertante")),
     version: body.version === undefined ? undefined : parsePositiveInteger(body.version, "version"),
     agente: readString(body, "agente")
   };
+}
+
+function parseUnidadBody(value: string | undefined) {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toUpperCase();
+  if (normalized !== "STROC01" && normalized !== "STRRE01") {
+    throw new BadRequestException("uOfertante debe ser STROC01 o STRRE01.");
+  }
+  return normalized;
 }
 
 function parseDailyBulkBody(body: unknown) {

@@ -13,6 +13,8 @@ type OmieProgramasProps = {
   view: OmieProgramasViewKey;
   fecha: string;
   sesion: string;
+  uOfertante: "STROC01" | "STRRE01";
+  onUnidadChange: (value: "STROC01" | "STRRE01") => void;
   mercadoDiario?: OmieProgramaResponse;
   intradiario?: OmieProgramaResponse;
   evolucion?: OmieProgramaEvolucionResponse;
@@ -27,6 +29,8 @@ export function OmieProgramasModule({
   view,
   fecha,
   sesion,
+  uOfertante,
+  onUnidadChange,
   mercadoDiario,
   intradiario,
   evolucion,
@@ -50,6 +54,13 @@ export function OmieProgramasModule({
         <PanelTitle icon={<BarChart3 size={18} />} title="OMIE Programas" />
         <div className="omie-toolbar compact">
           <label className="filter-field">
+            <span>Unidad ofertante</span>
+            <select disabled={loading} value={uOfertante} onChange={(event) => onUnidadChange(event.target.value as "STROC01" | "STRRE01")}>
+              <option value="STROC01">STROC01 · compra</option>
+              <option value="STRRE01">STRRE01 · venta</option>
+            </select>
+          </label>
+          <label className="filter-field">
             <span>Fecha</span>
             <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
           </label>
@@ -72,6 +83,13 @@ export function OmieProgramasModule({
         <div className="panel wide omie-control-panel">
           <PanelTitle icon={<BarChart3 size={18} />} title="OMIE Programas" />
           <div className="omie-toolbar compact">
+            <label className="filter-field">
+              <span>Unidad ofertante</span>
+              <select disabled={loading} value={uOfertante} onChange={(event) => onUnidadChange(event.target.value as "STROC01" | "STRRE01")}>
+                <option value="STROC01">STROC01 · compra</option>
+                <option value="STRRE01">STRRE01 · venta</option>
+              </select>
+            </label>
             <label className="filter-field">
               <span>Fecha</span>
               <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
@@ -104,6 +122,13 @@ export function OmieProgramasModule({
         <PanelTitle icon={<BarChart3 size={18} />} title={dataset.title} subtitle={dataset.subtitle} />
         <div className="omie-toolbar compact">
           <label className="filter-field">
+            <span>Unidad ofertante</span>
+            <select disabled={loading} value={uOfertante} onChange={(event) => onUnidadChange(event.target.value as "STROC01" | "STRRE01")}>
+              <option value="STROC01">STROC01 · compra</option>
+              <option value="STRRE01">STRRE01 · venta</option>
+            </select>
+          </label>
+          <label className="filter-field">
             <span>Fecha</span>
             <input disabled={loading} type="date" value={fecha} onChange={(event) => onFechaChange(event.target.value)} />
           </label>
@@ -119,7 +144,7 @@ export function OmieProgramasModule({
 
       <TechnicalDataTable
         columns={columns}
-        exportFileName={`omie-programas-${view}-${dataset.response.fecha}`}
+        exportFileName={`omie-programas-${dataset.response.uOfertante}-${view}-${dataset.response.fecha}`}
         getDuplicateKey={(row) => `${row.fecha}|${row.periodo}`}
         getGroupLabel={() => ""}
         getRowId={(row) => `${row.fecha}|${row.periodo}`}

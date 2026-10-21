@@ -963,6 +963,7 @@ export type OmieDownloadExecuteRequest = {
   sesion?: string;
   version?: number;
   agente?: string;
+  uOfertante?: "STROC01" | "STRRE01";
 };
 
 export type OmieDownloadExecuteResponse = {
@@ -976,6 +977,7 @@ export type OmieDailyBulkDownloadItem = {
   modulo: OmieDownloadModulo;
   consulta: string;
   sesion: string | null;
+  uOfertante: "STROC01" | "STRRE01" | null;
   estado: "PROCESADO" | "SIN_DATOS" | "ERROR" | "OMITIDO";
   registros: number;
   mensaje: string;
@@ -1047,6 +1049,17 @@ export type OmiePreciosResponse = {
   estadisticas: Record<"precioMd" | "precioMi1" | "precioMi2" | "precioMi3" | "precioXbid", OmiePrecioEstadistica>;
 };
 
+export type XbidTransactionValue = {
+  precioXbid: number | null;
+  volXbid: number | null;
+  pciIda3Xbid: number | null;
+  volBrutoMWh: number;
+  importeEur: number;
+  compraEur: number;
+  ventaEur: number;
+  operacionesMixtas: boolean;
+};
+
 export type OmieAnalisisMensualPeriodo = {
   fecha: string;
   periodo: number;
@@ -1057,6 +1070,13 @@ export type OmieAnalisisMensualPeriodo = {
   precioIda3: number | null;
   precioXbid: number | null;
   programaMd: number | null;
+  programaVentaMd: number | null;
+  programaVentaIda1: number | null;
+  programaVentaIda2: number | null;
+  programaVentaIda3: number | null;
+  volVentaIda1: number | null;
+  volVentaIda2: number | null;
+  volVentaIda3: number | null;
   programaIda1: number | null;
   programaIda2: number | null;
   programaIda3: number | null;
@@ -1064,6 +1084,10 @@ export type OmieAnalisisMensualPeriodo = {
   volIda2: number | null;
   volIda3: number | null;
   volXbid: number | null;
+  volVentaXbid: number | null;
+  precioVentaXbid: number | null;
+  xbidDetalle: XbidTransactionValue | null;
+  xbidVentaDetalle: XbidTransactionValue | null;
   profitIda1: number | null;
   profitIda2: number | null;
   profitIda3: number | null;
@@ -1189,6 +1213,7 @@ export type OmieComprobacionLiquidacionDiaria = {
   costeTotalOmie: number | null;
   compraMercados: number | null;
   ventaMercados: number | null;
+  resultadoStrre01MdEur: number | null;
   conceptosCompra: number | null;
   conceptosVenta: number | null;
   detalleConceptosCompra: OmieLiquidacionConceptoAdicional[];
@@ -4229,16 +4254,16 @@ export async function getReeLossesReport(filters: ReeLossesFilters): Promise<Ree
   return getJson(`/ree-losses/report${toQuery(filters)}`);
 }
 
-export async function getOmieProgramaMercadoDiario(fecha: string): Promise<OmieProgramaResponse> {
-  return getJson(`/omie/programas/mercado-diario${toQuery({ fecha })}`);
+export async function getOmieProgramaMercadoDiario(fecha: string, uOfertante = "STROC01"): Promise<OmieProgramaResponse> {
+  return getJson(`/omie/programas/mercado-diario${toQuery({ fecha, uOfertante })}`);
 }
 
-export async function getOmieProgramaIntradiario(fecha: string, sesion: string): Promise<OmieProgramaResponse> {
-  return getJson(`/omie/programas/intradiario${toQuery({ fecha, sesion })}`);
+export async function getOmieProgramaIntradiario(fecha: string, sesion: string, uOfertante = "STROC01"): Promise<OmieProgramaResponse> {
+  return getJson(`/omie/programas/intradiario${toQuery({ fecha, sesion, uOfertante })}`);
 }
 
-export async function getOmieProgramasEvolucion(fecha: string): Promise<OmieProgramaEvolucionResponse> {
-  return getJson(`/omie/programas/evolucion${toQuery({ fecha })}`);
+export async function getOmieProgramasEvolucion(fecha: string, uOfertante = "STROC01"): Promise<OmieProgramaEvolucionResponse> {
+  return getJson(`/omie/programas/evolucion${toQuery({ fecha, uOfertante })}`);
 }
 
 export async function getOmieDescargasControl(filters: OmieDownloadControlFilters = {}): Promise<OmieDownloadControlRow[]> {

@@ -552,7 +552,7 @@ export class PortfolioForecastService {
         nullableMultiply(volIda1, prices.get(buildOmiePortfolioKey(fecha, periodo, "IDA1")) ?? null),
         nullableMultiply(volIda2, prices.get(buildOmiePortfolioKey(fecha, periodo, "IDA2")) ?? null),
         nullableMultiply(volIda3, prices.get(buildOmiePortfolioKey(fecha, periodo, "IDA3")) ?? null),
-        nullableMultiply(xbidValue?.volXbid ?? null, xbidValue?.precioXbid ?? null)
+        xbidValue?.importeEur ?? null
       ]);
       if (energyMwh === null || amountEur === null) {
         continue;
@@ -1260,8 +1260,8 @@ function buildOmiePortfolioKey(fecha: string, periodo: number, market: string) {
   return `${fecha}|${periodo}|${market}`;
 }
 
-function buildPortfolioXbidTransactionMap(rows: Array<{ diaContrato: Date; rawPayloadJson: Prisma.JsonValue }>) {
-  const aggregation = new Map<string, { netEnergyMWh: number; priceNumerator: number; totalEnergyMWh: number }>();
+export function buildPortfolioXbidTransactionMap(rows: Array<{ diaContrato: Date; rawPayloadJson: Prisma.JsonValue }>) {
+  const aggregation = new Map<string, { netEnergyMWh: number; totalEnergyMWh: number; importeEur: number }>();
   const seenTransactions = new Set<string>();
   for (const row of rows) {
     const payload = asJsonRecord(row.rawPayloadJson);
@@ -1281,15 +1281,15 @@ function buildPortfolioXbidTransactionMap(rows: Array<{ diaContrato: Date; rawPa
     seenTransactions.add(transactionKey);
     const absoluteEnergyMWh = Math.abs(qty) * QUARTER_HOUR_MWH_FACTOR;
     const key = buildOmiePortfolioKey(fechaEntrega, periodo, "XBID");
-    const current = aggregation.get(key) ?? { netEnergyMWh: 0, priceNumerator: 0, totalEnergyMWh: 0 };
+    const current = aggregation.get(key) ?? { netEnergyMWh: 0, totalEnergyMWh: 0, importeEur: 0 };
     current.netEnergyMWh += sign * absoluteEnergyMWh;
-    current.priceNumerator += price * absoluteEnergyMWh;
     current.totalEnergyMWh += absoluteEnergyMWh;
+    current.importeEur += sign * absoluteEnergyMWh * price;
     aggregation.set(key, current);
   }
   return new Map([...aggregation.entries()].map(([key, value]) => [key, {
     volXbid: value.totalEnergyMWh > 0 ? value.netEnergyMWh : null,
-    precioXbid: value.totalEnergyMWh > 0 ? value.priceNumerator / value.totalEnergyMWh : null
+    importeEur: value.totalEnergyMWh > 0 ? value.importeEur : null
   }]));
 }
 
@@ -1300,7 +1300,7 @@ function asJsonRecord(value: Prisma.JsonValue): Record<string, unknown> | null {
 function isStromTransaction(payload: Record<string, unknown>) {
   const unit = readPayloadText(payload, ["unit", "unidad", "uofertante", "uOfertante"]);
   const agent = readPayloadText(payload, ["agent", "agente"]);
-  return normalizeText(unit) === "STROC01" || normalizeText(agent) === "STROM";
+  return unit ? normalizeText(unit) === "STROC01" : normalizeText(agent) === "STROM";
 }
 
 function transactionSign(value: string | null) {

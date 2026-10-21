@@ -65,12 +65,14 @@ export function OmieDescargasControlModule({
   const requiresSesion = selectedMode === "5608" || selectedMode === "5603";
   const requiresRange = selectedMode === "4121";
   const requiresOfficialReer = selectedMode === "9230";
+  const requiresProgramUnit = selectedMode === "5302" || selectedMode === "5608";
   const draftFecha = draft.fecha ?? "";
   const draftFechaDesde = draft.fechaDesde ?? "";
   const draftFechaHasta = draft.fechaHasta ?? "";
   const draftSesion = draft.sesion ?? "";
   const draftVersion = draft.version ?? 1;
   const draftAgente = draft.agente ?? "STROM";
+  const draftUnidad = draft.uOfertante ?? "STROC01";
   const automation = automationConfig ?? {
     active: false,
     daysBack: 3,
@@ -198,6 +200,15 @@ export function OmieDescargasControlModule({
                 </label>
               </>
             )}
+            {requiresProgramUnit && (
+              <label className="filter-field">
+                <span>Unidad ofertante</span>
+                <select disabled={loading} value={draftUnidad} onChange={(event) => updateDraft({ uOfertante: event.target.value as "STROC01" | "STRRE01" })}>
+                  <option value="STROC01">STROC01 · Compra</option>
+                  <option value="STRRE01">STRRE01 · Venta</option>
+                </select>
+              </label>
+            )}
             {requiresSesion && (
               <label className="filter-field">
                 <span>Sesión</span>
@@ -315,6 +326,7 @@ export function OmieDescargasControlModule({
                   <th>Código</th>
                   <th>Módulo</th>
                   <th>Consulta</th>
+                  <th>Unidad</th>
                   <th>Estado</th>
                   <th>Registros</th>
                   <th>Mensaje</th>
@@ -323,10 +335,11 @@ export function OmieDescargasControlModule({
               </thead>
               <tbody>
                 {latestDailyBulkDownload.resultados.map((item) => (
-                  <tr key={`${item.codigoOmie}-${item.consulta}-${item.sesion ?? ""}`}>
+                  <tr key={`${item.codigoOmie}-${item.consulta}-${item.sesion ?? ""}-${item.uOfertante ?? ""}`}>
                     <td>{item.codigoOmie}</td>
                     <td>{item.modulo}</td>
                     <td>{item.consulta}</td>
+                    <td>{item.uOfertante ?? "-"}</td>
                     <td>{item.estado}</td>
                     <td>{formatNumber(item.registros)}</td>
                     <td>{item.mensaje}</td>
@@ -581,6 +594,7 @@ function buildOmieDownloadHistoryColumns(
       value: (row) => row.codigoOmie
     },
     { id: "tipoDocumento", label: "Tipo", width: 88, filter: "select", value: (row) => row.tipoDocumento },
+    { id: "uOfertante", label: "Unidad", width: 90, filter: "select", value: (row) => row.uOfertante ?? "", render: (row) => row.uOfertante ?? "-" },
     {
       id: "fechaPrograma",
       label: "Fecha",
@@ -706,7 +720,7 @@ export function normalizeOmieDownloadRequest(draft: any) {
     if (!fecha || !sesion) {
       return null;
     }
-    return { codigoOmie: codigoOmie as OmieDownloadCodigo, fecha, sesion } satisfies OmieDownloadExecuteRequest;
+    return { codigoOmie: codigoOmie as OmieDownloadCodigo, fecha, sesion, uOfertante: codigoOmie === "5608" ? draft.uOfertante ?? "STROC01" : undefined } satisfies OmieDownloadExecuteRequest;
   }
 
   if (codigoOmie === "4121") {
@@ -739,7 +753,7 @@ export function normalizeOmieDownloadRequest(draft: any) {
     return null;
   }
 
-  return { codigoOmie: codigoOmie as OmieDownloadCodigo, fecha } satisfies OmieDownloadExecuteRequest;
+  return { codigoOmie: codigoOmie as OmieDownloadCodigo, fecha, uOfertante: codigoOmie === "5302" ? draft.uOfertante ?? "STROC01" : undefined } satisfies OmieDownloadExecuteRequest;
 }
 
 export function getOmieDailyBulkDate(draft: any) {

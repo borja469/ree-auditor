@@ -1,5 +1,5 @@
 import { BadRequestException, Controller, Get, Query } from "@nestjs/common";
-import { normalizeOmieEnergiaSesion } from "../omie-siom2/omie-energia";
+import { normalizeOmieEnergiaSesion, normalizeOmieEnergiaUnidad } from "../omie-siom2/omie-energia";
 import { OmieProgramasService } from "./omie-programas.service";
 
 @Controller("omie")
@@ -7,20 +7,28 @@ export class OmieProgramasController {
   constructor(private readonly omieProgramasService: OmieProgramasService) {}
 
   @Get("programas/mercado-diario")
-  async obtenerProgramaMercadoDiario(@Query("fecha") fecha?: string) {
-    return this.omieProgramasService.obtenerProgramaMercadoDiario(parseFechaQuery(fecha));
+  async obtenerProgramaMercadoDiario(@Query("fecha") fecha?: string, @Query("uOfertante") uOfertante?: string) {
+    return this.omieProgramasService.obtenerProgramaMercadoDiario(parseFechaQuery(fecha), parseUnidadQuery(uOfertante));
   }
 
   @Get("programas/intradiario")
-  async obtenerProgramaIntradiario(@Query("fecha") fecha?: string, @Query("sesion") sesion?: string) {
-    return this.omieProgramasService.obtenerProgramaIntradiario(parseFechaQuery(fecha), parseSesionQuery(sesion));
+  async obtenerProgramaIntradiario(@Query("fecha") fecha?: string, @Query("sesion") sesion?: string, @Query("uOfertante") uOfertante?: string) {
+    return this.omieProgramasService.obtenerProgramaIntradiario(parseFechaQuery(fecha), parseSesionQuery(sesion), parseUnidadQuery(uOfertante));
   }
 
   @Get("programas/evolucion")
-  async obtenerProgramaEvolucion(@Query("fecha") fecha?: string) {
-    return this.omieProgramasService.obtenerProgramaEvolucion(parseFechaQuery(fecha));
+  async obtenerProgramaEvolucion(@Query("fecha") fecha?: string, @Query("uOfertante") uOfertante?: string) {
+    return this.omieProgramasService.obtenerProgramaEvolucion(parseFechaQuery(fecha), parseUnidadQuery(uOfertante));
   }
 
+}
+
+function parseUnidadQuery(value: string | undefined) {
+  try {
+    return normalizeOmieEnergiaUnidad(value);
+  } catch {
+    throw new BadRequestException("uOfertante debe ser STROC01 o STRRE01.");
+  }
 }
 
 function parseFechaQuery(value: string | undefined) {

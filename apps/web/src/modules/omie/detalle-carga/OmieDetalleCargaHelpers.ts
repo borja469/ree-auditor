@@ -20,10 +20,15 @@ const OMIE_MONTHLY_ANALYSIS_DAY_LEVELS: Array<TechnicalHierarchyLevel<OmieAnalis
 
 const OMIE_MONTHLY_ANALYSIS_DAY_AGGREGATES: Array<TechnicalAggregateColumnDefinition<OmieAnalisisMensualPeriodo>> = [
   { id: "periodos", aggregate: "count" },
+  { id: "programaVentaMd", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.programaVentaMd)) } },
+  { id: "volVentaIda1", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.volVentaIda1)) } },
+  { id: "volVentaIda2", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.volVentaIda2)) } },
+  { id: "volVentaIda3", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.volVentaIda3)) } },
   { id: "programaMd", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.programaMd)) } },
   { id: "volIda1", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.volIda1)) } },
   { id: "volIda2", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.volIda2)) } },
   { id: "volIda3", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.volIda3)) } },
+  { id: "volVentaXbid", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.volVentaXbid)) } },
   { id: "volXbid", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.volXbid)) } },
   { id: "energiaTotal", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map(omieMonthlyPeriodEnergyTotal)) } },
   { id: "profitIda1", aggregate: { kind: "custom", calculate: (currentRows) => nullableNumericSum(currentRows.map((row) => row.profitIda1)) } },
@@ -55,10 +60,15 @@ export function buildOmieMonthlyAnalysisDailyRows(rows: OmieAnalisisMensualPerio
   return [...groups.entries()]
     .map(([fecha, dayRows]) => {
       const sortedRows = [...dayRows].sort((left, right) => left.periodo - right.periodo || left.clave.localeCompare(right.clave, "es"));
+      const programaVentaMd = nullableNumericSum(sortedRows.map((row) => row.programaVentaMd));
+      const volVentaIda1 = nullableNumericSum(sortedRows.map((row) => row.volVentaIda1));
+      const volVentaIda2 = nullableNumericSum(sortedRows.map((row) => row.volVentaIda2));
+      const volVentaIda3 = nullableNumericSum(sortedRows.map((row) => row.volVentaIda3));
       const programaMd = nullableNumericSum(sortedRows.map((row) => row.programaMd));
       const volIda1 = nullableNumericSum(sortedRows.map((row) => row.volIda1));
       const volIda2 = nullableNumericSum(sortedRows.map((row) => row.volIda2));
       const volIda3 = nullableNumericSum(sortedRows.map((row) => row.volIda3));
+      const volVentaXbid = nullableNumericSum(sortedRows.map((row) => row.volVentaXbid));
       const volXbid = nullableNumericSum(sortedRows.map((row) => row.volXbid));
       const energiaTotal = nullableNumericSum(sortedRows.map(omieMonthlyPeriodEnergyTotal));
       const profitIda1 = nullableNumericSum(sortedRows.map((row) => row.profitIda1));
@@ -72,10 +82,15 @@ export function buildOmieMonthlyAnalysisDailyRows(rows: OmieAnalisisMensualPerio
         diaSemana: formatWeekdayName(fecha),
         periodos: sortedRows.length,
         programaMd,
+        volVentaIda3,
+        volVentaIda2,
+        volVentaIda1,
+        programaVentaMd,
         volIda1,
         volIda2,
         volIda3,
         volXbid,
+        volVentaXbid,
         energiaTotal,
         profitIda1,
         profitIda2,
@@ -107,6 +122,14 @@ export function buildOmieMonthlyAnalysisDailyColumnValue(columnId: string, row: 
       }
       return `${uniqueKeys.length} claves`;
     }
+    case "programaVentaMd":
+      return row.programaVentaMd;
+    case "volVentaIda1":
+      return row.volVentaIda1;
+    case "volVentaIda2":
+      return row.volVentaIda2;
+    case "volVentaIda3":
+      return row.volVentaIda3;
     case "programaMd":
       return row.programaMd;
     case "volIda1":
@@ -115,6 +138,8 @@ export function buildOmieMonthlyAnalysisDailyColumnValue(columnId: string, row: 
       return row.volIda2;
     case "volIda3":
       return row.volIda3;
+    case "volVentaXbid":
+      return row.volVentaXbid;
     case "volXbid":
       return row.volXbid;
     case "energiaTotal":
@@ -139,6 +164,8 @@ export function buildOmieMonthlyAnalysisDailyColumnValue(columnId: string, row: 
       return isSummaryRow ? meanPrice(row.rows.map((item) => item.precioIda2)) : row.precioIda2;
     case "precioIda3":
       return isSummaryRow ? meanPrice(row.rows.map((item) => item.precioIda3)) : row.precioIda3;
+    case "precioVentaXbid":
+      return isSummaryRow ? meanPrice(row.rows.map((item) => item.precioVentaXbid)) : row.precioVentaXbid;
     case "precioXbid":
       return isSummaryRow ? meanPrice(row.rows.map((item) => item.precioXbid)) : row.precioXbid;
     case "programaIda1":
@@ -166,10 +193,15 @@ export function buildOmieMonthlyAnalysisDailyColumnRender(columnId: string, valu
   switch (columnId) {
     case "fecha":
       return null;
+    case "programaVentaMd":
+    case "volVentaIda1":
+    case "volVentaIda2":
+    case "volVentaIda3":
     case "programaMd":
     case "volIda1":
     case "volIda2":
     case "volIda3":
+    case "volVentaXbid":
     case "volXbid":
     case "energiaTotal":
     case "programaIda1":
@@ -193,6 +225,7 @@ export function buildOmieMonthlyAnalysisDailyColumnRender(columnId: string, valu
     case "precioIda1":
     case "precioIda2":
     case "precioIda3":
+    case "precioVentaXbid":
     case "precioXbid":
       return formatOmiePrice(value);
     case "clave":
@@ -214,7 +247,12 @@ export function buildOmieMonthlyAnalysisTotalsRow(rows: OmieAnalisisMensualPerio
     precioIda1: formatOmiePrice(meanPrice(rows.map((row) => row.precioIda1))),
     precioIda2: formatOmiePrice(meanPrice(rows.map((row) => row.precioIda2))),
     precioIda3: formatOmiePrice(meanPrice(rows.map((row) => row.precioIda3))),
+    precioVentaXbid: formatOmiePrice(meanPrice(rows.map((row) => row.precioVentaXbid))),
     precioXbid: formatOmiePrice(meanPrice(rows.map((row) => row.precioXbid))),
+    programaVentaMd: formatOmieEnergy(sumNumbers(rows.map((row) => row.programaVentaMd))),
+    volVentaIda1: formatOmieEnergy(sumNumbers(rows.map((row) => row.volVentaIda1))),
+    volVentaIda2: formatOmieEnergy(sumNumbers(rows.map((row) => row.volVentaIda2))),
+    volVentaIda3: formatOmieEnergy(sumNumbers(rows.map((row) => row.volVentaIda3))),
     programaMd: formatOmieEnergy(sumNumbers(rows.map((row) => row.programaMd))),
     programaIda1: formatOmieEnergy(sumNumbers(rows.map((row) => row.programaIda1))),
     programaIda2: formatOmieEnergy(sumNumbers(rows.map((row) => row.programaIda2))),
@@ -222,6 +260,7 @@ export function buildOmieMonthlyAnalysisTotalsRow(rows: OmieAnalisisMensualPerio
     volIda1: formatOmieEnergy(sumNumbers(rows.map((row) => row.volIda1))),
     volIda2: formatOmieEnergy(sumNumbers(rows.map((row) => row.volIda2))),
     volIda3: formatOmieEnergy(sumNumbers(rows.map((row) => row.volIda3))),
+    volVentaXbid: formatOmieEnergy(sumNumbers(rows.map((row) => row.volVentaXbid))),
     volXbid: formatOmieEnergy(sumNumbers(rows.map((row) => row.volXbid))),
     energiaTotal: formatOmieEnergy(energiaTotal),
     profitIda1: formatOmieProfit(sumNumbers(rows.map((row) => row.profitIda1))),
@@ -247,10 +286,15 @@ export function buildOmieMonthlyDailyRowsV2(rows: OmieAnalisisMensualPeriodo[]):
     fecha: node.key,
     diaSemana: formatWeekdayName(node.key),
     periodos: node.rows.length,
+    programaVentaMd: readOmieMonthlyAnalysisAggregateValue(node.aggregates.programaVentaMd),
+    volVentaIda1: readOmieMonthlyAnalysisAggregateValue(node.aggregates.volVentaIda1),
+    volVentaIda2: readOmieMonthlyAnalysisAggregateValue(node.aggregates.volVentaIda2),
+    volVentaIda3: readOmieMonthlyAnalysisAggregateValue(node.aggregates.volVentaIda3),
     programaMd: readOmieMonthlyAnalysisAggregateValue(node.aggregates.programaMd),
     volIda1: readOmieMonthlyAnalysisAggregateValue(node.aggregates.volIda1),
     volIda2: readOmieMonthlyAnalysisAggregateValue(node.aggregates.volIda2),
     volIda3: readOmieMonthlyAnalysisAggregateValue(node.aggregates.volIda3),
+    volVentaXbid: readOmieMonthlyAnalysisAggregateValue(node.aggregates.volVentaXbid),
     volXbid: readOmieMonthlyAnalysisAggregateValue(node.aggregates.volXbid),
     energiaTotal: readOmieMonthlyAnalysisAggregateValue(node.aggregates.energiaTotal),
     profitIda1: readOmieMonthlyAnalysisAggregateValue(node.aggregates.profitIda1),
@@ -288,10 +332,12 @@ export function hasOmieMonthlyOperationalData(row: OmieAnalisisMensualPeriodo) {
     row.precioIda3,
     row.precioXbid,
     row.programaMd,
+    row.programaVentaMd,
     row.programaIda1,
     row.programaIda2,
     row.programaIda3,
     row.volXbid,
+    row.volVentaXbid,
     row.profitXbid
   ].some((value) => value !== null && value !== undefined);
 }

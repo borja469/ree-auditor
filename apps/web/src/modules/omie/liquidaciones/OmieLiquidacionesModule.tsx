@@ -114,6 +114,7 @@ export function OmieLiquidacionesModule({
       { id: "energiaXbid", label: "Energía XBID", width: 126, align: "right", type: "number", visibility: "basic", value: (row) => row.energiaXbid, render: (row) => formatOmieEnergy(row.energiaXbid) },
       { id: "costeXbid", label: "Coste XBID", width: 120, align: "right", type: "number", visibility: "basic", value: (row) => row.costeXbid, render: (row) => formatEuroAmount(row.costeXbid) },
       { id: "compraMercados", label: "Compra mercados", width: 144, align: "right", type: "number", visibility: "basic", value: (row) => row.compraMercados, render: (row) => formatEuroAmount(row.compraMercados) },
+      { id: "resultadoStrre01MdEur", label: "STRRE01 MD (€)", width: 136, align: "right", type: "number", visibility: "basic", value: (row) => row.resultadoStrre01MdEur, render: (row) => formatEuroAmount(row.resultadoStrre01MdEur) },
       { id: "ventaMercados", label: "Venta mercados", width: 140, align: "right", type: "number", visibility: "basic", value: (row) => row.ventaMercados, render: (row) => formatEuroAmount(row.ventaMercados) },
       { id: "reerOficial", label: "REER oficial", width: 128, align: "right", type: "number", visibility: "basic", value: (row) => row.reer.reerOficial, render: (row) => formatEuroAmount(row.reer.reerOficial) },
       { id: "conceptosCompra", label: "Conceptos compra", width: 154, align: "right", type: "number", visibility: "basic", value: (row) => row.conceptosCompra, render: (row) => formatEuroAmount(row.conceptosCompra) },
@@ -700,6 +701,7 @@ function OmieMismatchTooltip({ row }: { row: OmieLiquidationValidationRow }) {
       <strong>{row.fecha}</strong>
       <span>Compra mercados: {formatEuroAmount(row.compraMercados)}</span>
       <span>Venta mercados: {formatEuroAmount(row.ventaMercados)}</span>
+      <span>Resultado STRRE01 MD: {formatEuroAmount(row.resultadoStrre01MdEur)}</span>
       <span>REER oficial: {formatEuroAmount(row.reer.reerOficial)}</span>
       <span>Conceptos compra: {formatEuroAmount(row.conceptosCompra)}</span>
       <span>Conceptos venta: {formatEuroAmount(row.conceptosVenta)}</span>

@@ -4,6 +4,7 @@ import { PrismaService } from "../prisma/prisma.service";
 
 const DEFAULT_VERSION = 1;
 const STROM_UOFERTANTE = "STROC01";
+const STROM_VENTA_UOFERTANTE = "STRRE01";
 const STROM_AGENT = "STROM";
 const OMIE_TRANSACCIONES_CODIGO = "4121";
 const PERIODS_PER_DAY = 96;
@@ -20,6 +21,13 @@ export type OmieAnalisisMensualPeriodo = {
   precioIda3: number | null;
   precioXbid: number | null;
   programaMd: number | null;
+  programaVentaMd: number | null;
+  programaVentaIda1: number | null;
+  programaVentaIda2: number | null;
+  programaVentaIda3: number | null;
+  volVentaIda1: number | null;
+  volVentaIda2: number | null;
+  volVentaIda3: number | null;
   programaIda1: number | null;
   programaIda2: number | null;
   programaIda3: number | null;
@@ -27,6 +35,10 @@ export type OmieAnalisisMensualPeriodo = {
   volIda2: number | null;
   volIda3: number | null;
   volXbid: number | null;
+  volVentaXbid: number | null;
+  precioVentaXbid: number | null;
+  xbidDetalle: XbidTransactionValue | null;
+  xbidVentaDetalle: XbidTransactionValue | null;
   profitIda1: number | null;
   profitIda2: number | null;
   profitIda3: number | null;
@@ -153,6 +165,7 @@ export type OmieComprobacionLiquidacionDiaria = {
   costeTotalOmie: number | null;
   compraMercados: number | null;
   ventaMercados: number | null;
+  resultadoStrre01MdEur: number | null;
   conceptosCompra: number | null;
   conceptosVenta: number | null;
   detalleConceptosCompra: OmieLiquidacionConceptoAdicional[];
@@ -242,7 +255,7 @@ export class OmieAnalisisService {
             lt: range.end
           },
           version: DEFAULT_VERSION,
-          uOfertante: STROM_UOFERTANTE,
+          uOfertante: { in: [STROM_UOFERTANTE, STROM_VENTA_UOFERTANTE] },
           OR: [
             { tipoPrograma: OmieTipoDocumento.PVD, sesion: null },
             { tipoPrograma: OmieTipoDocumento.PHF, sesion: { in: ["01", "02", "03"] } }
@@ -250,6 +263,7 @@ export class OmieAnalisisService {
         },
         select: {
           tipoPrograma: true,
+          uOfertante: true,
           fechaPrograma: true,
           sesion: true,
           periodo: true,
@@ -265,11 +279,12 @@ export class OmieAnalisisService {
           tipoDocumento: OmieTipoDocumento.PVD,
           sesion: null,
           version: DEFAULT_VERSION,
-          uOfertante: STROM_UOFERTANTE,
+          uOfertante: { in: [STROM_UOFERTANTE, STROM_VENTA_UOFERTANTE] },
           estado: OmieDownloadEstado.PROCESADO
         },
         select: {
           tipoDocumento: true,
+          uOfertante: true,
           fechaPrograma: true,
           sesion: true,
           registros: true
@@ -294,8 +309,10 @@ export class OmieAnalisisService {
     ]);
 
     const prices = buildPriceMap(priceRows);
-    const programs = buildProgramMap(programRows, programDownloadRows);
+    const programs = buildProgramMap(programRows.filter((row) => row.uOfertante === STROM_UOFERTANTE), programDownloadRows.filter((row) => row.uOfertante === STROM_UOFERTANTE));
+    const salePrograms = buildProgramMap(programRows.filter((row) => row.uOfertante === STROM_VENTA_UOFERTANTE), programDownloadRows.filter((row) => row.uOfertante === STROM_VENTA_UOFERTANTE));
     const xbidTransactions = buildXbidTransactionMap(transactionRows);
+    const saleXbidTransactions = buildXbidTransactionMap(transactionRows, STROM_VENTA_UOFERTANTE);
     const periodos: OmieAnalisisMensualPeriodo[] = [];
 
     for (const date of enumerateDates(range.start, range.end)) {
@@ -306,8 +323,16 @@ export class OmieAnalisisService {
         const precioIda2 = prices.get(buildValueKey(fecha, periodo, "IDA2")) ?? null;
         const precioIda3 = prices.get(buildValueKey(fecha, periodo, "IDA3")) ?? null;
         const xbid = xbidTransactions.get(buildValueKey(fecha, periodo, "XBID"));
+        const saleXbid = saleXbidTransactions.get(buildValueKey(fecha, periodo, "XBID"));
         const precioXbid = xbid?.precioXbid ?? null;
         const programaMd = programs.get(buildValueKey(fecha, periodo, "MD")) ?? null;
+        const programaVentaMd = salePrograms.get(buildValueKey(fecha, periodo, "MD")) ?? null;
+        const programaVentaIda1 = salePrograms.get(buildValueKey(fecha, periodo, "IDA1")) ?? null;
+        const programaVentaIda2 = salePrograms.get(buildValueKey(fecha, periodo, "IDA2")) ?? null;
+        const programaVentaIda3 = salePrograms.get(buildValueKey(fecha, periodo, "IDA3")) ?? null;
+        const volVentaIda1 = diff(programaVentaIda1, programaVentaMd);
+        const volVentaIda2 = diff(programaVentaIda2, programaVentaIda1);
+        const volVentaIda3 = diff(programaVentaIda3, programaVentaIda2);
         const programaIda1 = programs.get(buildValueKey(fecha, periodo, "IDA1")) ?? null;
         const programaIda2 = programs.get(buildValueKey(fecha, periodo, "IDA2")) ?? null;
         const programaIda3 = programs.get(buildValueKey(fecha, periodo, "IDA3")) ?? null;
@@ -315,11 +340,15 @@ export class OmieAnalisisService {
         const volIda2 = diff(programaIda2, programaIda1);
         const volIda3 = diff(programaIda3, programaIda2);
         const volXbid = xbid?.volXbid ?? null;
+        const volVentaXbid = saleXbid?.volXbid ?? null;
+        const precioVentaXbid = saleXbid?.precioXbid ?? null;
         const profitIda1 = profit(volIda1, precioIda1, precioMd);
         const profitIda2 = profit(volIda2, precioIda2, precioMd);
         const profitIda3 = profit(volIda3, precioIda3, precioMd);
-        const profitXbidEurMWh = profitSpreadAgainstMd(precioXbid, precioMd);
-        const profitXbid = profitFromSpread(volXbid, profitXbidEurMWh);
+        const profitXbidEurMWh = xbid?.operacionesMixtas ? null : profitSpreadAgainstMd(precioXbid, precioMd);
+        const profitXbid = xbid && precioMd !== null && volXbid !== null
+          ? roundEuro(volXbid * precioMd - xbid.importeEur)
+          : null;
         const sumaProfit = nullableEuroSum([profitIda1, profitIda2, profitIda3, profitXbid]);
 
         periodos.push({
@@ -332,6 +361,13 @@ export class OmieAnalisisService {
           precioIda3,
           precioXbid,
           programaMd,
+          programaVentaMd,
+          programaVentaIda1,
+          programaVentaIda2,
+          programaVentaIda3,
+          volVentaIda1,
+          volVentaIda2,
+          volVentaIda3,
           programaIda1,
           programaIda2,
           programaIda3,
@@ -339,6 +375,10 @@ export class OmieAnalisisService {
           volIda2,
           volIda3,
           volXbid,
+          volVentaXbid,
+          precioVentaXbid,
+          xbidDetalle: xbid ?? null,
+          xbidVentaDetalle: saleXbid ?? null,
           profitIda1,
           profitIda2,
           profitIda3,
@@ -454,8 +494,10 @@ type LiquidacionDailyDraft = {
   fechaIso: string;
   dia: string;
   mercados: LiquidacionAccumulatorSet;
+  resultadoStrre01MdEur: number | null;
   horas: Map<number, LiquidacionAccumulatorSet>;
   periodos: Map<number, LiquidacionAccumulatorSet>;
+  periodosCompraReer: Map<number, LiquidacionAccumulatorSet>;
 };
 
 const LIQUIDACION_MARKETS: LiquidacionMarket[] = ["MD", "IDA1", "IDA2", "IDA3", "XBID"];
@@ -500,12 +542,21 @@ function buildComprobacionLiquidaciones(
   for (const row of analisis.periodos) {
     const fechaIso = isoDateFromClave(row.clave);
     const day = getOrCreateDailyLiquidacion(daily, row.fecha, fechaIso);
+    if (row.programaVentaMd !== null && row.precioMd !== null) {
+      day.resultadoStrre01MdEur = roundEuro((day.resultadoStrre01MdEur ?? 0) + row.programaVentaMd * row.precioMd);
+    }
     const hour = Math.ceil(row.periodo / 4);
     let hourly = day.horas.get(hour);
     if (!hourly) {
       hourly = createLiquidacionAccumulatorSet();
       day.horas.set(hour, hourly);
     }
+    let periodCompraReer = day.periodosCompraReer.get(row.periodo);
+    if (!periodCompraReer) {
+      periodCompraReer = createLiquidacionAccumulatorSet();
+      day.periodosCompraReer.set(row.periodo, periodCompraReer);
+    }
+    addLiquidacionBuyerRow(periodCompraReer, row);
     let period = day.periodos.get(row.periodo);
     if (!period) {
       period = createLiquidacionAccumulatorSet();
@@ -561,8 +612,10 @@ function getOrCreateDailyLiquidacion(daily: Map<string, LiquidacionDailyDraft>, 
     fechaIso,
     dia: weekdayName(fechaIso),
     mercados: createLiquidacionAccumulatorSet(),
+    resultadoStrre01MdEur: null as number | null,
     horas: new Map<number, LiquidacionAccumulatorSet>(),
-    periodos: new Map<number, LiquidacionAccumulatorSet>()
+    periodos: new Map<number, LiquidacionAccumulatorSet>(),
+    periodosCompraReer: new Map<number, LiquidacionAccumulatorSet>()
   };
   daily.set(fechaIso, next);
   return next;
@@ -594,11 +647,40 @@ function createLiquidacionMarketAccumulator(): LiquidacionMarketAccumulator {
 }
 
 function addLiquidacionRow(accumulators: LiquidacionAccumulatorSet, row: OmieAnalisisMensualPeriodo) {
+  addLiquidacionBuyerRow(accumulators, row);
+  addLiquidacionMarket(accumulators.MD, negateIfPresent(row.programaVentaMd), row.precioMd);
+  addLiquidacionMarket(accumulators.IDA1, negateIfPresent(row.volVentaIda1), row.precioIda1);
+  addLiquidacionMarket(accumulators.IDA2, negateIfPresent(row.volVentaIda2), row.precioIda2);
+  addLiquidacionMarket(accumulators.IDA3, negateIfPresent(row.volVentaIda3), row.precioIda3);
+  addLiquidacionXbid(accumulators.XBID, row.xbidVentaDetalle);
+}
+
+function addLiquidacionBuyerRow(accumulators: LiquidacionAccumulatorSet, row: OmieAnalisisMensualPeriodo) {
   addLiquidacionMarket(accumulators.MD, row.programaMd, row.precioMd);
   addLiquidacionMarket(accumulators.IDA1, row.volIda1, row.precioIda1);
   addLiquidacionMarket(accumulators.IDA2, row.volIda2, row.precioIda2);
   addLiquidacionMarket(accumulators.IDA3, row.volIda3, row.precioIda3);
-  addLiquidacionMarket(accumulators.XBID, row.volXbid, row.precioXbid);
+  addLiquidacionXbid(accumulators.XBID, row.xbidDetalle);
+}
+
+function addLiquidacionXbid(accumulator: LiquidacionMarketAccumulator, detail: XbidTransactionValue | null) {
+  if (!detail) return;
+  accumulator.energia += detail.volXbid ?? 0;
+  accumulator.hasEnergia = true;
+  accumulator.importe += detail.importeEur;
+  accumulator.compra += detail.compraEur;
+  accumulator.venta += detail.ventaEur;
+  accumulator.hasImporte = true;
+  if (detail.precioXbid !== null) {
+    accumulator.precioSum += detail.precioXbid;
+    accumulator.precioCount += 1;
+    accumulator.precioNumerator += detail.precioXbid * detail.volBrutoMWh;
+    accumulator.precioDenominator += detail.volBrutoMWh;
+  }
+}
+
+function negateIfPresent(value: number | null) {
+  return value === null ? null : -value;
 }
 
 function addLiquidacionMarket(accumulator: LiquidacionMarketAccumulator, energia: number | null, precio: number | null) {
@@ -673,6 +755,7 @@ function buildLiquidacionDailyRow(
     costeTotalOmie: netoAnalitico,
     compraMercados,
     ventaMercados,
+    resultadoStrre01MdEur: day.resultadoStrre01MdEur,
     conceptosCompra,
     conceptosVenta,
     detalleConceptosCompra,
@@ -760,8 +843,8 @@ type ReerOfficialRow = {
 
 function buildReerDiario(day: LiquidacionDailyDraft, officialRows: ReerOfficialRow[]): OmieComprobacionReerDiario {
   const officialMap = new Map(officialRows.map((row) => [row.periodo, row]));
-  const periodNumbers = new Set<number>([...day.periodos.keys(), ...officialMap.keys()]);
-  const periodos = [...periodNumbers].sort((left, right) => left - right).map((periodo) => buildReerPeriodo(periodo, day.periodos.get(periodo), officialMap.get(periodo)));
+  const periodNumbers = new Set<number>([...day.periodosCompraReer.keys(), ...officialMap.keys()]);
+  const periodos = [...periodNumbers].sort((left, right) => left - right).map((periodo) => buildReerPeriodo(periodo, day.periodosCompraReer.get(periodo), officialMap.get(periodo)));
   const reerOficial = nullableEuroSum(periodos.map((row) => row.importeOficial));
   const energiaReerCalculada = nullableEnergySum(periodos.map((row) => row.energiaReerCalculada));
   const energiaReerOficial = nullableEnergySum(periodos.map((row) => row.energiaReerOficial));
@@ -953,6 +1036,7 @@ type PriceMapRow = {
 };
 
 type ProgramMapRow = {
+  uOfertante?: string;
   tipoPrograma: OmieTipoDocumento;
   fechaPrograma: Date;
   sesion: string | null;
@@ -961,6 +1045,7 @@ type ProgramMapRow = {
 };
 
 type ProgramDownloadMapRow = {
+  uOfertante?: string;
   tipoDocumento: OmieTipoDocumento;
   fechaPrograma: Date;
   sesion: string | null;
@@ -972,10 +1057,15 @@ export type TransactionMapRow = {
   rawPayloadJson: Prisma.JsonValue;
 };
 
-type XbidTransactionValue = {
+export type XbidTransactionValue = {
   precioXbid: number | null;
   volXbid: number | null;
   pciIda3Xbid: number | null;
+  volBrutoMWh: number;
+  importeEur: number;
+  compraEur: number;
+  ventaEur: number;
+  operacionesMixtas: boolean;
 };
 
 type OperativeSession = "MD" | "IDA1" | "IDA2" | "IDA3" | "XBID";
@@ -997,7 +1087,8 @@ function buildProgramMap(rows: ProgramMapRow[], downloads: ProgramDownloadMapRow
     const rawValue = decimalToNumber(row.energiaMWh);
     const session = getProgramSession(row.tipoPrograma, row.sesion);
     if (session) {
-      map.set(buildValueKey(formatDateOnly(row.fechaPrograma), row.periodo, session), normalizeProgramValue(session, rawValue));
+      const normalized = row.uOfertante === STROM_VENTA_UOFERTANTE ? roundEnergy(Math.abs(rawValue)) : normalizeProgramValue(session, rawValue);
+      map.set(buildValueKey(formatDateOnly(row.fechaPrograma), row.periodo, session), normalized);
     }
   }
   for (const download of downloads) {
@@ -1071,17 +1162,16 @@ function profitSpreadAgainstMd(price: number | null, priceMd: number | null) {
   return price === null || priceMd === null ? null : roundPrice(priceMd - price);
 }
 
-function profitFromSpread(pci: number | null, spread: number | null) {
-  return pci === null || spread === null ? null : roundEuro(pci * spread);
-}
-
-export function buildXbidTransactionMap(rows: TransactionMapRow[]) {
-  const aggregation = new Map<string, { netEnergyMWh: number; priceNumerator: number; totalEnergyMWh: number }>();
+export function buildXbidTransactionMap(rows: TransactionMapRow[], uOfertante = STROM_UOFERTANTE) {
+  const aggregation = new Map<string, {
+    netEnergyMWh: number; priceNumerator: number; totalEnergyMWh: number;
+    compraEur: number; ventaEur: number; buyEnergyMWh: number; sellEnergyMWh: number;
+  }>();
   const seenTransactions = new Set<string>();
 
   for (const row of rows) {
     const payload = asJsonRecord(row.rawPayloadJson);
-    if (!payload || !isStromTransaction(payload)) {
+    if (!payload || !isTransactionForUnit(payload, uOfertante)) {
       continue;
     }
 
@@ -1100,10 +1190,18 @@ export function buildXbidTransactionMap(rows: TransactionMapRow[]) {
     seenTransactions.add(transactionKey);
     const absoluteEnergyMWh = Math.abs(qty) * QUARTER_HOUR_MWH_FACTOR;
     const key = buildValueKey(fechaEntrega, periodo, "XBID");
-    const current = aggregation.get(key) ?? { netEnergyMWh: 0, priceNumerator: 0, totalEnergyMWh: 0 };
+    const current = aggregation.get(key) ?? {
+      netEnergyMWh: 0, priceNumerator: 0, totalEnergyMWh: 0,
+      compraEur: 0, ventaEur: 0, buyEnergyMWh: 0, sellEnergyMWh: 0
+    };
+    const signedAmount = sign * absoluteEnergyMWh * price;
     current.netEnergyMWh += sign * absoluteEnergyMWh;
     current.priceNumerator += price * absoluteEnergyMWh;
     current.totalEnergyMWh += absoluteEnergyMWh;
+    if (sign > 0) current.buyEnergyMWh += absoluteEnergyMWh;
+    else current.sellEnergyMWh += absoluteEnergyMWh;
+    if (signedAmount >= 0) current.compraEur += signedAmount;
+    else current.ventaEur -= signedAmount;
     aggregation.set(key, current);
   }
 
@@ -1112,7 +1210,12 @@ export function buildXbidTransactionMap(rows: TransactionMapRow[]) {
     map.set(key, {
       precioXbid: value.totalEnergyMWh > 0 ? roundPrice(value.priceNumerator / value.totalEnergyMWh) : null,
       volXbid: value.totalEnergyMWh > 0 ? roundEnergy(value.netEnergyMWh) : null,
-      pciIda3Xbid: value.totalEnergyMWh > 0 ? roundEnergy(value.netEnergyMWh) : null
+      pciIda3Xbid: value.totalEnergyMWh > 0 ? roundEnergy(value.netEnergyMWh) : null,
+      volBrutoMWh: roundEnergy(value.totalEnergyMWh),
+      importeEur: roundEuro(value.compraEur - value.ventaEur),
+      compraEur: roundEuro(value.compraEur),
+      ventaEur: roundEuro(value.ventaEur),
+      operacionesMixtas: value.buyEnergyMWh > 0 && value.sellEnergyMWh > 0
     });
   }
   return map;
@@ -1139,10 +1242,10 @@ function asJsonRecord(value: Prisma.JsonValue): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-function isStromTransaction(payload: Record<string, unknown>) {
+function isTransactionForUnit(payload: Record<string, unknown>, uOfertante: string) {
   const unit = readPayloadText(payload, ["unit", "unidad", "uofertante", "uOfertante"]);
   const agent = readPayloadText(payload, ["agent", "agente"]);
-  return normalizeText(unit) === normalizeText(STROM_UOFERTANTE) || normalizeText(agent) === normalizeText(STROM_AGENT);
+  return unit ? normalizeText(unit) === normalizeText(uOfertante) : uOfertante === STROM_UOFERTANTE && normalizeText(agent) === normalizeText(STROM_AGENT);
 }
 
 function transactionSign(value: string | null) {

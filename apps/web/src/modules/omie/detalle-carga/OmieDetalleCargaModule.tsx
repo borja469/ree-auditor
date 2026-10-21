@@ -80,15 +80,21 @@ export function OmieDetalleCargaModule({
       { id: "fecha", label: "Fecha", width: 96, type: "date", filter: "text", sticky: true, value: (row) => row.fecha },
       { id: "periodo", label: "Periodo", width: 70, align: "right", type: "number", filter: "number", sticky: true, visibility: "basic", value: (row) => row.periodo, render: (row) => row.periodo },
       { id: "programaMd", label: "Programa MD", width: 96, align: "right", type: "number", filter: "number", heatmap: false, numericTone: "zero-danger", visibility: "basic", value: (row) => row.programaMd, render: (row) => formatOmieEnergy(row.programaMd), exportValue: (row) => formatOmieEnergy(row.programaMd) },
+      { id: "programaVentaMd", label: "Venta STRRE01 MD", width: 120, align: "right", type: "number", filter: "number", visibility: "basic", value: (row) => row.programaVentaMd, render: (row) => formatOmieEnergy(row.programaVentaMd), exportValue: (row) => formatOmieEnergy(row.programaVentaMd) },
+      { id: "volVentaIda1", label: "Venta STRRE01 IDA1", width: 132, align: "right", type: "number", filter: "number", visibility: "advanced", value: (row) => row.volVentaIda1, render: (row) => formatOmieEnergy(row.volVentaIda1), exportValue: (row) => formatOmieEnergy(row.volVentaIda1) },
+      { id: "volVentaIda2", label: "Venta STRRE01 IDA2", width: 132, align: "right", type: "number", filter: "number", visibility: "advanced", value: (row) => row.volVentaIda2, render: (row) => formatOmieEnergy(row.volVentaIda2), exportValue: (row) => formatOmieEnergy(row.volVentaIda2) },
+      { id: "volVentaIda3", label: "Venta STRRE01 IDA3", width: 132, align: "right", type: "number", filter: "number", visibility: "advanced", value: (row) => row.volVentaIda3, render: (row) => formatOmieEnergy(row.volVentaIda3), exportValue: (row) => formatOmieEnergy(row.volVentaIda3) },
       { id: "volIda1", label: "Vol. IDA1", width: 82, align: "right", type: "number", filter: "number", visibility: "basic", value: (row) => row.volIda1, render: (row) => formatOmieEnergy(row.volIda1), exportValue: (row) => formatOmieEnergy(row.volIda1) },
       { id: "volIda2", label: "Vol. IDA2", width: 82, align: "right", type: "number", filter: "number", visibility: "basic", value: (row) => row.volIda2, render: (row) => formatOmieEnergy(row.volIda2), exportValue: (row) => formatOmieEnergy(row.volIda2) },
       { id: "volIda3", label: "Vol. IDA3", width: 82, align: "right", type: "number", filter: "number", visibility: "basic", value: (row) => row.volIda3, render: (row) => formatOmieEnergy(row.volIda3), exportValue: (row) => formatOmieEnergy(row.volIda3) },
+      { id: "volVentaXbid", label: "Venta STRRE01 XBID", width: 135, align: "right", type: "number", filter: "number", visibility: "advanced", value: (row) => row.volVentaXbid, render: (row) => formatOmieEnergy(row.volVentaXbid), exportValue: (row) => formatOmieEnergy(row.volVentaXbid) },
       { id: "volXbid", label: "Vol. XBID", width: 86, align: "right", type: "number", filter: "number", visibility: "basic", value: (row) => row.volXbid, render: (row) => formatOmieEnergy(row.volXbid), exportValue: (row) => formatOmieEnergy(row.volXbid) },
       { id: "clave", label: "Clave", width: 118, filter: "text", visibility: "advanced", value: (row) => row.clave },
       { id: "precioMd", label: "Precio MD", width: 112, align: "right", type: "number", filter: "number", visibility: "advanced", value: (row) => row.precioMd, render: (row) => formatOmiePrice(row.precioMd), exportValue: (row) => formatOmiePrice(row.precioMd) },
       { id: "precioIda1", label: "Precio IDA1", width: 120, align: "right", type: "number", filter: "number", visibility: "advanced", value: (row) => row.precioIda1, render: (row) => formatOmiePrice(row.precioIda1), exportValue: (row) => formatOmiePrice(row.precioIda1) },
       { id: "precioIda2", label: "Precio IDA2", width: 120, align: "right", type: "number", filter: "number", visibility: "advanced", value: (row) => row.precioIda2, render: (row) => formatOmiePrice(row.precioIda2), exportValue: (row) => formatOmiePrice(row.precioIda2) },
       { id: "precioIda3", label: "Precio IDA3", width: 120, align: "right", type: "number", filter: "number", visibility: "advanced", value: (row) => row.precioIda3, render: (row) => formatOmiePrice(row.precioIda3), exportValue: (row) => formatOmiePrice(row.precioIda3) },
+      { id: "precioVentaXbid", label: "Precio STRRE01 XBID", width: 140, align: "right", type: "number", filter: "number", visibility: "advanced", value: (row) => row.precioVentaXbid, render: (row) => formatOmiePrice(row.precioVentaXbid), exportValue: (row) => formatOmiePrice(row.precioVentaXbid) },
       { id: "precioXbid", label: "Precio XBID", width: 124, align: "right", type: "number", filter: "number", visibility: "advanced", value: (row) => row.precioXbid, render: (row) => formatOmiePrice(row.precioXbid), exportValue: (row) => formatOmiePrice(row.precioXbid) },
       { id: "programaIda1", label: "Programa IDA1", width: 136, align: "right", type: "number", filter: "number", heatmap: false, numericTone: "zero-danger", visibility: "advanced", value: (row) => row.programaIda1, render: (row) => formatOmieEnergy(row.programaIda1), exportValue: (row) => formatOmieEnergy(row.programaIda1) },
       { id: "programaIda2", label: "Programa IDA2", width: 136, align: "right", type: "number", filter: "number", heatmap: false, numericTone: "zero-danger", visibility: "advanced", value: (row) => row.programaIda2, render: (row) => formatOmieEnergy(row.programaIda2), exportValue: (row) => formatOmieEnergy(row.programaIda2) },
@@ -734,7 +740,7 @@ function omieMonthlyPeriodOmieCost(row: OmieAnalisisMensualPeriodo) {
     multiplyOrNull(row.volIda1, row.precioIda1),
     multiplyOrNull(row.volIda2, row.precioIda2),
     multiplyOrNull(row.volIda3, row.precioIda3),
-    multiplyOrNull(row.volXbid, row.precioXbid)
+    row.xbidDetalle?.importeEur ?? null
   ]);
 }
 

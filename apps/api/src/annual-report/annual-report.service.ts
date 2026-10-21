@@ -634,7 +634,7 @@ function loadOmiePriceMap(rows: OmiePriceAnnualRow[]) {
   return map;
 }
 
-function aggregateOmie(programs: Map<string, number>, prices: Map<string, number>, xbid: Map<string, { volXbid: number | null; precioXbid: number | null }>) {
+function aggregateOmie(programs: Map<string, number>, prices: Map<string, number>, xbid: Map<string, { volXbid: number | null; importeEur: number | null }>) {
   const map = new Map<number, { programaMwh: number | null; importeOmieEur: number | null }>();
   for (const [key, programaMd] of programs) {
     if (!key.endsWith("|MD")) {
@@ -656,7 +656,7 @@ function aggregateOmie(programs: Map<string, number>, prices: Map<string, number
       multiply(volIda1, prices.get(buildOmieKey(fecha, periodo, "IDA1")) ?? null),
       multiply(volIda2, prices.get(buildOmieKey(fecha, periodo, "IDA2")) ?? null),
       multiply(volIda3, prices.get(buildOmieKey(fecha, periodo, "IDA3")) ?? null),
-      multiply(xbidValue?.volXbid ?? null, xbidValue?.precioXbid ?? null)
+      xbidValue?.importeEur ?? null
     ]);
     const bucket = map.get(month) ?? { programaMwh: null, importeOmieEur: null };
     bucket.programaMwh = addNullable(bucket.programaMwh, energiaTotal);
@@ -666,8 +666,8 @@ function aggregateOmie(programs: Map<string, number>, prices: Map<string, number
   return map;
 }
 
-function buildXbidTransactionMap(rows: OmieTransactionAnnualRow[]) {
-  const aggregation = new Map<string, { netEnergyMWh: number; priceNumerator: number; totalEnergyMWh: number }>();
+export function buildXbidTransactionMap(rows: OmieTransactionAnnualRow[]) {
+  const aggregation = new Map<string, { netEnergyMWh: number; totalEnergyMWh: number; importeEur: number }>();
   const seenTransactions = new Set<string>();
   for (const row of rows) {
     const payload = asJsonRecord(row.rawPayloadJson);
@@ -687,15 +687,15 @@ function buildXbidTransactionMap(rows: OmieTransactionAnnualRow[]) {
     seenTransactions.add(transactionKey);
     const absoluteEnergyMWh = Math.abs(qty) * QUARTER_HOUR_MWH_FACTOR;
     const key = buildOmieKey(fechaEntrega, periodo, "XBID");
-    const current = aggregation.get(key) ?? { netEnergyMWh: 0, priceNumerator: 0, totalEnergyMWh: 0 };
+    const current = aggregation.get(key) ?? { netEnergyMWh: 0, totalEnergyMWh: 0, importeEur: 0 };
     current.netEnergyMWh += sign * absoluteEnergyMWh;
-    current.priceNumerator += price * absoluteEnergyMWh;
     current.totalEnergyMWh += absoluteEnergyMWh;
+    current.importeEur += sign * absoluteEnergyMWh * price;
     aggregation.set(key, current);
   }
   return new Map([...aggregation.entries()].map(([key, value]) => [key, {
     volXbid: value.totalEnergyMWh > 0 ? value.netEnergyMWh : null,
-    precioXbid: value.totalEnergyMWh > 0 ? value.priceNumerator / value.totalEnergyMWh : null
+    importeEur: value.totalEnergyMWh > 0 ? value.importeEur : null
   }]));
 }
 
@@ -982,7 +982,7 @@ function asJsonRecord(value: Prisma.JsonValue): Record<string, unknown> | null {
 function isStromTransaction(payload: Record<string, unknown>) {
   const unit = readPayloadText(payload, ["unit", "unidad", "uofertante", "uOfertante"]);
   const agent = readPayloadText(payload, ["agent", "agente"]);
-  return normalizeText(unit) === normalizeText(STROM_UOFERTANTE) || normalizeText(agent) === normalizeText(STROM_AGENT);
+  return unit ? normalizeText(unit) === normalizeText(STROM_UOFERTANTE) : normalizeText(agent) === normalizeText(STROM_AGENT);
 }
 
 function transactionSign(value: string | null) {

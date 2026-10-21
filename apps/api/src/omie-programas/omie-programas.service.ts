@@ -7,6 +7,7 @@ import {
   OMIE_ENERGIA_PVD_CODIGO,
   OMIE_ENERGIA_RESOLUCION,
   OMIE_ENERGIA_STROM_UOFERTANTE,
+  type OmieEnergiaUnidad,
   OMIE_ENERGIA_UMEDIDA,
   normalizeOmieEnergiaSesion
 } from "../omie-siom2/omie-energia";
@@ -84,60 +85,64 @@ export class OmieProgramasService {
     private readonly omieSiom2ClientService: OmieSiom2ClientService
   ) {}
 
-  async sincronizarPvd(fecha: string, options: SyncOptions = {}): Promise<OmieProgramaSyncResponse> {
+  async sincronizarPvd(fecha: string, options: SyncOptions = {}, uOfertante: OmieEnergiaUnidad = OMIE_ENERGIA_STROM_UOFERTANTE): Promise<OmieProgramaSyncResponse> {
     return this.sincronizar({
       tipoDocumento: OmieTipoDocumento.PVD,
       fecha,
       sesion: null,
+      uOfertante,
       options
     });
   }
 
-  async sincronizarPhf(fecha: string, sesion: string, options: SyncOptions = {}): Promise<OmieProgramaSyncResponse> {
+  async sincronizarPhf(fecha: string, sesion: string, options: SyncOptions = {}, uOfertante: OmieEnergiaUnidad = OMIE_ENERGIA_STROM_UOFERTANTE): Promise<OmieProgramaSyncResponse> {
     return this.sincronizar({
       tipoDocumento: OmieTipoDocumento.PHF,
       fecha,
       sesion: normalizeOmieEnergiaSesion(sesion),
+      uOfertante,
       options
     });
   }
 
-  async obtenerProgramaMercadoDiario(fecha: string): Promise<OmieProgramaResponse> {
+  async obtenerProgramaMercadoDiario(fecha: string, uOfertante: OmieEnergiaUnidad = OMIE_ENERGIA_STROM_UOFERTANTE): Promise<OmieProgramaResponse> {
     return this.obtenerPrograma({
       tipoDocumento: OmieTipoDocumento.PVD,
       fecha,
-      sesion: null
+      sesion: null,
+      uOfertante
     });
   }
 
-  async obtenerProgramaIntradiario(fecha: string, sesion: string): Promise<OmieProgramaResponse> {
+  async obtenerProgramaIntradiario(fecha: string, sesion: string, uOfertante: OmieEnergiaUnidad = OMIE_ENERGIA_STROM_UOFERTANTE): Promise<OmieProgramaResponse> {
     return this.obtenerPrograma({
       tipoDocumento: OmieTipoDocumento.PHF,
       fecha,
-      sesion: normalizeOmieEnergiaSesion(sesion)
+      sesion: normalizeOmieEnergiaSesion(sesion),
+      uOfertante
     });
   }
 
-  async obtenerProgramaEvolucion(fecha: string) {
+  async obtenerProgramaEvolucion(fecha: string, uOfertante: OmieEnergiaUnidad = OMIE_ENERGIA_STROM_UOFERTANTE) {
     const fechaPrograma = parseDateOnly(fecha);
-    const pvd = await this.obtenerProgramaMercadoDiario(fecha);
+    const pvd = await this.obtenerProgramaMercadoDiario(fecha, uOfertante);
     const sesiones = await this.prisma.omiePrograma.findMany({
       where: {
         tipoPrograma: OmieTipoDocumento.PHF,
         fechaPrograma,
         version: DEFAULT_VERSION,
-        uOfertante: OMIE_ENERGIA_STROM_UOFERTANTE
+        uOfertante
       },
       orderBy: [{ sesion: "asc" }, { periodo: "asc" }]
     });
     const sesionesDisponibles = [...new Set(sesiones.map((row) => row.sesion).filter((sesion): sesion is string => Boolean(sesion)))];
-    const programas = await Promise.all(sesionesDisponibles.map((sesion) => this.obtenerProgramaIntradiario(fecha, sesion)));
+    const programas = await Promise.all(sesionesDisponibles.map((sesion) => this.obtenerProgramaIntradiario(fecha, sesion, uOfertante)));
     const diferencias = buildDiferencias([pvd, ...programas]);
 
     return {
       fecha,
       resolucion: OMIE_ENERGIA_RESOLUCION,
-      uOfertante: OMIE_ENERGIA_STROM_UOFERTANTE,
+      uOfertante,
       pvd,
       phf: programas,
       sesiones: programas,
@@ -202,6 +207,7 @@ export class OmieProgramasService {
     tipoDocumento: OmieTipoDocumento;
     fecha: string;
     sesion: string | null;
+    uOfertante: OmieEnergiaUnidad;
     options: SyncOptions;
   }): Promise<OmieProgramaSyncResponse> {
     const fechaPrograma = parseDateOnly(params.fecha);
@@ -210,7 +216,7 @@ export class OmieProgramasService {
       fechaPrograma,
       sesion: params.sesion,
       version: DEFAULT_VERSION,
-      uOfertante: OMIE_ENERGIA_STROM_UOFERTANTE
+      uOfertante: params.uOfertante
     };
 
     const existingProcessed = await this.findLatestDownload(key, OmieDownloadEstado.PROCESADO);
@@ -299,13 +305,13 @@ export class OmieProgramasService {
     });
   }
 
-  private async obtenerPrograma(params: { tipoDocumento: OmieTipoDocumento; fecha: string; sesion: string | null }) {
+  private async obtenerPrograma(params: { tipoDocumento: OmieTipoDocumento; fecha: string; sesion: string | null; uOfertante: OmieEnergiaUnidad }) {
     return this.obtenerProgramaByKey({
       tipoDocumento: params.tipoDocumento,
       fechaPrograma: parseDateOnly(params.fecha),
       sesion: params.sesion,
       version: DEFAULT_VERSION,
-      uOfertante: OMIE_ENERGIA_STROM_UOFERTANTE
+      uOfertante: params.uOfertante
     });
   }
 

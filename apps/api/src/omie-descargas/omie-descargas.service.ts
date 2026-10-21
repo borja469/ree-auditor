@@ -8,7 +8,7 @@ import {
   OMIE_REER_OFFICIAL_DEFAULT_VERSION,
   OmieReerService
 } from "../omie-reer/omie-reer.service";
-import { OMIE_ENERGIA_UMEDIDA, normalizeOmieEnergiaSesion } from "../omie-siom2/omie-energia";
+import { OMIE_ENERGIA_UMEDIDA, OMIE_ENERGIA_UNIDADES, normalizeOmieEnergiaSesion, normalizeOmieEnergiaUnidad, type OmieEnergiaUnidad } from "../omie-siom2/omie-energia";
 import { OmieTransaccionesService } from "../omie-transacciones/omie-transacciones.service";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -71,6 +71,7 @@ export type OmieDownloadExecuteRequest = {
   sesion?: string;
   version?: number;
   agente?: string;
+  uOfertante?: OmieEnergiaUnidad;
 };
 
 export type OmieDownloadDailyBulkRequest = {
@@ -82,6 +83,7 @@ export type OmieDownloadDailyBulkItem = {
   modulo: OmieControlModulo;
   consulta: string;
   sesion: string | null;
+  uOfertante: OmieEnergiaUnidad | null;
   estado: "PROCESADO" | "SIN_DATOS" | "ERROR" | "OMITIDO";
   registros: number;
   mensaje: string;
@@ -257,11 +259,11 @@ export class OmieDescargasService {
     const fecha = request.fecha ?? request.fechaDesde;
 
     if (codigo === "5302") {
-      const response = await this.omieProgramasService.sincronizarPvd(requireFecha(fecha), options);
+      const response = await this.omieProgramasService.sincronizarPvd(requireFecha(fecha), options, normalizeOmieEnergiaUnidad(request.uOfertante));
       return this.buildExecutionResponse(response.message, response.download.id, response);
     }
     if (codigo === "5608") {
-      const response = await this.omieProgramasService.sincronizarPhf(requireFecha(fecha), requireSesion(request.sesion), options);
+      const response = await this.omieProgramasService.sincronizarPhf(requireFecha(fecha), requireSesion(request.sesion), options, normalizeOmieEnergiaUnidad(request.uOfertante));
       return this.buildExecutionResponse(response.message, response.download.id, response);
     }
     if (codigo === "5202") {
@@ -306,6 +308,7 @@ export class OmieDescargasService {
           modulo: task.modulo,
           consulta: task.consulta,
           sesion: task.sesion,
+          uOfertante: task.uOfertante,
           estado: skipped ? "OMITIDO" : response.download.estado === OmieDownloadEstado.ERROR ? "ERROR" : response.download.registros === 0 ? "SIN_DATOS" : "PROCESADO",
           registros: response.download.registros,
           mensaje: skipped ? "Ya existe descarga procesada" : response.message,
@@ -317,6 +320,7 @@ export class OmieDescargasService {
           modulo: task.modulo,
           consulta: task.consulta,
           sesion: task.sesion,
+          uOfertante: task.uOfertante,
           estado: "ERROR",
           registros: 0,
           mensaje: error instanceof Error ? error.message : String(error),
@@ -575,34 +579,40 @@ function formatMadridDateTime(date: Date) {
   return `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}:${value("second")}`;
 }
 
-function buildDailyBulkTasks(fecha: string): Array<{
+export function buildDailyBulkTasks(fecha: string): Array<{
   codigoOmie: OmieControlCodigo;
   modulo: OmieControlModulo;
   consulta: string;
   sesion: string | null;
+  uOfertante: OmieEnergiaUnidad | null;
   request: OmieDownloadExecuteRequest;
 }> {
   const sessions = ["01", "02", "03", "04", "05", "06", "07"];
   return [
-    {
-      codigoOmie: "5302" as const,
-      modulo: "Programas" as const,
-      consulta: "PVD",
-      sesion: null,
-      request: { codigoOmie: "5302" as const, fecha }
-    },
-    ...sessions.map((sesion) => ({
-      codigoOmie: "5608" as const,
-      modulo: "Programas" as const,
-      consulta: "PHF",
-      sesion,
-      request: { codigoOmie: "5608" as const, fecha, sesion }
-    })),
+    ...OMIE_ENERGIA_UNIDADES.flatMap((uOfertante) => [
+      {
+        codigoOmie: "5302" as const,
+        modulo: "Programas" as const,
+        consulta: "PVD",
+        sesion: null,
+        uOfertante,
+        request: { codigoOmie: "5302" as const, fecha, uOfertante }
+      },
+      ...sessions.map((sesion) => ({
+        codigoOmie: "5608" as const,
+        modulo: "Programas" as const,
+        consulta: "PHF",
+        sesion,
+        uOfertante,
+        request: { codigoOmie: "5608" as const, fecha, sesion, uOfertante }
+      }))
+    ]),
     {
       codigoOmie: "5202" as const,
       modulo: "Precios" as const,
       consulta: "Mercado Diario",
       sesion: null,
+      uOfertante: null,
       request: { codigoOmie: "5202" as const, fecha }
     },
     ...sessions.map((sesion) => ({
@@ -610,6 +620,7 @@ function buildDailyBulkTasks(fecha: string): Array<{
       modulo: "Precios" as const,
       consulta: "Intradiario",
       sesion,
+      uOfertante: null,
       request: { codigoOmie: "5603" as const, fecha, sesion }
     })),
     {
@@ -617,6 +628,7 @@ function buildDailyBulkTasks(fecha: string): Array<{
       modulo: "Precios" as const,
       consulta: "XBID",
       sesion: null,
+      uOfertante: null,
       request: { codigoOmie: "4125" as const, fecha }
     },
     {
@@ -624,6 +636,7 @@ function buildDailyBulkTasks(fecha: string): Array<{
       modulo: "Transacciones" as const,
       consulta: "Historico",
       sesion: null,
+      uOfertante: null,
       request: { codigoOmie: "4121" as const, fechaDesde: fecha, fechaHasta: fecha }
     },
     {
@@ -631,6 +644,7 @@ function buildDailyBulkTasks(fecha: string): Array<{
       modulo: "REER Oficial" as const,
       consulta: "REER oficial 9230",
       sesion: null,
+      uOfertante: null,
       request: {
         codigoOmie: OMIE_REER_OFFICIAL_CODIGO as OmieControlCodigo,
         fecha,
@@ -1005,6 +1019,7 @@ function buildRequestFromRow(row: OmieDownloadControlRow): OmieDownloadExecuteRe
     fechaDesde: row.fechaPrograma,
     fechaHasta: row.fechaHasta ?? row.fechaPrograma,
     sesion: row.sesion ?? undefined,
+    uOfertante: row.modulo === "Programas" ? normalizeOmieEnergiaUnidad(row.uOfertante ?? undefined) : undefined,
     version: row.version ?? undefined,
     agente: row.codigoOmie === OMIE_REER_OFFICIAL_CODIGO ? row.uOfertante ?? undefined : undefined
   };

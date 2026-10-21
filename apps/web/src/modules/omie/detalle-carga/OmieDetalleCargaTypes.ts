@@ -27,10 +27,15 @@ export type OmieAnalisisDailyRow = {
   diaSemana: string;
   periodos: number;
   programaMd: number | null;
+  programaVentaMd: number | null;
+  volVentaIda1: number | null;
+  volVentaIda2: number | null;
+  volVentaIda3: number | null;
   volIda1: number | null;
   volIda2: number | null;
   volIda3: number | null;
   volXbid: number | null;
+  volVentaXbid: number | null;
   energiaTotal: number | null;
   profitIda1: number | null;
   profitIda2: number | null;
